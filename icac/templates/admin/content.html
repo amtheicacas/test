@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Portal content</h1>
+<div class="two"><form method="post" class="panel"><h2>Post announcement</h2>{{ csrf_field() }}<input type="hidden" name="kind" value="announcement"><label>Title<input name="title" required></label><label>Body<textarea name="body" rows="4" required></textarea></label><button class="btn">Publish</button></form>
+<form method="post" class="panel"><h2>Add resource link</h2>{{ csrf_field() }}<input type="hidden" name="kind" value="resource"><label>Title<input name="title" required></label><label>URL<input name="url" type="url" required></label><label>Category<input name="category" placeholder="General"></label><label>Description<input name="description"></label><button class="btn">Add</button></form></div>
+<h2>Announcements</h2><table>{% for a in announcements %}<tr><td class="muted">{{ a.created_at }}</td><td>{{ a.title }}</td></tr>{% endfor %}</table>
+<h2>Resources</h2><table>{% for r in resources %}<tr><td>{{ r.category }}</td><td>{{ r.title }}</td></tr>{% endfor %}</table>{% endblock %}

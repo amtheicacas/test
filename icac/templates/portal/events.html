@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Events</h1>
+{% for e in events %}<section class="panel"><h3>{{ e.title }}</h3><p class="muted">{{ e.starts_at }} · {{ e.location }}</p><p>{{ e.description }}</p>
+<form method="post">{{ csrf_field() }}<input type="hidden" name="event_id" value="{{ e.id }}">{% if e.going %}<input type="hidden" name="action" value="cancel"><button class="btn ghost">Cancel RSVP</button>{% else %}<button class="btn">RSVP</button>{% endif %}</form></section>{% else %}<p class="muted">No events.</p>{% endfor %}{% endblock %}

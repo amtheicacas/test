@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block body %}<h1>Payments</h1><table><tr><th>Date</th><th>Member</th><th>Amount</th><th>Method</th><th>Period</th></tr>
+{% for p in payments %}<tr><td>{{ p.paid_on }}</td><td><a href="{{ url_for('member_detail', mid=p.member_id) }}">{{ p.member }}</a></td><td>${{ '%.2f'|format(p.amount) }}</td><td>{{ p.method }}</td><td>{{ p.period }}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No payments</td></tr>{% endfor %}</table>{% endblock %}

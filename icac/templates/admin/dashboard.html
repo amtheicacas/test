@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block body %}<h1>Dashboard</h1>
+<div class="stats">
+<a class="stat" href="{{ url_for('members', status='active') }}"><b>{{ stats.active }}</b>Active members</a>
+<a class="stat" href="{{ url_for('members', status='lapsed') }}"><b>{{ stats.lapsed }}</b>Lapsed</a>
+<a class="stat" href="{{ url_for('applications') }}"><b>{{ stats.pending }}</b>Pending applications</a>
+<a class="stat" href="{{ url_for('leads') }}"><b>{{ stats.open_leads }}</b>Open leads</a>
+<a class="stat" href="{{ url_for('payments') }}"><b>${{ '{:,.0f}'.format(stats.revenue_ytd) }}</b>Dues received YTD</a></div>
+<div class="two"><section class="panel"><h2>Lead pipeline</h2><table>{% for s, n in pipeline.items() %}
+<tr><td><a href="{{ url_for('leads', stage=s) }}">{{ s|capitalize }}</a></td><td>{{ n }}</td></tr>{% endfor %}</table></section>
+<section class="panel"><h2>Renewals due (60 days)</h2><table>{% for m in renewals %}
+<tr><td><a href="{{ url_for('member_detail', mid=m.id) }}">{{ m.first_name }} {{ m.last_name }}</a></td><td>{{ m.renews_on }}</td></tr>
+{% else %}<tr><td class="muted">None</td></tr>{% endfor %}</table></section></div>
+<section class="panel"><h2>Recent activity</h2><table>{% for a in recent %}
+<tr><td class="muted">{{ a.created_at }}</td><td><span class="tag">{{ a.kind }}</span></td><td>{{ a.summary }}</td>
+<td>{% if a.member_id %}<a href="{{ url_for('member_detail', mid=a.member_id) }}">{{ a.member_name }}</a>{% elif a.lead_id %}<a href="{{ url_for('lead_detail', lid=a.lead_id) }}">lead</a>{% endif %}</td><td class="muted">{{ a.actor }}</td></tr>
+{% else %}<tr><td class="muted">No activity yet</td></tr>{% endfor %}</table></section>{% endblock %}

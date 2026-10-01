@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Events</h1>
+<table><tr><th>When</th><th>Event</th><th>Location</th><th>RSVPs</th><th>Attended</th></tr>{% for e in events %}<tr><td>{{ e.starts_at }}</td><td><a href="{{ url_for('event_detail', eid=e.id) }}">{{ e.title }}</a></td><td>{{ e.location }}</td><td>{{ e.rsvps }}</td><td>{{ e.attended }}</td></tr>{% endfor %}</table>
+<form method="post" class="panel"><h2>New event</h2>{{ csrf_field() }}<div class="grid"><label>Title<input name="title" required></label><label>Starts<input type="datetime-local" name="starts_at" required></label><label>Location<input name="location"></label></div>
+<label>Description<textarea name="description" rows="2"></textarea></label><button class="btn">Create</button></form>{% endblock %}

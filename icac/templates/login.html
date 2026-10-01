@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}
+<form method="post" class="panel narrow"><h1>Log in</h1>{{ csrf_field() }}
+<label>Email<input type="email" name="email" required autofocus></label>
+<label>Password<input type="password" name="password" required></label>
+<button class="btn">Log in</button><p class="muted">Not a member yet? <a href="{{ url_for('apply') }}">Apply</a></p></form>
+{% endblock %}

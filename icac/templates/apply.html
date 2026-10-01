@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field, person_fields  with context %}{% block body %}
+<form method="post" class="panel"><h1>Membership application</h1>{{ csrf_field() }}
+{{ person_fields(f, tiers) }}
+<label>Why would you like to join?<textarea name="statement" rows="4">{{ f.statement or '' }}</textarea></label>
+<button class="btn">Submit application</button></form>{% endblock %}

@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Welcome, {{ m.first_name }}</h1>
+<div class="stats"><div class="stat"><b>{{ m.tier }}</b>Membership</div><div class="stat"><b>{{ m.status|capitalize }}</b>Status</div><div class="stat"><b>{{ m.renews_on }}</b>Renews</div></div>
+<div class="two"><section class="panel"><h2>Announcements</h2>{% for a in announcements %}<h3>{{ a.title }}</h3><p class="muted">{{ a.created_at }}</p><p>{{ a.body }}</p>{% else %}<p class="muted">Nothing new.</p>{% endfor %}</section>
+<section class="panel"><h2>Upcoming events</h2>{% for e in events %}<p><b>{{ e.title }}</b><br><span class="muted">{{ e.starts_at }} · {{ e.location }}</span> {{ '✓ going' if e.going }}</p>{% else %}<p class="muted">No upcoming events.</p>{% endfor %}<a href="{{ url_for('portal_events') }}">All events</a></section></div>{% endblock %}

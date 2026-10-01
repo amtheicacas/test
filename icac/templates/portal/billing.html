@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block body %}<h1>Billing</h1><p>Status: <span class="tag {{ m.status }}">{{ m.status }}</span> · Renews {{ m.renews_on }}. To renew or pay dues, contact the membership office.</p>
+<table><tr><th>Date</th><th>Amount</th><th>Method</th><th>Period</th></tr>{% for p in payments %}<tr><td>{{ p.paid_on }}</td><td>${{ '%.2f'|format(p.amount) }}</td><td>{{ p.method }}</td><td>{{ p.period }}</td></tr>{% else %}<tr><td colspan="4" class="muted">No payments yet</td></tr>{% endfor %}</table>{% endblock %}

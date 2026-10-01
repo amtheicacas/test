@@ -1,0 +1,8 @@
+{% extends 'base.html' %}{% block body %}<h1>Members</h1>
+<form class="filters" method="get"><input name="q" placeholder="Search name, email, org, tag" value="{{ qs }}">
+<select name="status"><option value="">Any status</option>{% for s in MEMBER_STATUSES %}<option {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}</select>
+<select name="tier"><option value="">Any tier</option>{% for t in tiers %}<option value="{{ t.id }}" {{ 'selected' if t.id == tier }}>{{ t.name }}</option>{% endfor %}</select>
+<button class="btn">Filter</button> <a class="btn ghost" href="{{ url_for('member_new') }}">Add member</a> <a class="btn ghost" href="{{ url_for('members_export') }}">Export CSV</a></form>
+<table><tr><th>Name</th><th>Organization</th><th>Email</th><th>Tier</th><th>Status</th><th>Renews</th></tr>
+{% for m in members %}<tr><td><a href="{{ url_for('member_detail', mid=m.id) }}">{{ m.last_name }}, {{ m.first_name }}</a></td><td>{{ m.organization }}</td><td>{{ m.email }}</td><td>{{ m.tier }}</td><td><span class="tag {{ m.status }}">{{ m.status }}</span></td><td>{{ m.renews_on }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No members found</td></tr>{% endfor %}</table>{% endblock %}

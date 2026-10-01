@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>{{ lead.name }}</h1>
+<p class="muted">{{ lead.organization }} · {{ lead.email }} · {{ lead.phone }} · source: {{ lead.source }}</p>
+{% for a in apps %}<p>Application <a href="{{ url_for('application_detail', aid=a.id) }}">#{{ a.id }}</a> — {{ a.status }}</p>{% endfor %}
+<form method="post" class="panel">{{ csrf_field() }}<div class="grid">
+<label>Stage<select name="stage">{% for s in LEAD_STAGES %}<option {{ 'selected' if s == lead.stage }}>{{ s }}</option>{% endfor %}</select></label>
+<label>Owner<select name="assigned_to"><option value="">—</option>{% for u in staff_users %}<option value="{{ u.id }}" {{ 'selected' if u.id == lead.assigned_to }}>{{ u.name }}</option>{% endfor %}</select></label></div>
+<label>Notes<textarea name="notes" rows="3">{{ lead.notes }}</textarea></label>
+<label>Log a touchpoint<input name="note" placeholder="Called, emailed, met at event..."></label><button class="btn">Save</button></form>
+<h2>Timeline</h2><table>{% for a in timeline %}<tr><td class="muted">{{ a.created_at }}</td><td><span class="tag">{{ a.kind }}</span></td><td>{{ a.summary }}</td><td class="muted">{{ a.actor }}</td></tr>{% endfor %}</table>{% endblock %}

@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}
+<h1>{{ m.first_name }} {{ m.last_name }} <span class="tag {{ m.status }}">{{ m.status }}</span></h1>
+<p><a class="btn ghost" href="{{ url_for('member_edit', mid=m.id) }}">Edit</a>
+{% if account %}<form method="post" action="{{ url_for('member_reset', mid=m.id) }}" class="inline">{{ csrf_field() }}<button class="btn ghost">Reset portal password</button></form>{% endif %}</p>
+<div class="two"><section class="panel"><h2>Contact</h2><p>{{ m.email }}<br>{{ m.phone }}</p><p>{{ m.job_title }}{% if m.organization %}, {{ m.organization }}{% endif %}</p>
+<p>{{ m.address }}<br>{{ m.city }} {{ m.state }} {{ m.zip }}</p></section>
+<section class="panel"><h2>Membership</h2><p>Tier: <b>{{ m.tier }}</b> (${{ '%.0f'|format(m.annual_dues or 0) }}/yr)<br>Joined: {{ m.joined_on }}<br>Renews: {{ m.renews_on }}<br>
+Directory: {{ 'listed' if m.directory_opt_in else 'hidden' }}<br>Tags: {{ m.tags }}</p><p class="muted">{{ m.notes }}</p></section></div>
+<div class="two"><section class="panel"><h2>Payments</h2><table>{% for p in payments %}<tr><td>{{ p.paid_on }}</td><td>${{ '%.2f'|format(p.amount) }}</td><td>{{ p.method }}</td><td>{{ p.period }}</td></tr>{% else %}<tr><td class="muted">None</td></tr>{% endfor %}</table>
+<form method="post" action="{{ url_for('member_payment', mid=m.id) }}">{{ csrf_field() }}<div class="grid">
+<label>Amount<input name="amount" type="number" step="0.01" min="0.01" value="{{ m.annual_dues or '' }}" required></label><label>Date<input type="date" name="paid_on" value="{{ today }}" required></label>
+<label>Method<select name="method"><option>check</option><option>card</option><option>cash</option><option>transfer</option></select></label><label>Period<input name="period" placeholder="2026"></label></div>
+<label class="check"><input type="checkbox" name="renew" value="1" checked> Extend membership 1 year &amp; mark active</label><button class="btn">Record payment</button></form></section>
+<section class="panel"><h2>Events</h2><table>{% for e in events %}<tr><td>{{ e.starts_at }}</td><td>{{ e.title }}</td><td>{{ 'attended' if e.attended else 'registered' }}</td></tr>{% else %}<tr><td class="muted">None</td></tr>{% endfor %}</table></section></div>
+<section class="panel"><h2>Activity</h2><form method="post" action="{{ url_for('member_note', mid=m.id) }}" class="row">{{ csrf_field() }}<input name="note" placeholder="Add a note..." required><button class="btn">Add</button></form>
+<table>{% for a in timeline %}<tr><td class="muted">{{ a.created_at }}</td><td><span class="tag">{{ a.kind }}</span></td><td>{{ a.summary }}</td><td class="muted">{{ a.actor }}</td></tr>{% endfor %}</table></section>{% endblock %}

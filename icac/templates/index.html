@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block body %}
+<section class="hero"><h1>Welcome to ICAC</h1><p>Join our community, access members-only resources, events and the member directory.</p>
+<p><a class="btn" href="{{ url_for('apply') }}">Apply for membership</a> <a class="btn ghost" href="{{ url_for('login') }}">Member login</a></p></section>
+<div class="cards">{% for t in tiers %}<div class="card"><h3>{{ t.name }}</h3><p class="big">${{ '%.0f'|format(t.annual_dues) }}<small>/yr</small></p><p>{{ t.description }}</p></div>{% endfor %}</div>
+{% endblock %}

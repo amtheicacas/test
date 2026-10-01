@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>My profile</h1>
+<form method="post" class="panel">{{ csrf_field() }}<p class="muted">{{ m.first_name }} {{ m.last_name }} · {{ m.email }} (contact staff to change name or email)</p><div class="grid">
+<label>Phone<input name="phone" value="{{ m.phone }}"></label><label>Organization<input name="organization" value="{{ m.organization }}"></label><label>Job title<input name="job_title" value="{{ m.job_title }}"></label>
+<label class="wide">Address<input name="address" value="{{ m.address }}"></label><label>City<input name="city" value="{{ m.city }}"></label><label>State<input name="state" value="{{ m.state }}"></label><label>ZIP<input name="zip" value="{{ m.zip }}"></label></div>
+<label class="check"><input type="checkbox" name="directory_opt_in" value="1" {{ 'checked' if m.directory_opt_in }}> List me in the member directory (name, organization, title, email, city)</label>
+<button class="btn">Save</button> <a href="{{ url_for('change_password') }}">Change password</a></form>{% endblock %}

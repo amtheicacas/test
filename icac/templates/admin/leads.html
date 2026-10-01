@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Leads</h1>
+<p class="filters"><a href="{{ url_for('leads') }}">All</a>{% for s in LEAD_STAGES %} <a href="{{ url_for('leads', stage=s) }}">{{ s|capitalize }}</a>{% endfor %}</p>
+<table><tr><th>Name</th><th>Organization</th><th>Contact</th><th>Source</th><th>Stage</th><th>Owner</th></tr>
+{% for l in leads %}<tr><td><a href="{{ url_for('lead_detail', lid=l.id) }}">{{ l.name }}</a></td><td>{{ l.organization }}</td><td>{{ l.email }} {{ l.phone }}</td><td>{{ l.source }}</td><td><span class="tag {{ l.stage }}">{{ l.stage }}</span></td><td>{{ l.owner or '' }}</td></tr>
+{% else %}<tr><td colspan="6" class="muted">No leads</td></tr>{% endfor %}</table>
+<form method="post" action="{{ url_for('lead_new') }}" class="panel"><h2>Add lead</h2>{{ csrf_field() }}<div class="grid">
+<label>Name<input name="name" required></label><label>Email<input type="email" name="email"></label><label>Phone<input name="phone"></label>
+<label>Organization<input name="organization"></label><label>Source<input name="source" placeholder="Referral, event, web..."></label></div>
+<label>Notes<textarea name="notes" rows="2"></textarea></label><button class="btn">Add lead</button></form>{% endblock %}

@@ -1,0 +1,18 @@
+{% macro csrf_field() %}<input type="hidden" name="csrf" value="{{ csrf }}">{% endmacro %}
+{% macro person_fields(v, tiers=None) %}
+<div class="grid">
+  <label>First name<input name="first_name" required value="{{ v.first_name or '' }}"></label>
+  <label>Last name<input name="last_name" required value="{{ v.last_name or '' }}"></label>
+  <label>Email<input type="email" name="email" required value="{{ v.email or '' }}"></label>
+  <label>Phone<input name="phone" value="{{ v.phone or '' }}"></label>
+  <label>Organization<input name="organization" value="{{ v.organization or '' }}"></label>
+  <label>Job title<input name="job_title" value="{{ v.job_title or '' }}"></label>
+  <label class="wide">Address<input name="address" value="{{ v.address or '' }}"></label>
+  <label>City<input name="city" value="{{ v.city or '' }}"></label>
+  <label>State<input name="state" value="{{ v.state or '' }}"></label>
+  <label>ZIP<input name="zip" value="{{ v.zip or '' }}"></label>
+  {% if tiers %}<label>Membership tier<select name="tier_id" required>
+    {% for t in tiers %}<option value="{{ t.id }}" {{ 'selected' if v.tier_id|string == t.id|string }}>{{ t.name }} — ${{ '%.0f'|format(t.annual_dues) }}/yr</option>{% endfor %}
+  </select></label>{% endif %}
+</div>
+{% endmacro %}

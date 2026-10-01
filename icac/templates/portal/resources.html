@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block body %}<h1>Member resources</h1>{% for r in resources %}<p><span class="tag">{{ r.category }}</span> <a href="{{ r.url }}" rel="noopener noreferrer" target="_blank">{{ r.title }}</a> <span class="muted">{{ r.description }}</span></p>{% else %}<p class="muted">No resources yet.</p>{% endfor %}{% endblock %}

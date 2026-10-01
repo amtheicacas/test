@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block body %}<h1>Applications</h1>
+<p class="filters">{% for s in ['pending','approved','rejected','all'] %}<a href="{{ url_for('applications', status=s) }}">{{ s|capitalize }}</a> {% endfor %}</p>
+<table><tr><th>#</th><th>Applicant</th><th>Organization</th><th>Tier</th><th>Submitted</th><th>Status</th></tr>
+{% for a in apps %}<tr><td>{{ a.id }}</td><td><a href="{{ url_for('application_detail', aid=a.id) }}">{{ a.first_name }} {{ a.last_name }}</a></td><td>{{ a.organization }}</td><td>{{ a.tier }}</td><td>{{ a.submitted_at }}</td><td><span class="tag {{ a.status }}">{{ a.status }}</span></td></tr>
+{% else %}<tr><td colspan="6" class="muted">Nothing here</td></tr>{% endfor %}</table>{% endblock %}

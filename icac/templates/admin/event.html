@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>{{ e.title }}</h1><p class="muted">{{ e.starts_at }} · {{ e.location }}</p><p>{{ e.description }}</p>
+<form method="post" class="panel">{{ csrf_field() }}<h2>Attendance</h2><table>{% for r in rsvps %}<tr><td><input type="checkbox" name="attended" value="{{ r.member_id }}" {{ 'checked' if r.attended }}></td><td><a href="{{ url_for('member_detail', mid=r.member_id) }}">{{ r.name }}</a></td><td>{{ r.email }}</td></tr>
+{% else %}<tr><td class="muted">No RSVPs yet</td></tr>{% endfor %}</table><button class="btn">Save attendance</button></form>{% endblock %}

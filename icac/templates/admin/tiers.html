@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Admin</h1>
+<div class="two"><section class="panel"><h2>Membership tiers</h2><table>{% for t in tiers %}<tr><td>{{ t.name }}</td><td>${{ '%.2f'|format(t.annual_dues) }}</td><td>{{ t.description }}</td></tr>{% endfor %}</table>
+<form method="post">{{ csrf_field() }}<div class="grid"><label>Name<input name="name" required></label><label>Annual dues<input name="annual_dues" type="number" step="0.01" min="0" required></label></div><label>Description<input name="description"></label><button class="btn">Add tier</button></form></section>
+<section class="panel"><h2>Staff accounts</h2><table>{% for u in staff_users %}<tr><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ u.role }}</td></tr>{% endfor %}</table>
+<form method="post" action="{{ url_for('staff_add') }}">{{ csrf_field() }}<div class="grid"><label>Name<input name="name"></label><label>Email<input type="email" name="email" required></label><label>Role<select name="role"><option>staff</option><option>admin</option></select></label></div><button class="btn">Add staff</button></form></section></div>{% endblock %}

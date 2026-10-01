@@ -1,0 +1,8 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field  with context %}{% block body %}<h1>Application #{{ a.id }} <span class="tag {{ a.status }}">{{ a.status }}</span></h1>
+<div class="panel"><p><b>{{ a.first_name }} {{ a.last_name }}</b> — {{ a.job_title }} at {{ a.organization }}</p>
+<p>{{ a.email }} · {{ a.phone }}<br>{{ a.address }}, {{ a.city }} {{ a.state }} {{ a.zip }}</p>
+<p>Tier: <b>{{ a.tier }}</b> (${{ '%.0f'|format(a.annual_dues or 0) }}/yr)</p><p class="quote">{{ a.statement }}</p>
+{% if a.member_id %}<p><a href="{{ url_for('member_detail', mid=a.member_id) }}">View member record</a></p>{% endif %}
+{% if a.decision_note %}<p class="muted">Decision note: {{ a.decision_note }}</p>{% endif %}</div>
+{% if a.status == 'pending' %}<form method="post" class="panel">{{ csrf_field() }}<label>Decision note<textarea name="note" rows="2"></textarea></label>
+<button class="btn" name="decision" value="approve">Approve &amp; create member</button> <button class="btn danger" name="decision" value="reject">Reject</button></form>{% endif %}{% endblock %}

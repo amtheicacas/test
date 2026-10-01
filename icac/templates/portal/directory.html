@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block body %}<h1>Member directory</h1><table><tr><th>Name</th><th>Organization</th><th>Title</th><th>Location</th><th>Email</th></tr>
+{% for m in members %}<tr><td>{{ m.first_name }} {{ m.last_name }}</td><td>{{ m.organization }}</td><td>{{ m.job_title }}</td><td>{{ m.city }} {{ m.state }}</td><td>{{ m.email }}</td></tr>{% else %}<tr><td colspan="5" class="muted">No members have opted in yet</td></tr>{% endfor %}</table>{% endblock %}

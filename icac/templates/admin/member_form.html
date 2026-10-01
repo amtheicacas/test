@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% from 'macros.html' import csrf_field, person_fields  with context %}{% block body %}<h1>{{ 'Add member' if new else 'Edit member' }}</h1>
+<form method="post" class="panel">{{ csrf_field() }}{{ person_fields(m, tiers) }}
+{% if not new %}<div class="grid"><label>Status<select name="status">{% for s in MEMBER_STATUSES %}<option {{ 'selected' if s == m.status }}>{{ s }}</option>{% endfor %}</select></label>
+<label>Renews on<input type="date" name="renews_on" value="{{ m.renews_on or '' }}"></label><label>Tags (comma separated)<input name="tags" value="{{ m.tags or '' }}"></label></div>
+<label>Internal notes<textarea name="notes" rows="3">{{ m.notes or '' }}</textarea></label>{% endif %}
+<button class="btn">Save</button></form>{% endblock %}
