@@ -412,3 +412,13 @@ def test_excel_and_mac_csv_go_through_the_new_flow(client):
     wb.save(buf)
     walk(client, buf.getvalue())
     assert Owner.objects.get(name="Lee").zip_code == "34241"
+
+
+def test_map_tiles_are_configurable_send_a_referer_and_have_a_backup(client, settings):
+    manager(client)
+    r = client.get("/map/")
+    body = r.content.decode()
+    assert r["Referrer-Policy"] == "strict-origin-when-cross-origin"  # OpenStreetMap blocks tile requests without one
+    assert "tile.openstreetmap.org" in body and "basemaps.cartocdn.com" in body and "referrerPolicy" in body and "tileerror" in body
+    settings.MAP_TILE_URL = "https://tiles.example/{z}/{x}/{y}.png?key=K"
+    assert "tiles.example" in client.get("/map/").content.decode()

@@ -567,7 +567,10 @@ def _spread(homes):
 
 @staff_only
 def map_page(request):
-    return render(request, "violations/map.html", {"missing": Owner.objects.filter(lat__isnull=True, active=True).count()})
+    return render(request, "violations/map.html", {
+        "missing": Owner.objects.filter(lat__isnull=True, active=True).count(),
+        "tiles": {"url": settings.MAP_TILE_URL, "attr": settings.MAP_TILE_ATTRIBUTION,
+                  "fallback_url": settings.MAP_TILE_FALLBACK_URL, "fallback_attr": settings.MAP_TILE_FALLBACK_ATTRIBUTION}})
 
 
 @staff_only

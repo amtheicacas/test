@@ -167,3 +167,13 @@ VANTACA_LEDGER_BODY = env("VANTACA_LEDGER_BODY", '{"accountId": "$account_id", "
                           '"date": "$date", "description": "$description", "reference": "$reference"}')
 VANTACA_LEDGER_REF_KEY = env("VANTACA_LEDGER_REF_KEY", "id")     # key in Vantaca's reply holding the transaction id
 VANTACA_LEDGER_ACCOUNT_FIELD = env("VANTACA_LEDGER_ACCOUNT_FIELD", "account_number")  # or "external_id" (Homeowner ID)
+
+# ---- Map background tiles --------------------------------------------------
+# OpenStreetMap's tile servers require the browser to say which site is asking (a Referer), and Django hides it by default.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
+MAP_TILE_URL = env("MAP_TILE_URL", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", "© OpenStreetMap contributors")
+# Used automatically if the main tiles keep failing to load. For production use a provider with a key
+# (MapTiler, Stadia Maps, Mapbox...) rather than OpenStreetMap's free servers, whose policy is for light use.
+MAP_TILE_FALLBACK_URL = env("MAP_TILE_FALLBACK_URL", "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png")
+MAP_TILE_FALLBACK_ATTRIBUTION = env("MAP_TILE_FALLBACK_ATTRIBUTION", "© OpenStreetMap contributors © CARTO")

@@ -4,6 +4,7 @@
 {% if missing %} {{ missing }} home(s) are not on the map yet.{% endif %}</p>
 <div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address or owner…" style="max-width:340px">
 {% if ROLE == "manager" and missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
+{{ tiles|json_script:"tile-config" }}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <div id="map" style="height:70vh;border-radius:10px;border:1px solid var(--line)"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -12,7 +13,12 @@ if(typeof L==="undefined"){document.getElementById("map").innerHTML="<p style='p
  fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){document.getElementById("map").insertAdjacentHTML("beforeend","<ul style='padding:0 16px 16px'>"+d.homes.map(function(h){return "<li>"+h.address+" — "+h.color+" ("+h.open+" open, "+h.resolved+" resolved)</li>"}).join("")+"</ul>");});}
 else{
 var COLORS={red:"#d92d20",orange:"#f79009",green:"#12b76a",gray:"#98a2b3"};
-var map=L.map("map");L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+var map=L.map("map");
+var TILES=JSON.parse(document.getElementById("tile-config").textContent);
+var base=L.tileLayer(TILES.url,{maxZoom:19,attribution:TILES.attr,referrerPolicy:"origin"}).addTo(map);
+var tileErrors=0,switched=false;  // if the main tiles keep failing (blocked, offline provider), switch to the backup provider
+base.on("tileerror",function(){tileErrors++;if(tileErrors>=4&&!switched&&TILES.fallback_url){switched=true;map.removeLayer(base);
+ L.tileLayer(TILES.fallback_url,{maxZoom:19,subdomains:"abcd",attribution:TILES.fallback_attr,referrerPolicy:"origin"}).addTo(map);}});
 var HOMES=[];function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
 fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){var pts=[];
  d.homes.forEach(function(h){pts.push([h.lat,h.lng]);
