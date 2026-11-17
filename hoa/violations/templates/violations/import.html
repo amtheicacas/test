@@ -1,6 +1,6 @@
 {% extends "violations/base.html" %}{% block title %}Import owners{% endblock %}{% block content %}
 <h1>Import owners</h1>
-<p class="mut">Upload a CSV of homes and owners, from a Vantaca export or typed up by hand. Existing owners are matched by Vantaca account ID, then property address, and updated; nothing is deleted. You'll see a preview first. <a href="{% url 'import_template' %}">Download a template</a>.</p>
+<p class="mut">Upload an Excel (.xlsx) or CSV file of homes and owners, from a Vantaca export or typed up by hand. Existing owners are matched by Vantaca account ID, then property address, and updated; nothing is deleted. You'll see a preview first. <a href="{% url 'import_template' %}">Download a template</a>.</p>
 <form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button>Preview</button></form>
 {% if preview %}<div class="card"><h2>Preview of {{ n }} row{{ n|pluralize }}</h2>
 <p><b>{{ preview.created }}</b> new owner{{ preview.created|pluralize }}, <b>{{ preview.updated }}</b> to update, <b>{{ preview.skipped }}</b> skipped. Nothing has been saved yet.</p>

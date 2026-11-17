@@ -263,3 +263,61 @@ def test_locate_button_reports_a_failed_lookup_instead_of_crashing(client, monke
     manager(client)
     r = client.post("/map/locate/", follow=True)
     assert r.status_code == 200 and "Couldn&#x27;t reach the address lookup service" in r.content.decode()
+
+
+# ---------- upload formats ----------
+BASE = "Owner Name,Property Address,ZIP\nPat,12 Palm Way #3,34241\nSam,14 Palm Way,34241\n"
+
+
+@pytest.mark.parametrize("name,data", [
+    ("unix", BASE.encode()),
+    ("windows", BASE.replace("\n", "\r\n").encode()),
+    ("old-mac (CR only)", BASE.replace("\n", "\r").encode()),
+    ("mixed", "Owner Name,Property Address,ZIP\r\nPat,12 Palm Way #3,34241\rSam,14 Palm Way,34241\n".encode()),
+    ("bom", b"\xef\xbb\xbf" + BASE.encode()),
+    ("semicolons", BASE.replace(",", ";").encode()),
+    ("tabs", BASE.replace(",", "\t").encode()),
+    ("windows-1252", BASE.replace("Pat", "José").encode("cp1252")),
+    ("blank lines", ("\n" + BASE.replace("\n", "\n\n")).encode()),
+])
+def test_any_common_csv_layout_reads(name, data):
+    rows = vantaca.rows_from_upload(data)
+    assert len(rows) == 2 and rows[0]["Property Address"] == "12 Palm Way #3" and rows[1]["ZIP"] == "34241", name
+
+
+def test_excel_workbooks_read_including_numeric_zip_codes():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Owner Name", "Property Address", "ZIP", "Email"])
+    ws.append(["Pat", "12 Palm Way #3", 34241, "pat@example.com"])
+    ws.append([None, None, None, None])
+    ws.append(["Sam", "14 Palm Way", 34241.0, None])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rows = vantaca.rows_from_upload(buf.getvalue(), "owners.xlsx")
+    assert rows == [{"Owner Name": "Pat", "Property Address": "12 Palm Way #3", "ZIP": "34241", "Email": "pat@example.com"},
+                    {"Owner Name": "Sam", "Property Address": "14 Palm Way", "ZIP": "34241", "Email": ""}]
+
+
+@pytest.mark.parametrize("data,msg", [
+    (b"", "empty"), (b"Owner Name,Property Address\n", "header row"), (b"\xd0\xcf\x11\xe0" + b"x" * 50, "old-style Excel"),
+    (b"PK\x03\x04 not really a workbook", "Excel file couldn't be read"), (b"a\x00b\x00c", "doesn't look like"),
+])
+def test_bad_files_get_a_clear_message(data, msg):
+    with pytest.raises(vantaca.UploadError, match=msg):
+        vantaca.rows_from_upload(data)
+
+
+def test_import_page_shows_a_friendly_error_not_a_crash(client):
+    manager(client)
+    r = client.post("/import/", {"file": SimpleUploadedFile("x.xls", b"\xd0\xcf\x11\xe0" + b"x" * 50)})
+    assert r.status_code == 200 and "old-style Excel" in r.content.decode() and Owner.objects.count() == 0
+
+
+def test_import_page_accepts_a_mac_csv_and_an_xlsx(client):
+    manager(client)
+    mac = BASE.replace("\n", "\r").encode()
+    assert "Preview of 2 rows" in client.post("/import/", {"file": SimpleUploadedFile("o.csv", mac)}).content.decode()
+    assert client.post("/import/", {"file": SimpleUploadedFile("o.csv", mac), "apply": "1"}).status_code == 302
+    assert Owner.objects.count() == 2

@@ -597,14 +597,18 @@ def import_owners(request):
     form = forms.ImportForm(request.POST or None, request.FILES or None)
     ctx = {"form": form}
     if request.method == "POST" and form.is_valid():
-        text = request.FILES["file"].read().decode("utf-8-sig", errors="replace")
+        f = request.FILES["file"]
+        try:
+            rows = vantaca.rows_from_upload(f.read(), f.name)
+        except vantaca.UploadError as e:
+            form.add_error("file", str(e))
+            return render(request, "violations/import.html", ctx)
         if request.POST.get("apply"):
-            result = vantaca.sync_csv(text, invite=form.cleaned_data["invite"])
+            result = vantaca.sync_rows(rows, invite=form.cleaned_data["invite"])
             messages.success(request, ", ".join(f"{v} {k}" for k, v in result.items() if v))
             return redirect("import_owners")
-        rows, result, problems = vantaca.preview_csv(text)
-        ctx.update(preview=result, problems=problems, n=len(rows), text=text,
-                   columns=sorted({k for r in rows[:1] for k in r}))
+        rows, result, problems = vantaca.preview_rows(rows)
+        ctx.update(preview=result, problems=problems, n=len(rows), columns=sorted({k for r in rows[:1] for k in r}))
     return render(request, "violations/import.html", ctx)
 
 

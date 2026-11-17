@@ -159,5 +159,5 @@ class HouseholdForm(forms.Form):
 
 
 class ImportForm(forms.Form):
-    file = forms.FileField(label="Owner list (CSV)")
+    file = forms.FileField(label="Owner list (Excel .xlsx or CSV)")
     invite = forms.BooleanField(required=False, label="Also email new owners an invitation to create their login")

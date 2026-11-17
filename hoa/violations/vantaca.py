@@ -201,6 +201,57 @@ def check_rows(rows):
     return problems
 
 
+class UploadError(ValueError):
+    """A problem with the uploaded file, worded for the person who uploaded it."""
+
+
+def rows_from_upload(data: bytes, filename: str = ""):
+    """Read an uploaded owner list into a list of {column: value} rows. Accepts Excel (.xlsx) and CSV in any common layout:
+    Windows, Mac or Unix line endings, a BOM, comma / semicolon / tab / pipe separators, UTF-8 or Windows-1252 text."""
+    if not data.strip():
+        raise UploadError("That file is empty.")
+    if data[:2] == b"PK":  # a zip container: an .xlsx workbook
+        try:
+            from openpyxl import load_workbook
+            ws = load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
+        except Exception:
+            raise UploadError("That Excel file couldn't be read. Try saving it as CSV and uploading that.")
+        grid = [[("" if c is None else (str(int(c)) if isinstance(c, float) and c == int(c) else str(c).strip())) for c in row]
+                for row in ws.iter_rows(values_only=True)]
+    elif data[:4] == b"\xd0\xcf\x11\xe0":
+        raise UploadError("That is an old-style Excel (.xls) file. Open it in Excel and use Save As -> CSV or .xlsx, then upload that.")
+    else:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode("cp1252", errors="replace")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")  # Windows, old-Mac and Unix line endings
+        if "\x00" in text:
+            raise UploadError("That doesn't look like a CSV or Excel file.")
+        first = text.split("\n", 1)[0]
+        delim = max([",", ";", "\t", "|"], key=first.count)
+        try:
+            grid = list(csv.reader(io.StringIO(text, newline=""), delimiter=delim))
+        except csv.Error as e:
+            raise UploadError(f"That file couldn't be read as a table ({e}).")
+    grid = [r for r in grid if any(str(c).strip() for c in r)]
+    if len(grid) < 2:
+        raise UploadError("The file needs a header row (column names) and at least one owner row.")
+    header = [str(h).strip() for h in grid[0]]
+    if not any(_norm(h) for h in header):
+        raise UploadError("The first row should be the column names, for example Owner Name, Property Address, ZIP.")
+    return [{h: (str(c).strip() if c is not None else "") for h, c in zip(header, row) if h} for row in grid[1:]]
+
+
+def preview_rows(rows):
+    """What importing would do, without changing anything."""
+    from django.db import transaction
+    with transaction.atomic():
+        result = sync_rows(rows)
+        transaction.set_rollback(True)
+    return rows, result, check_rows(rows)
+
+
 def preview_csv(text):
     """What importing would do, without changing anything."""
     from django.db import transaction

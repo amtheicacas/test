@@ -5,3 +5,4 @@ django-otp
 django-axes
 qrcode
 anthropic
+openpyxl
