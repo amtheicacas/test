@@ -168,19 +168,20 @@ def manager(client):
     client.force_login(u)
 
 
-def upload(client, text, **extra):
-    return client.post("/import/", {"file": SimpleUploadedFile("o.csv", text.encode(), content_type="text/csv"), **extra})
+def upload(client, data, name="o.csv"):
+    data = data.encode() if isinstance(data, str) else data
+    return client.post("/import/", {"action": "upload", "file": SimpleUploadedFile(name, data)})
 
 
-def test_import_preview_changes_nothing_then_import_applies(client):
-    manager(client)
-    text = CSV + "A2,,5 Oak Ln,,bad-email,,,\nA3,Lee,7 Bay St,,lee@x,,,\n"
-    r = upload(client, text)
-    body = r.content.decode()
-    assert "Preview of 3 rows" in body and Owner.objects.count() == 0
-    assert "needs an owner name" in body and "doesn&#x27;t look like a valid email" in body and "No ZIP code" in body
-    assert upload(client, text, apply="1").status_code == 302
-    assert Owner.objects.count() == 2  # the row with no name is skipped
+def walk(client, data, overrides=None, apply=True, invite=False):
+    """Upload -> match columns (start from the guess, apply overrides {header: field}) -> preview -> import."""
+    r = upload(client, data)
+    cols = r.context["columns"]
+    post = {f"map_{i}": (overrides or {}).get(h, cur) for i, h, _ex, cur in cols}
+    pre = client.post("/import/", {"action": "map", **post})
+    if not apply:
+        return pre
+    return client.post("/import/", {"action": "apply", **post, **({"invite": "on"} if invite else {})})
 
 
 def test_import_is_manager_only_and_template_downloads(client):
@@ -315,9 +316,89 @@ def test_import_page_shows_a_friendly_error_not_a_crash(client):
     assert r.status_code == 200 and "old-style Excel" in r.content.decode() and Owner.objects.count() == 0
 
 
-def test_import_page_accepts_a_mac_csv_and_an_xlsx(client):
+
+
+# ---------- column matching ----------
+ODD = "Person,Where,Zone,Reach,Unit Notes\nPat Owner,12 Palm Way #3,34241,pat@example.com,gate code 1\n"
+
+
+def test_upload_shows_the_matching_step_with_samples_and_saves_nothing(client):
     manager(client)
-    mac = BASE.replace("\n", "\r").encode()
-    assert "Preview of 2 rows" in client.post("/import/", {"file": SimpleUploadedFile("o.csv", mac)}).content.decode()
-    assert client.post("/import/", {"file": SimpleUploadedFile("o.csv", mac), "apply": "1"}).status_code == 302
+    r = upload(client, CSV)
+    page = r.content.decode()
+    assert "Step 2 of 3" in page and "Owner Name" in page and "pat@example.com" in page and Owner.objects.count() == 0
+    guess = {h: cur for _i, h, _ex, cur in r.context["columns"]}
+    assert guess["Owner Name"] == "name" and guess["Property Address"] == "property_address" and guess["Email"] == "email"
+    assert guess["Co-owner Email"] == "co_owner_email" and guess["Tenant Name"] == "tenant_name"
+
+
+def test_you_can_match_oddly_named_columns_and_unmatched_ones_are_ignored(client):
+    manager(client)
+    guess = {h: cur for _i, h, _ex, cur in upload(client, ODD).context["columns"]}
+    assert set(guess.values()) == {""}  # nothing here looks like a known column name
+    m = {"Person": "name", "Where": "property_address", "Zone": "zip_code", "Reach": "email"}
+    pre = walk(client, ODD, m, apply=False)
+    assert "Step 3 of 3" in pre.content.decode() and pre.context["preview"]["created"] == 1 and Owner.objects.count() == 0
+    walk(client, ODD, m)
+    o = Owner.objects.get()
+    assert (o.name, o.property_address, o.zip_code, o.email) == ("Pat Owner", "12 Palm Way #3", "34241", "pat@example.com")
+    assert o.notes == ""  # "Unit Notes" was set to Don't import
+
+
+def test_first_and_last_name_columns_combine(client):
+    manager(client)
+    walk(client, "First,Last,Address,ZIP\nPat,Owner,1 A St,34241\n", {"First": "first", "Last": "last", "Address": "property_address", "ZIP": "zip_code"})
+    assert Owner.objects.get().name == "Pat Owner"
+
+
+def test_missing_required_matches_and_duplicates_are_explained(client):
+    manager(client)
+    r = client.post("/import/", {"action": "upload", "file": SimpleUploadedFile("o.csv", ODD.encode())})
+    cols = r.context["columns"]
+    post = {f"map_{i}": cur for i, h, _e, cur in cols}  # no address matched
+    page = client.post("/import/", {"action": "map", **post}).content.decode()
+    assert "Step 2 of 3" in page and "Match a column to Property address" in page
+    post2 = {f"map_{i}": "property_address" if h in ("Where", "Unit Notes") else cur for i, h, _e, cur in cols}
+    assert "More than one column is matched to: Property address" in client.post("/import/", {"action": "map", **post2}).content.decode()
+    assert Owner.objects.count() == 0
+
+
+def test_the_matching_is_remembered_for_the_next_file_with_the_same_headers(client):
+    manager(client)
+    walk(client, ODD, {"Person": "name", "Where": "property_address", "Zone": "zip_code", "Reach": "email"})
+    r = upload(client, ODD.replace("Pat Owner", "Sam Owner").replace("12 Palm", "14 Palm"))
+    assert "I remembered your choices" in r.content.decode()
+    assert {h: cur for _i, h, _e, cur in r.context["columns"]}["Where"] == "property_address"
+
+
+def test_apply_with_invitations_and_cancel(client):
+    manager(client)
+    mail.outbox.clear()
+    walk(client, CSV, invite=True)
+    assert Owner.objects.count() == 1 and len(mail.outbox) == 1 and Profile.objects.filter(role="homeowner").count() == 1
+    upload(client, CSV)
+    client.post("/import/", {"action": "cancel"})
+    assert "Step 2" not in client.get("/import/").content.decode()
+    assert client.post("/import/", {"action": "apply"}).status_code == 302  # nothing waiting: sent back to upload
+
+
+def test_matching_steps_are_manager_only(client):
+    u = U.objects.create_user("board", password=PW)
+    Profile.objects.create(user=u, role="board")
+    client.force_login(u)
+    assert upload(client, CSV).status_code == 403
+    assert client.post("/import/", {"action": "apply"}).status_code == 403
+
+
+def test_excel_and_mac_csv_go_through_the_new_flow(client):
+    manager(client)
+    walk(client, BASE.replace("\n", "\r").encode())
     assert Owner.objects.count() == 2
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.active.append(["Owner Name", "Property Address", "ZIP"])
+    wb.active.append(["Lee", "9 Bay St", 34241])
+    buf = io.BytesIO()
+    wb.save(buf)
+    walk(client, buf.getvalue())
+    assert Owner.objects.get(name="Lee").zip_code == "34241"

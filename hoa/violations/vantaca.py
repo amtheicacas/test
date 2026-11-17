@@ -23,18 +23,18 @@ from .models import Owner
 # our field -> possible column / JSON keys (case-insensitive, spaces/underscores ignored)
 FIELD_ALIASES = {
     "external_id": ["accountid", "accountnumber", "homeownerid", "ownerid", "id"],
-    "name": ["name", "ownername", "homeownername", "fullname", "homeowner"],
+    "name": ["name", "ownername", "ownernames", "ownersname", "homeownername", "homeowners", "homeowner", "owners", "owner", "fullname", "accountname", "residentname", "resident"],
     "first": ["firstname"], "last": ["lastname"],
-    "property_address": ["propertyaddress", "address", "unitaddress", "streetaddress", "property"],
-    "email": ["email", "emailaddress", "primaryemail"],
-    "phone": ["phone", "phonenumber", "primaryphone", "homephone", "cellphone"],
+    "property_address": ["propertyaddress", "address", "unitaddress", "streetaddress", "street", "propertystreet", "siteaddress", "situsaddress", "lotaddress", "homeaddress", "property"],
+    "email": ["email", "emailaddress", "primaryemail", "owneremail", "contactemail"],
+    "phone": ["phone", "phonenumber", "primaryphone", "homephone", "cellphone", "mobile", "telephone"],
     "mailing_address": ["mailingaddress", "mailaddress", "billingaddress"],
-    "city": ["city", "propertycity"], "state": ["state", "propertystate"], "zip_code": ["zip", "zipcode", "postalcode", "propertyzip"],
+    "city": ["city", "propertycity"], "state": ["state", "propertystate"], "zip_code": ["zip", "zipcode", "postal", "postalcode", "propertyzip"],
     "mail_line1": ["mailingstreet", "mailingaddress1", "mailaddress1"], "mail_city": ["mailingcity"],
     "mail_state": ["mailingstate"], "mail_zip": ["mailingzip", "mailingzipcode"],
     "lat": ["latitude", "lat"], "lng": ["longitude", "lng", "lon"],
     "co_owner_email": ["coowneremail", "coowneremailaddress", "secondaryemail", "email2", "secondownersemail"],
-    "tenant_name": ["tenantname", "renter", "renterName", "tenant", "occupantname"],
+    "tenant_name": ["tenantname", "renter", "rentername", "rentedto", "leasedto", "tenant", "occupantname"],
     "tenant_email": ["tenantemail", "renteremail", "occupantemail"],
     "tenant_phone": ["tenantphone", "renterphone"],
 }
@@ -260,3 +260,46 @@ def preview_csv(text):
         result = sync_rows(rows)
         transaction.set_rollback(True)
     return rows, result, check_rows(rows)
+
+
+# ---- column matching for the import page ----
+MAPPABLE = [("external_id", "Account ID (Vantaca)"), ("name", "Owner name(s)"), ("first", "First name"), ("last", "Last name"),
+            ("property_address", "Property address"), ("city", "City"), ("state", "State"), ("zip_code", "ZIP"),
+            ("email", "Email"), ("co_owner_email", "Co-owner email"), ("phone", "Phone"),
+            ("mail_line1", "Mailing street (if different)"), ("mail_city", "Mailing city"), ("mail_state", "Mailing state"),
+            ("mail_zip", "Mailing ZIP"), ("tenant_name", "Tenant name"), ("tenant_email", "Tenant email"),
+            ("tenant_phone", "Tenant phone"), ("lat", "Latitude"), ("lng", "Longitude")]
+
+
+def header_signature(headers):
+    return "|".join(_norm(h) for h in headers)[:500]
+
+
+def auto_mapping(headers):
+    """Best guess for each column from its name: {header: field or ''}. Each field is claimed by the first column that fits."""
+    out, taken = {}, set()
+    for h in headers:
+        field = next((f for f, _ in MAPPABLE if f not in taken and _norm(h) in {_norm(a) for a in FIELD_ALIASES[f]}), "")
+        out[h] = field
+        if field:
+            taken.add(field)
+    return out
+
+
+def apply_mapping(rows, mapping):
+    """Rename each row's columns to the names the importer understands; unmatched columns are dropped."""
+    canon = {f: FIELD_ALIASES[f][0] for f, _ in MAPPABLE}
+    return [{canon[mapping[h]]: v for h, v in row.items() if mapping.get(h)} for row in rows]
+
+
+def mapping_problems(mapping):
+    fields = [f for f in mapping.values() if f]
+    probs = []
+    if not ("name" in fields or "first" in fields or "last" in fields):
+        probs.append("Match a column to Owner name (or First name and Last name).")
+    if "property_address" not in fields:
+        probs.append("Match a column to Property address.")
+    dup = sorted({dict(MAPPABLE)[f] for f in fields if fields.count(f) > 1})
+    if dup:
+        probs.append("More than one column is matched to: " + ", ".join(dup) + ". Only one column can be used for each.")
+    return probs

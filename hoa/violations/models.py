@@ -338,3 +338,10 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user} ({self.role})"
+
+
+class ImportMapping(models.Model):
+    """Remembers how a file's columns were matched, so the next export with the same headers needs no re-matching."""
+    signature = models.CharField(max_length=500, unique=True)
+    mapping = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)

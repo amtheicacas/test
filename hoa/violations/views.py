@@ -593,22 +593,58 @@ manager_only = role_required("manager")
 
 @manager_only
 def import_owners(request):
-    """Upload a CSV of owners (from Vantaca or by hand): preview, then apply."""
-    form = forms.ImportForm(request.POST or None, request.FILES or None)
-    ctx = {"form": form}
-    if request.method == "POST" and form.is_valid():
-        f = request.FILES["file"]
-        try:
-            rows = vantaca.rows_from_upload(f.read(), f.name)
-        except vantaca.UploadError as e:
-            form.add_error("file", str(e))
-            return render(request, "violations/import.html", ctx)
-        if request.POST.get("apply"):
-            result = vantaca.sync_rows(rows, invite=form.cleaned_data["invite"])
-            messages.success(request, ", ".join(f"{v} {k}" for k, v in result.items() if v))
+    """Import owners: 1) upload, 2) match columns, 3) preview, 4) import. The uploaded rows wait in the session between steps."""
+    from .models import ImportMapping
+    sess = request.session
+    ctx = {"form": forms.ImportForm(), "fields": vantaca.MAPPABLE}
+    if request.method == "POST":
+        action = request.POST.get("action", "upload")
+        if action == "cancel":
+            sess.pop("import", None)
             return redirect("import_owners")
-        rows, result, problems = vantaca.preview_rows(rows)
-        ctx.update(preview=result, problems=problems, n=len(rows), columns=sorted({k for r in rows[:1] for k in r}))
+        if action == "upload":
+            form = forms.ImportForm(request.POST, request.FILES)
+            ctx["form"] = form
+            if not form.is_valid():
+                return render(request, "violations/import.html", ctx)
+            f = request.FILES["file"]
+            try:
+                rows = vantaca.rows_from_upload(f.read(), f.name)
+            except vantaca.UploadError as e:
+                form.add_error("file", str(e))
+                return render(request, "violations/import.html", ctx)
+            headers = list(rows[0].keys())
+            for r in rows:  # keep any column that appears later than the first row
+                headers += [k for k in r if k not in headers]
+            sess["import"] = {"rows": rows, "headers": headers, "name": f.name}
+        imp = sess.get("import")
+        if not imp:
+            messages.error(request, "Your upload expired. Please upload the file again.")
+            return redirect("import_owners")
+        headers, rows = imp["headers"], imp["rows"]
+        if action == "upload":  # first time: use the saved matching for these headers, else guess from the names
+            saved = ImportMapping.objects.filter(signature=vantaca.header_signature(headers)).first()
+            mapping = saved.mapping if saved else vantaca.auto_mapping(headers)
+            ctx.update(step="map", mapping=mapping, remembered=bool(saved))
+        else:
+            mapping = {h: request.POST.get(f"map_{i}", "") for i, h in enumerate(headers)}
+            probs = vantaca.mapping_problems(mapping)
+            if action == "map" and probs:
+                ctx.update(step="map", mapping=mapping, map_problems=probs)
+            else:
+                ImportMapping.objects.update_or_create(signature=vantaca.header_signature(headers), defaults={"mapping": mapping})
+                mapped = vantaca.apply_mapping(rows, mapping)
+                if action == "apply":
+                    result = vantaca.sync_rows(mapped, invite=bool(request.POST.get("invite")))
+                    sess.pop("import", None)
+                    messages.success(request, "Imported: " + ", ".join(f"{v} {k}" for k, v in result.items() if v))
+                    return redirect("import_owners")
+                _, result, problems = vantaca.preview_rows(mapped)
+                ctx.update(step="preview", mapping=mapping, preview=result, problems=problems, n=len(rows))
+        if ctx.get("step") == "map":
+            samples = {h: [r[h] for r in rows if r.get(h)][:3] for h in headers}
+            ctx.update(columns=[(i, h, samples[h], ctx["mapping"].get(h, "")) for i, h in enumerate(headers)], n=len(rows),
+                       filename=imp["name"])
     return render(request, "violations/import.html", ctx)
 
 

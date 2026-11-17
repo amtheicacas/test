@@ -1,11 +1,28 @@
 {% extends "violations/base.html" %}{% block title %}Import owners{% endblock %}{% block content %}
 <h1>Import owners</h1>
-<p class="mut">Upload an Excel (.xlsx) or CSV file of homes and owners, from a Vantaca export or typed up by hand. Existing owners are matched by Vantaca account ID, then property address, and updated; nothing is deleted. You'll see a preview first. <a href="{% url 'import_template' %}">Download a template</a>.</p>
-<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button>Preview</button></form>
-{% if preview %}<div class="card"><h2>Preview of {{ n }} row{{ n|pluralize }}</h2>
-<p><b>{{ preview.created }}</b> new owner{{ preview.created|pluralize }}, <b>{{ preview.updated }}</b> to update, <b>{{ preview.skipped }}</b> skipped. Nothing has been saved yet.</p>
+
+{% if step == "map" %}
+<p class="mut"><b>Step 2 of 3: match your columns.</b> {{ filename }} has {{ n }} row{{ n|pluralize }}. For each of your columns, choose what it is. {% if remembered %}<b>I remembered your choices from last time.</b>{% else %}I've guessed from the column names: please check.{% endif %} Columns set to "Don't import" are ignored.</p>
+{% if map_problems %}<div class="msg error"><ul style="margin:0;padding-left:18px">{% for m in map_problems %}<li>{{ m }}</li>{% endfor %}</ul></div>{% endif %}
+<form class="card" method="post">{% csrf_token %}<input type="hidden" name="action" value="map">
+<table><tr><th>Your column<th>Examples from your file<th>Use it as</tr>
+{% for i,h,ex,cur in columns %}<tr><td><b>{{ h }}</b><td class="mut">{{ ex|join:" · "|default:"(empty)" }}
+<td><select name="map_{{ i }}"><option value="">Don't import</option>{% for f,label in fields %}<option value="{{ f }}" {% if f == cur %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></tr>{% endfor %}</table>
+<p class="mut">Needed: owner name (or first and last name) and property address. A ZIP code is strongly recommended, since mailing and the map use it.</p>
+<button>Continue to preview</button> <button class="sec" name="action" value="cancel" formnovalidate>Cancel</button></form>
+
+{% elif step == "preview" %}
+<p class="mut"><b>Step 3 of 3: preview.</b> Nothing has been saved yet.</p>
+<div class="card"><h2>{{ n }} row{{ n|pluralize }}</h2>
+<p><b>{{ preview.created }}</b> new owner{{ preview.created|pluralize }}, <b>{{ preview.updated }}</b> to update, <b>{{ preview.skipped }}</b> skipped.</p>
 {% if problems %}<h3>Check these</h3><ul>{% for r,m in problems %}<li>Row {{ r }}: {{ m }}</li>{% endfor %}</ul>{% else %}<p class="mut">No problems found.</p>{% endif %}
-<p class="mut">Columns found: {{ columns|join:", " }}</p>
-<form method="post" enctype="multipart/form-data">{% csrf_token %}<p class="mut">To import, choose the same file again and tick the box if you want invitations sent:</p>{{ form.as_p }}<input type="hidden" name="apply" value="1"><button>Import now</button></form></div>{% endif %}
-<div class="card"><h2>Columns it understands</h2><p class="mut">Account ID, Owner Name, Property Address (units like "#52" are fine), City, State, ZIP, Email, Co-owner Email, Phone, Mailing Street/City/State/ZIP (if different), Tenant Name, Tenant Email, Tenant Phone, Latitude and Longitude (optional). Names of columns can vary a little (for example "Homeowner Name" or "Account Number"). If a file has tenant columns, a blank tenant means the home is no longer rented.</p></div>
+<form method="post">{% csrf_token %}{% for h,f in mapping.items %}<input type="hidden" name="map_{{ forloop.counter0 }}" value="{{ f }}">{% endfor %}
+<label><input type="checkbox" name="invite"> Also email new owners an invitation to create their login</label>
+<button name="action" value="apply" style="margin-top:8px">Import now</button> <button class="sec" name="action" value="map">Back to matching</button> <button class="sec" name="action" value="cancel">Cancel</button></form></div>
+
+{% else %}
+<p class="mut">Upload an Excel (.xlsx) or CSV file of homes and owners, from a Vantaca export or typed up by hand. You'll match your columns to the fields next, then see a preview before anything is saved. Existing owners are matched by Vantaca account ID, then property address, and updated; nothing is deleted. <a href="{% url 'import_template' %}">Download a template</a>.</p>
+<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}<input type="hidden" name="action" value="upload">{{ form.as_p }}<button>Upload and match columns</button></form>
+<div class="card"><h2>Fields you can import</h2><p class="mut">{% for f,label in fields %}{{ label }}{% if not forloop.last %}, {% endif %}{% endfor %}. If a file has tenant columns, a blank tenant means the home is no longer rented.</p></div>
+{% endif %}
 {% endblock %}
