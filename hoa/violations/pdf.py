@@ -4,6 +4,7 @@ Layout of a Notice of Violation (matches the Association's current letter): HOA 
 left with the violation photo and its timestamp on the right, RE: line, VIOLATION and COVENANTS blocks quoting the rule,
 a Board of Directors sign-off, then a one-page Correction Response Form."""
 from io import BytesIO
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from django.conf import settings
@@ -39,12 +40,24 @@ def hoa_address():
     return ", ".join(x for x in parts if x) if s.HOA_ADDRESS_LINE1 else ""
 
 
+LOGO = Path(__file__).resolve().parent / "static" / "violations" / "heron-landing-logo.png"
+
+
 def letterhead():
+    """Logo on the left; name, address, phone and website centered beside it; rule underneath."""
     s = settings
-    lines = [_p(s.HOA_NAME, HEAD)]
+    text = [_p(s.HOA_NAME, HEAD)]
     for t in (hoa_address(), f"Telephone: {s.HOA_PHONE}" if s.HOA_PHONE else "", s.HOA_WEBSITE):
         if t:
-            lines.append(_p(t, HEADSM))
+            text.append(_p(t, HEADSM))
+    if LOGO.exists():
+        logo = Image(str(LOGO), width=1.2 * inch, height=1.2 * inch * 130 / 265)
+        head = Table([[logo, text, ""]], colWidths=[1.25 * inch, 4.2 * inch, 1.25 * inch])
+        head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                  ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+        lines = [head]
+    else:
+        lines = text
     return lines + [Spacer(1, 4), HRFlowable(width="100%", thickness=0.8, color=colors.black, spaceAfter=6)]
 
 

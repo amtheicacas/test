@@ -243,3 +243,16 @@ def test_progress_step_labels():
     assert labels[2] == "Fine issued by Board"
     assert labels[3] == "Violation sent to Compliance Committee / Homeowner Hearing"
     assert labels[4] == "Fine Imposed & Posted to Ledger"
+
+
+def test_logo_is_in_app_and_letterhead(client, settings):
+    from violations import pdf
+    assert pdf.LOGO.exists() and pdf.LOGO.stat().st_size > 1000
+    page = client.get("/accounts/login/").content.decode()
+    assert "heron-landing-logo.png" in page
+    n = make_nov(settings)
+    assert pdf.render_notice_pdf(n)[:4] == b"%PDF"
+    img = shutil.which("pdfimages")
+    if img:  # the logo and the violation photo are both embedded in page 1
+        out = subprocess.run([img, "-list", "-f", "1", "-l", "1", "-"], input=pdf.render_notice_pdf(n), capture_output=True).stdout.decode()
+        assert len([l for l in out.splitlines()[2:] if l.strip()]) >= 2
