@@ -77,6 +77,9 @@ def dispatch(notice, render):
         targets.append(("tenant", o.postal("tenant"), "tenant"))
     ids, tracking, errors = [], "", []
     for variant, addr, label in targets:
+        if not all(addr.get(k) for k in ("name", "line1", "city", "state", "zip")):  # skip this address, keep mailing the others
+            errors.append(f"{label}: incomplete mailing address (need street, city, state, ZIP)")
+            continue
         pdf = render(variant)
         for extra, svc in _services_for(notice.kind):
             try:
