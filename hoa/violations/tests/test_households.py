@@ -68,32 +68,42 @@ def test_a_second_household_cannot_see_the_first(client):
     assert client.get(f"/me/{v1.pk}/").status_code == 404 and client.get(f"/me/{v2.pk}/").status_code == 200
 
 
-def test_household_page_lets_you_add_and_remove_people(client):
-    o, v = household(co="")
+def test_residents_cannot_change_their_information(client):
+    """Owners and tenants can look, not edit: corrections go through the property manager and come from Vantaca."""
+    o, v = household(tenant_name="Tina Tenant", tenant_email="tina@example.com")
     pat = accounts.invite_member(o, "pat@example.com", "Pat Owner", "owner").user
     login(client, pat)
-    assert b"My household" in client.get("/me/household/").content
-    mail.outbox.clear()
-    client.post("/me/household/", {"name": "Sam Owner", "email": "sam@example.com", "relationship": "co_owner"})
-    sam = U.objects.get(username="sam@example.com")
-    assert sam.profile.owner == o and sam.profile.relationship == "co_owner" and sam.first_name == "Sam"
-    assert len(mail.outbox) == 1 and "/accounts/reset/" in mail.outbox[0].body
-    client.post("/me/household/", {"remove": sam.profile.pk})
-    sam.refresh_from_db()
-    assert sam.is_active is False
-    client.post("/me/household/", {"remove": pat.profile.pk})  # can't remove yourself
-    pat.refresh_from_db()
-    assert pat.is_active is True
+    page = client.get("/me/household/").content.decode()
+    assert "You can&#x27;t change it here" in page or "You can't change it here" in page
+    assert "<form" not in page.split("Who has a login")[0].split("On file")[1]  # nothing to submit
+    before = Owner.objects.values().get(pk=o.pk)
+    for data in ({"name": "Hacked", "email": "evil@example.com", "relationship": "co_owner"}, {"remove": "1"}, {"property_address": "1 Evil St"}):
+        assert client.post("/me/household/", data).status_code == 405  # read-only
+    assert Owner.objects.values().get(pk=o.pk) == before and U.objects.filter(email="evil@example.com").count() == 0
+    # and there is no other page that edits owner details
+    for url in ("/me/profile/", "/me/edit/", "/me/account/", "/me/household/add/", "/me/household/remove/"):
+        assert client.get(url).status_code == 404 and client.post(url, {"email": "x@example.com"}).status_code == 404
 
 
-def test_household_login_limit_and_duplicates(client, settings):
+def test_the_household_page_shows_what_is_on_file_and_how_to_correct_it(client):
+    o, _ = household(tenant_name="Tina Tenant", tenant_email="tina@example.com", mailing_address="PO Box 55, Tampa, FL 33601")
+    pat = accounts.invite_member(o, "pat@example.com", "Pat Owner", "owner").user
+    tina = accounts.invite_member(o, "tina@example.com", "Tina Tenant", "tenant").user
+    login(client, pat)
+    page = client.get("/me/household/").content.decode()
+    assert "PO Box 55" in page and "pat@example.com" in page and "Tina Tenant" in page and "contact the property manager" in page
+    client.logout()
+    login(client, tina)  # a tenant sees their own details, not the owner's mailing address or email
+    page = client.get("/me/household/").content.decode()
+    assert "tina@example.com" in page and "PO Box 55" not in page and "Homeowner(s)" not in page
+
+
+def test_household_login_limit_and_duplicates(settings):
     settings.MAX_LOGINS_PER_HOUSEHOLD = 2
     o, _ = household(co="")
     assert accounts.invite_member(o, "a@example.com", "A") and accounts.invite_member(o, "b@example.com", "B")
     assert accounts.invite_member(o, "c@example.com", "C") is None  # full
     assert accounts.invite_member(o, "a@example.com", "A again") is None  # already has a login
-    login(client, U.objects.get(username="a@example.com"))
-    assert b"limit of logins" in client.get("/me/household/").content
 
 
 def test_only_homeowners_have_a_household_page(client):

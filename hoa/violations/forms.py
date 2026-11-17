@@ -151,13 +151,6 @@ class ImposeForm(forms.Form):
     reference = forms.CharField(required=False, label="Vantaca transaction / reference # (optional)")
 
 
-class HouseholdForm(forms.Form):
-    name = forms.CharField(max_length=150, label="Name")
-    email = forms.EmailField(label="Email (they sign in with this)")
-    relationship = forms.ChoiceField(choices=[("co_owner", "Co-owner / spouse"), ("tenant", "Tenant / renter"),
-                                              ("other", "Other household member")])
-
-
 class ImportForm(forms.Form):
     file = forms.FileField(label="Owner list (Excel .xlsx or CSV)")
 

@@ -10,7 +10,7 @@ from django.db.models import Count, Exists, OuterRef, Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
 from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
@@ -480,29 +480,17 @@ def my_violation(request, pk):
 
 
 @homeowner_only
+@require_GET
 def my_household(request):
-    """Everyone with a login on this household sees the same violations, letters and messages."""
+    """READ-ONLY. Who has access and the contact details on file. Residents can't change any of it here: corrections go through
+    the property manager and come into this tool from Vantaca, so there is a single source of truth."""
     o = accounts.owner_of(request.user)
     if o is None:
         raise Http404
-    form = forms.HouseholdForm(request.POST or None)
-    if request.method == "POST":
-        if request.POST.get("remove"):
-            p = o.profiles.filter(pk=request.POST["remove"]).exclude(user=request.user).select_related("user").first()
-            if p:
-                p.user.is_active = False
-                p.user.save(update_fields=["is_active"])
-                messages.success(request, f"{p.user.get_full_name() or p.user.email} no longer has access.")
-            return redirect("my_household")
-        if form.is_valid():
-            d = form.cleaned_data
-            if accounts.invite_member(o, d["email"], d["name"], d["relationship"], request):
-                messages.success(request, f"Invitation sent to {d['email']}. They'll see the same violations and messages as you.")
-                return redirect("my_household")
-            messages.error(request, "Couldn't add that person: that email may already have a login, or your household is at its "
-                                    f"limit of {settings.MAX_LOGINS_PER_HOUSEHOLD} logins.")
-    return render(request, "violations/me_household.html", {"owner": o, "members": accounts.household_logins(o), "form": form,
-                                                            "can_add": accounts.can_add_login(o)})
+    mine = o.profiles.filter(user=request.user).first()
+    return render(request, "violations/me_household.html", {
+        "owner": o, "members": accounts.household_logins(o),
+        "is_tenant": bool(mine and mine.relationship == "tenant")})  # tenants see their own details, not the owner's
 
 
 @homeowner_only

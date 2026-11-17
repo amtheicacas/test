@@ -1,9 +1,12 @@
 {% extends "violations/base.html" %}{% block title %}My household{% endblock %}{% block content %}
 <h1>My household</h1>
-<p class="mut">Everyone listed here signs in with their own email and password and sees the same violations, letters and messages for {{ owner.property_address }}.</p>
-<div class="card"><table><tr><th>Name<th>Email<th>Role<th></tr>
-{% for p in members %}<tr><td>{{ p.user.get_full_name|default:"—" }}{% if p.user == request.user %} <span class="pill">you</span>{% endif %}<td>{{ p.user.email }}<td>{{ p.get_relationship_display }}{% if not p.user.is_active %} <span class="pill">no access</span>{% endif %}
-<td>{% if p.user != request.user and p.user.is_active %}<form method="post" onsubmit="return confirm('Remove this person\'s access?')">{% csrf_token %}<input type="hidden" name="remove" value="{{ p.pk }}"><button class="sec">Remove</button></form>{% endif %}</tr>{% endfor %}</table></div>
-{% if can_add %}<form class="card" method="post"><h2>Add someone</h2>{% csrf_token %}{{ form.as_p }}<button>Send invitation</button></form>
-{% else %}<div class="card mut">Your household has reached its limit of logins. Remove someone to add another.</div>{% endif %}
+<p class="mut">This is the information the Association has on file for {{ owner.property_address }}. <b>You can't change it here.</b> To correct or update anything (names, addresses, phone, email, tenants, who has a login), please contact the property manager: {{ MANAGER_PHONE }} or {{ MANAGER_EMAIL }}.</p>
+<div class="card"><h2>On file</h2>
+{% if is_tenant %}<p><b>Tenant(s):</b> {{ owner.tenant_name }}<br><b>Email(s):</b> {{ owner.tenant_emails|join:", "|default:"none" }}<br><b>Phone:</b> {{ owner.tenant_phone|default:"none" }}{% if owner.tenant_end %}<br><b>Lease through:</b> {{ owner.tenant_end|date:"M j, Y" }}{% endif %}</p>
+{% else %}<p><b>Homeowner(s):</b> {{ owner.display_name }}<br><b>Property address:</b> {{ owner.property_address }}{% if owner.lot_no %} (Lot {{ owner.lot_no }}){% endif %}<br>
+{% if owner.has_separate_mailing %}<b>Mailing address:</b> {{ owner.mailing_address|linebreaksbr }}<br>{% endif %}
+<b>Email(s):</b> {{ owner.all_emails|join:", "|default:"none" }}<br><b>Phone:</b> {{ owner.phone|default:"none" }}</p>
+{% if owner.has_tenant %}<p><b>Tenant(s):</b> {{ owner.tenant_name }} · {{ owner.tenant_emails|join:", " }}{% if owner.tenant_end %} · lease through {{ owner.tenant_end|date:"M j, Y" }}{% endif %}</p>{% endif %}{% endif %}</div>
+<div class="card"><h2>Who has a login for this home</h2><p class="mut">Everyone below sees the same violations, letters and messages.</p><table><tr><th>Name<th>Email<th>Role</tr>
+{% for p in members %}{% if p.user.is_active and not is_tenant or p.user == request.user %}<tr><td>{{ p.user.get_full_name|default:"—" }}{% if p.user == request.user %} <span class="pill">you</span>{% endif %}<td>{{ p.user.email }}<td>{{ p.get_relationship_display }}</tr>{% endif %}{% endfor %}</table></div>
 {% endblock %}
