@@ -346,3 +346,23 @@ def test_the_downloaded_template_imports_cleanly(client):
     rows = vantaca.rows_from_upload(t)
     _, result, problems = vantaca.preview_rows(rows)
     assert result["created"] == 1 and problems == []
+
+
+# ---------- the street is built from its pieces ----------
+def test_street_is_built_from_street_no_and_address_1():
+    load(row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", Street_No="6632", Address_1="Dovekey Drive #13"))
+    assert Owner.objects.get().property_address == "6632 Dovekey Drive #13"
+
+
+def test_pieces_win_and_a_disagreement_with_the_full_address_is_flagged():
+    r = row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", Street_No="6634", Address_1="Dovekey Drive #13")
+    load(r)
+    assert Owner.objects.get().property_address == "6634 Dovekey Drive #13"
+    assert any("Using '6634 Dovekey Drive #13'" in m for _, m in vantaca.check_rows([r]))
+    agree = row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", Street_No="6632", Address_1="Dovekey Drive #13")
+    assert not any("Street No" in m for _, m in vantaca.check_rows([agree]))
+
+
+def test_full_address_alone_still_works_when_there_are_no_pieces():
+    load(row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241"))
+    assert Owner.objects.get().property_address == "6632 Dovekey Drive #13"

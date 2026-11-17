@@ -123,8 +123,13 @@ def normalize(row):
     """One import row -> {field: value} for the Owner, plus '_notes' (things worth a second look)."""
     notes = []
     name = _pick(row, "name") or f"{_pick(row, 'first')} {_pick(row, 'last')}".strip()
-    street = _strip_city_state_zip(_pick(row, "property_address") or f"{_pick(row, 'street_no')} {_pick(row, 'address1')}".strip(),
-                                   _pick(row, "city"), _pick(row, "state"), _pick(row, "zip_code"))
+    # The street comes from its pieces (Street No + Address 1), which need no parsing; the full "Address" (which also carries
+    # city, state and ZIP) is the fallback, and a mismatch between the two is flagged.
+    pieces = f"{_pick(row, 'street_no')} {_pick(row, 'address1')}".strip() if _pick(row, "address1") else ""
+    full = _strip_city_state_zip(_pick(row, "property_address"), _pick(row, "city"), _pick(row, "state"), _pick(row, "zip_code"))
+    street = pieces or full
+    if pieces and full and _norm_street(pieces) != _norm_street(full):
+        notes.append(f"Address says '{full}' but Street No + Address 1 say '{pieces}'. Using '{pieces}'.")
     emails = split_emails(_pick(row, "email"))
     d = {"external_id": _pick(row, "external_id") or None, "account_number": _pick(row, "account_number"),
          "name": name, "property_address": street, "lot_no": _pick(row, "lot_no"),
