@@ -59,6 +59,8 @@ class Command(BaseCommand):
             u, new = U.objects.get_or_create(username=role, defaults=dict(email=f"{role}@example.com"))
             if new:
                 u.set_password("demo-password-123")
-                u.save()
+            if role == "manager":  # the demo manager can open /admin/ to add owners, users and violation types
+                u.is_staff = u.is_superuser = True
+            u.save()
             Profile.objects.get_or_create(user=u, defaults=dict(role=role, owner=owner))
         self.stdout.write("Demo ready. Log in as manager / board / committee / homeowner, password demo-password-123")
