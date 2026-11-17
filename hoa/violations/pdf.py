@@ -295,15 +295,13 @@ def _hearing_notice(notice, v, to_name, block, dated):
 
 
 def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
+    """recipient: 'owner' (the mailing address if there is one), 'owner_property' (the physical address), or 'tenant'."""
     v = notice.violation
-    to_tenant = recipient == "tenant" and v.owner.tenant_name
-    to_name = v.owner.tenant_name if to_tenant else v.owner.name
-    block = v.owner.tenant_mail_block if to_tenant else v.owner.mail_block
-    city_line = ", ".join(x for x in (v.owner.city, " ".join(x for x in (v.owner.state, v.owner.zip_code) if x)) if x)
-    if not to_tenant and v.owner.mail_line1:
-        city_line = ", ".join(x for x in (v.owner.mail_city or v.owner.city,
-                                          " ".join(x for x in (v.owner.mail_state or v.owner.state, v.owner.mail_zip or v.owner.zip_code) if x)) if x)
-    block = f"{block}\n{city_line}" if city_line else block
+    o = v.owner
+    to_tenant = recipient == "tenant" and o.has_tenant
+    to_name = o.tenant_name if to_tenant else o.display_name
+    block = o.address_block("tenant") if to_tenant else o.address_block("property" if recipient == "owner_property" else
+                                                                         ("mailing" if o.has_separate_mailing else "property"))
     dated = timezone.localtime(notice.created_at).date()
     ref = f" ({v.vtype.reference})" if v.vtype.reference else ""
     title = notice.get_kind_display()
@@ -315,8 +313,8 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
     else:
         s = letterhead() + [_p(f"{dated:%B %d, %Y}"), Spacer(1, 4), _p(block), Spacer(1, 8),
                             _p(f"RE: {title} - {v.owner.property_address}  (Case #{v.pk})", TITLE), _p(f"Dear {to_name}:")]
-        if v.owner.tenant_name:
-            s.append(_p(f"Copy also sent to {'the owner, ' + v.owner.name if to_tenant else 'the tenant, ' + v.owner.tenant_name}. "
+        if o.has_tenant:
+            s.append(_p(f"Copy also sent to {'the owner, ' + o.display_name if to_tenant else 'the tenant, ' + o.tenant_name}. "
                         "Owners are responsible for the actions of their tenants and guests.", SMALL))
         if notice.kind == K.EXTENSION:
             s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to "

@@ -64,23 +64,27 @@ def lob_send(to, pdf, description, extra_service=None):
 
 
 def dispatch(notice, render):
-    """Print and mail a notice to the owner (and tenant). `render(recipient)` returns PDF bytes.
-    Returns True if it was handed to a provider."""
+    """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
+    while the lease is active the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
+    'owner_property' or 'tenant'. Returns True if anything was handed to a provider."""
     from .services import log  # avoid circular import
     v = notice.violation
     if settings.MAIL_PROVIDER != "lob":
         return False
-    recipients = [("owner", False)] + ([("tenant", True)] if v.owner.tenant_name else [])
+    o = v.owner
+    targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
+    if o.has_tenant:
+        targets.append(("tenant", o.postal("tenant"), "tenant"))
     ids, tracking, errors = [], "", []
-    for who, is_tenant in recipients:
-        pdf = render(who)
-        for extra, label in _services_for(notice.kind):
+    for variant, addr, label in targets:
+        pdf = render(variant)
+        for extra, svc in _services_for(notice.kind):
             try:
-                r = lob_send(v.owner.postal(tenant=is_tenant), pdf, f"Case {v.pk} {notice.kind} ({who}, {label})", extra)
+                r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
                 ids.append(r.get("id", "?"))
                 tracking = tracking or r.get("tracking_number") or ""
             except Exception as e:  # never block the workflow on the provider
-                errors.append(f"{who}/{label}: {e}")
+                errors.append(f"{label}/{svc}: {e}")
     notice.provider, notice.provider_ids = "lob", ",".join(ids)[:500]
     notice.provider_note = "; ".join(errors)[:300]
     if ids:
@@ -89,5 +93,5 @@ def dispatch(notice, render):
         notice.method = "certified" if notice.kind in (K.HEARING, K.FINE) else "first_class"
     notice.save()
     log(v, f"{notice.get_kind_display()} sent to print/mail provider ({len(ids)} piece(s))"
-        + (f" — ERRORS: {notice.provider_note}" if errors else ""))
+        + (f" - ERRORS: {notice.provider_note}" if errors else ""))
     return bool(ids)

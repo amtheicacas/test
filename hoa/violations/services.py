@@ -37,14 +37,14 @@ def _require(v, *allowed):
 
 
 def recipient_groups(v):
-    """[(who, emails, name)]: the owner(s) and, for a rented home, the tenant. Each gets their own email and letter."""
+    """[(who, emails, name)]: the owner(s) (every email on record) and, while the lease is active, the tenant(s).
+    Each group gets its own email, addressed by name, with its own letter."""
     o = v.owner
     groups = []
-    owner_emails = [e for e in (o.email, o.co_owner_email) if e]
-    if owner_emails:
-        groups.append(("owner", owner_emails, o.name))
-    if o.tenant_name and o.tenant_email:
-        groups.append(("tenant", [o.tenant_email], o.tenant_name))
+    if o.all_emails:
+        groups.append(("owner", o.all_emails, o.display_name))
+    if o.has_tenant and o.tenant_emails:
+        groups.append(("tenant", o.tenant_emails, o.tenant_name))
     return groups
 
 

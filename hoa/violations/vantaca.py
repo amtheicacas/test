@@ -12,33 +12,49 @@ import base64
 import csv
 import io
 import json
+import re
 import urllib.request
+from datetime import date, datetime
 
 from django.conf import settings
 from django.utils import timezone
 
 from . import accounts
-from .models import Owner
+from .models import Owner, split_emails
 
-# our field -> possible column / JSON keys (case-insensitive, spaces/underscores ignored)
+# our field -> possible column / JSON keys (case-insensitive; spaces, punctuation and underscores ignored).
+# The first alias is the canonical name used after the import page's column matching.
 FIELD_ALIASES = {
-    "external_id": ["accountid", "accountnumber", "homeownerid", "ownerid", "id"],
-    "name": ["name", "ownername", "ownernames", "ownersname", "homeownername", "homeowners", "homeowner", "owners", "owner", "fullname", "accountname", "residentname", "resident"],
+    "external_id": ["homeownerid", "ownerid", "accountid", "id"],
+    "account_number": ["accountnumber", "accountno", "acctnumber", "acct"],
+    "name": ["name", "ownername", "ownernames", "ownersname", "homeownername", "homeowners", "homeowner", "owners", "owner",
+             "fullname", "accountname", "residentname", "resident"],
     "first": ["firstname"], "last": ["lastname"],
-    "property_address": ["propertyaddress", "address", "unitaddress", "streetaddress", "street", "propertystreet", "siteaddress", "situsaddress", "lotaddress", "homeaddress", "property"],
-    "email": ["email", "emailaddress", "primaryemail", "owneremail", "contactemail"],
-    "phone": ["phone", "phonenumber", "primaryphone", "homephone", "cellphone", "mobile", "telephone"],
-    "mailing_address": ["mailingaddress", "mailaddress", "billingaddress"],
-    "city": ["city", "propertycity"], "state": ["state", "propertystate"], "zip_code": ["zip", "zipcode", "postal", "postalcode", "propertyzip"],
-    "mail_line1": ["mailingstreet", "mailingaddress1", "mailaddress1"], "mail_city": ["mailingcity"],
-    "mail_state": ["mailingstate"], "mail_zip": ["mailingzip", "mailingzipcode"],
-    "lat": ["latitude", "lat"], "lng": ["longitude", "lng", "lon"],
+    "second_first": ["secondownerfirstname", "secondfirstname", "coownerfirstname", "owner2firstname"],
+    "second_last": ["secondownerlastname", "secondlastname", "coownerlastname", "owner2lastname"],
+    "property_address": ["address", "propertyaddress", "unitaddress", "streetaddress", "street", "propertystreet", "siteaddress",
+                         "situsaddress", "lotaddress", "homeaddress", "property"],
+    "street_no": ["streetno", "streetnumber", "housenumber"],
+    "address1": ["address1", "streetname"],
+    "lot_no": ["lotno", "lotnumber", "lot"],
+    "city": ["city", "propertycity"], "state": ["state", "propertystate"],
+    "zip_code": ["zip", "zipcode", "postal", "postalcode", "propertyzip"],
+    "email": ["email", "emails", "emailaddress", "emailaddresses", "primaryemail", "owneremail", "contactemail"],
     "co_owner_email": ["coowneremail", "coowneremailaddress", "secondaryemail", "email2", "secondownersemail"],
-    "tenant_name": ["tenantname", "renter", "rentername", "rentedto", "leasedto", "tenant", "occupantname"],
-    "tenant_email": ["tenantemail", "renteremail", "occupantemail"],
-    "tenant_phone": ["tenantphone", "renterphone"],
+    "phone": ["phone", "phonenumber", "primaryphone", "homephone", "cellphone", "mobile", "telephone"],
+    "mailing_address": ["mailingaddress", "mailaddress", "billingaddress", "mailingstreet"],
+    "mailing_address1": ["mailingaddress1", "mailaddress1", "mailingaddress2"],
+    "mail_city": ["mailingcity"], "mail_state": ["mailingstate"], "mail_zip": ["mailingzip", "mailingzipcode"],
+    "lat": ["latitude", "lat"], "lng": ["longitude", "lng", "lon"],
+    "tenant_name": ["tenantnames", "tenantname", "tenants", "renter", "rentername", "rentedto", "leasedto", "tenant", "occupantname"],
+    "tenant_email": ["tenantemails", "tenantemail", "renteremail", "occupantemail"],
+    "tenant_phone": ["tenantphones", "tenantphone", "renterphone"],
+    "tenant_start": ["tenantminstartdate", "tenantstartdate", "leasestart", "leasestartdate", "tenantstart"],
+    "tenant_end": ["tenantminenddate", "tenantenddate", "leaseend", "leaseenddate", "tenantend"],
 }
+# Only touched when the file has that column (then a blank means "none", e.g. the tenant moved out or the lease ended).
 HOUSEHOLD_FIELDS = ("co_owner_email", "tenant_name", "tenant_email", "tenant_phone")
+MAILING_FIELDS = ("mailing_address", "mailing_address1", "mail_city", "mail_state", "mail_zip")
 
 
 def _norm(k):
@@ -59,39 +75,103 @@ def _has_column(row, field):
     return any(_norm(a) in keys for a in FIELD_ALIASES[field])
 
 
+def _any_column(row, fields):
+    return any(_has_column(row, f) for f in fields)
+
+
+_ADDR = re.compile(r"^(?P<street>.+?),\s*(?P<city>[^,]+?),?\s+(?P<state>[A-Za-z]{2})\.?,?\s+(?P<zip>\d{5})(?:-\d{4})?$")
+
+
+def parse_us_address(text):
+    """'PO Box 5, Tampa, FL 33601' (or the same on several lines) -> {line1, city, state, zip}; None if it can't be split."""
+    flat = re.sub(r"\s*[\r\n]+\s*", ", ", (text or "").strip()).strip(", ")
+    m = _ADDR.match(flat)
+    if not m:
+        return None
+    return {"line1": m["street"].strip(), "city": m["city"].strip(), "state": m["state"].upper(), "zip": m["zip"]}
+
+
+_DATE_FORMATS = ("%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%m-%d-%Y", "%d-%b-%Y", "%b %d, %Y", "%B %d, %Y")
+
+
+def parse_date(text):
+    """(date or None, ok). Blank is fine (None, True); something unreadable is (None, False)."""
+    t = (text or "").strip()
+    if not t:
+        return None, True
+    for f in _DATE_FORMATS:
+        try:
+            return datetime.strptime(t, f).date(), True
+        except ValueError:
+            pass
+    return None, False
+
+
 def normalize(row):
+    """One import row -> {field: value} for the Owner, plus '_notes' (things worth a second look)."""
+    notes = []
     name = _pick(row, "name") or f"{_pick(row, 'first')} {_pick(row, 'last')}".strip()
-    return {"external_id": _pick(row, "external_id") or None, "name": name,
-            "property_address": _pick(row, "property_address"), "email": _pick(row, "email"),
-            "phone": _pick(row, "phone"), "mailing_address": _pick(row, "mailing_address"),
-            **{f: _pick(row, f) for f in ("city", "state", "zip_code", "mail_line1", "mail_city", "mail_state", "mail_zip")},
-            **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")},
-            # tenant / co-owner: only touched when the file has that column (a blank then means "none", e.g. the tenant moved out)
-            **{f: _pick(row, f) for f in HOUSEHOLD_FIELDS if _has_column(row, f)}}
+    street = _pick(row, "property_address") or f"{_pick(row, 'street_no')} {_pick(row, 'address1')}".strip()
+    emails = split_emails(_pick(row, "email"))
+    d = {"external_id": _pick(row, "external_id") or None, "account_number": _pick(row, "account_number"),
+         "name": name, "property_address": street, "lot_no": _pick(row, "lot_no"),
+         "email": emails[0] if emails else "", "additional_emails": ";".join(emails[1:]), "phone": _pick(row, "phone"),
+         **{f: _pick(row, f) for f in ("city", "state", "zip_code")},
+         **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")}}
+    if _any_column(row, ("second_first", "second_last")):
+        d["second_owner_name"] = f"{_pick(row, 'second_first')} {_pick(row, 'second_last')}".strip()
+    for f in HOUSEHOLD_FIELDS:
+        if _has_column(row, f):
+            d[f] = _pick(row, f)
+    if _has_column(row, "tenant_email"):
+        t = split_emails(_pick(row, "tenant_email"))
+        d["tenant_email"], d["tenant_additional_emails"] = (t[0] if t else ""), ";".join(t[1:])
+    for f in ("tenant_start", "tenant_end"):
+        if _has_column(row, f):
+            val, ok = parse_date(_pick(row, f))
+            d[f] = val
+            if not ok:
+                notes.append(f"Couldn't read the date '{_pick(row, f)}' for {f.replace('_', ' ')}; it was left blank.")
+    if d.get("tenant_name") and d.get("tenant_end") and d["tenant_end"] < date.today():
+        notes.append(f"Tenant {d['tenant_name']}'s lease ended {d['tenant_end']:%m/%d/%Y}, so they will not receive notices.")
+    if _any_column(row, MAILING_FIELDS):
+        text = "\n".join(x for x in (_pick(row, "mailing_address"), _pick(row, "mailing_address1")) if x)
+        parsed = parse_us_address(text)
+        d["mailing_address"] = text
+        d.update(mail_line1=(parsed or {}).get("line1", _pick(row, "mailing_address")), mail_city=(parsed or {}).get("city", _pick(row, "mail_city")),
+                 mail_state=(parsed or {}).get("state", _pick(row, "mail_state")), mail_zip=(parsed or {}).get("zip", _pick(row, "mail_zip")))
+        if text and not (d["mail_city"] and d["mail_state"] and d["mail_zip"]):
+            notes.append("The mailing address couldn't be split into street, city, state and ZIP, which the print service needs. "
+                         "Letters will still go to the property address; fix the mailing address to mail it too.")
+    d["_notes"] = notes
+    return d
 
 
 def upsert_owner(row):
-    """Returns ('created' | 'updated' | 'skipped', owner_or_None)."""
+    """Returns ('created' | 'updated' | 'skipped', owner_or_None).
+    Matched on Homeowner ID, then Account Number, then property address (so hand-entered owners are linked, not duplicated)."""
     d = normalize(row)
     if not d["name"] or not d["property_address"]:
         return "skipped", None
     owner = None
     if d["external_id"]:
         owner = Owner.objects.filter(external_id=d["external_id"]).first()
+    if owner is None and d["account_number"]:
+        owner = Owner.objects.filter(account_number=d["account_number"]).first()
     if owner is None:
         owner = Owner.objects.filter(property_address__iexact=d["property_address"]).first()
     created = owner is None
     owner = owner or Owner()
-    for f in ("name", "property_address", "email", "phone", "mailing_address", "mail_line1", "mail_city",
-              "mail_state", "mail_zip"):
+    for f in ("name", "property_address", "email", "additional_emails", "phone"):
         setattr(owner, f, d[f])
-    for f in ("city", "state", "zip_code"):  # keep model defaults (Sarasota, FL) when the export has no value
+    for f in ("city", "state", "zip_code", "lot_no", "account_number"):  # keep what we have when the export has no value
         if d[f]:
             setattr(owner, f, d[f])
     for f in ("lat", "lng"):
         if d[f] is not None:
             setattr(owner, f, d[f])
-    for f in HOUSEHOLD_FIELDS:
+    for f in ("second_owner_name", "co_owner_email", "tenant_name", "tenant_email", "tenant_additional_emails", "tenant_phone",
+              "tenant_start", "tenant_end", "mailing_address", "mail_line1", "mail_city", "mail_state", "mail_zip"):
         if f in d:
             setattr(owner, f, d[f])
     if d["external_id"]:
@@ -190,14 +270,15 @@ def check_rows(rows):
         if key in seen:
             problems.append((i, f"Same property address as row {seen[key]}: the later row wins."))
         seen[key] = i
-        for f in ("email", "co_owner_email", "tenant_email"):
-            if d.get(f):
-                try:
-                    validate_email(d[f])
-                except ValidationError:
-                    problems.append((i, f"'{d[f]}' doesn't look like a valid email."))
+        for e in split_emails(";".join(x for x in (d["email"], d["additional_emails"], d.get("co_owner_email", ""), d.get("tenant_email", ""),
+                                                   d.get("tenant_additional_emails", "")) if x)):
+            try:
+                validate_email(e)
+            except ValidationError:
+                problems.append((i, f"'{e}' doesn't look like a valid email."))
         if not d["zip_code"]:
             problems.append((i, "No ZIP code (needed for mailing and the map)."))
+        problems += [(i, n) for n in d["_notes"]]
     return problems
 
 
@@ -263,12 +344,15 @@ def preview_csv(text):
 
 
 # ---- column matching for the import page ----
-MAPPABLE = [("external_id", "Account ID (Vantaca)"), ("name", "Owner name(s)"), ("first", "First name"), ("last", "Last name"),
-            ("property_address", "Property address"), ("city", "City"), ("state", "State"), ("zip_code", "ZIP"),
-            ("email", "Email"), ("co_owner_email", "Co-owner email"), ("phone", "Phone"),
-            ("mail_line1", "Mailing street (if different)"), ("mail_city", "Mailing city"), ("mail_state", "Mailing state"),
-            ("mail_zip", "Mailing ZIP"), ("tenant_name", "Tenant name"), ("tenant_email", "Tenant email"),
-            ("tenant_phone", "Tenant phone"), ("lat", "Latitude"), ("lng", "Longitude")]
+MAPPABLE = [("external_id", "Homeowner ID"), ("account_number", "Account Number"), ("name", "Homeowner name 1 (Homeowner(s))"),
+            ("first", "First name"), ("last", "Last name"), ("second_first", "Second owner first name"),
+            ("second_last", "Second owner last name"), ("property_address", "Address (physical)"), ("street_no", "Street no"),
+            ("address1", "Address 1"), ("lot_no", "Lot no"), ("city", "City"), ("state", "State"), ("zip_code", "ZIP"),
+            ("mailing_address", "Mailing address"), ("mailing_address1", "Mailing address 1"), ("mail_city", "Mailing city"),
+            ("mail_state", "Mailing state"), ("mail_zip", "Mailing ZIP"), ("email", "Email(s) (several separated by ;)"),
+            ("co_owner_email", "Co-owner email"), ("phone", "Phone"), ("tenant_name", "Tenant name(s)"),
+            ("tenant_email", "Tenant email(s)"), ("tenant_phone", "Tenant phone(s)"), ("tenant_start", "Tenant start date"),
+            ("tenant_end", "Tenant end date"), ("lat", "Latitude"), ("lng", "Longitude")]
 
 
 def header_signature(headers):

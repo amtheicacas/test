@@ -191,7 +191,7 @@ def test_import_is_manager_only_and_template_downloads(client):
     assert client.get("/import/").status_code == 403 and client.get("/import/template.csv").status_code == 403
     manager(client)
     t = client.get("/import/template.csv").content.decode()
-    assert t.startswith("Account ID,Owner Name,Property Address") and "Tenant Email" in t
+    assert t.startswith("Homeowner ID,Account Number,Homeowner(s),Address,Mailing Address") and "Tenant Min End Date" in t
     rows, result, problems = vantaca.preview_csv(t)  # the template itself imports cleanly
     assert result["created"] == 1 and problems == []
 
@@ -359,7 +359,7 @@ def test_missing_required_matches_and_duplicates_are_explained(client):
     page = client.post("/import/", {"action": "map", **post}).content.decode()
     assert "Step 2 of 3" in page and "Match a column to Property address" in page
     post2 = {f"map_{i}": "property_address" if h in ("Where", "Unit Notes") else cur for i, h, _e, cur in cols}
-    assert "More than one column is matched to: Property address" in client.post("/import/", {"action": "map", **post2}).content.decode()
+    assert "More than one column is matched to: Address (physical)" in client.post("/import/", {"action": "map", **post2}).content.decode()
     assert Owner.objects.count() == 0
 
 

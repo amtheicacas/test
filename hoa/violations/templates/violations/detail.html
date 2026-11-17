@@ -1,7 +1,8 @@
 {% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
 <h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
 <div class="card">{% include "violations/_steps.html" %}
-<p><b>{{ v.owner.name }}</b> · {{ v.owner.property_address }} · {{ v.owner.email|default:"no email (mail only)" }}</p>
+<p><b>{{ v.owner.display_name }}</b> · {{ v.owner.property_address }}{% if v.owner.lot_no %} (Lot {{ v.owner.lot_no }}){% endif %} · {{ v.owner.all_emails|join:", "|default:"no email (mail only)" }}</p>
+{% if v.owner.has_separate_mailing %}<p class="mut">Mailing address: {{ v.owner.mailing_address|linebreaksbr }}. US Mail goes there <b>and</b> to the property address.</p>{% endif %}
 <p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
 <p><b>Cure required:</b> {{ v.cure_required }}</p>
 <p><b>Cure window:</b> {{ v.cure_days }} days{% if v.extended_days %} + {{ v.extended_days }} extended{% endif %}{% if v.cure_deadline %} · deadline <b>{{ v.cure_deadline|date:"M j, Y" }}</b>{% if v.days_left is not None %} <span class="{% if v.days_left < 0 %}late{% else %}mut{% endif %}">({{ v.days_left }} days)</span>{% endif %}{% endif %}</p>
@@ -10,7 +11,7 @@
 {% if v.hearing_date %}<p><b>Compliance Committee hearing:</b> {{ v.hearing_date|date:"l M j, Y g:i A" }} {{ v.hearing_location }}</p>{% endif %}
 {% if v.ledger_posted_on %}<p class="mut">Posted to ledger {{ v.ledger_posted_on|date:"M j, Y" }}{% if v.ledger_reference %} · ref {{ v.ledger_reference }}{% endif %}</p>{% endif %}
 {% if v.status == S.FINE_APPROVED or v.status == S.CLOSED or v.status == S.REFERRED_LEGAL %}<p><b>Imposed ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):</b> {% if v.fine_amount %}fine ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"M j, Y" }}{% if v.fine_paid_on %} — paid {{ v.fine_paid_on|date:"M j" }}{% endif %}{% endif %} {% if v.suspension %}suspension: {{ v.suspension }}{% endif %}{% if v.cured_on %} · corrected {{ v.cured_on|date:"M j" }}{% endif %}</p>{% endif %}
-{% if v.owner.tenant_name %}<p class="mut">Tenant: {{ v.owner.tenant_name }} {{ v.owner.tenant_email }} — notices go to both.</p>{% endif %}
+{% if v.owner.has_tenant %}<p class="mut">Tenant: {{ v.owner.tenant_name }} {{ v.owner.tenant_emails|join:", " }}{% if v.owner.tenant_end %} (lease to {{ v.owner.tenant_end|date:"M j, Y" }}){% endif %}. Notices go to the owner and the tenant.</p>{% elif v.owner.tenant_lease_ended %}<p class="mut">Tenant {{ v.owner.tenant_name }}'s lease ended {{ v.owner.tenant_end|date:"M j, Y" }}, so they no longer receive notices.</p>{% endif %}
 <div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div>
 {% if v.status != S.DRAFT %}<p class="mut">Owner link: <a href="{% url 'resident' v.token %}">{{ v.resident_url }}</a></p>{% endif %}
 </div>
@@ -20,7 +21,7 @@
 <form method="post" action="{% url 'violation_action' v.pk 'send_notice' %}" style="margin-top:8px">{% csrf_token %}<button>Issue notice (starts {{ v.cure_days }}-day cure period, emails the owner)</button></form></div>{% endif %}
 
 {% if v.notices.all %}<div class="card"><h2>Notices (email + mail)</h2><table><tr><th>Notice<th>Email<th>Mailed</tr>
-{% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<br><a href="{% url 'notice_pdf' n.pk %}" target="_blank">Print{% if v.owner.tenant_name %} (owner){% endif %}</a>{% if v.owner.tenant_name %} · <a href="{% url 'notice_pdf' n.pk %}?to=tenant" target="_blank">Print (tenant)</a>{% endif %}
+{% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<br><a href="{% url 'notice_pdf' n.pk %}" target="_blank">Print{% if v.owner.has_separate_mailing %} (owner, mailing address){% elif v.owner.has_tenant %} (owner){% endif %}</a>{% if v.owner.has_separate_mailing %} · <a href="{% url 'notice_pdf' n.pk %}?to=owner_property" target="_blank">Print (owner, property address)</a>{% endif %}{% if v.owner.has_tenant %} · <a href="{% url 'notice_pdf' n.pk %}?to=tenant" target="_blank">Print (tenant)</a>{% endif %}
 <td>{% if n.emailed_at %}{{ n.emailed_at|date:"M j" }} → {{ n.emailed_to }}{% else %}<span class="mut">not emailed</span>{% endif %}
 <td>{% if n.provider %}<span class="pill">{{ n.provider }}</span> {% endif %}{% if n.provider_note %}<span class="late">{{ n.provider_note }}</span> {% endif %}{% if n.mailed_on %}{{ n.get_method_display|default:"Mailed" }} {{ n.mailed_on|date:"M j, Y" }} {{ n.tracking_number }}{% if n.return_receipt_on %}<br>Return receipt {{ n.return_receipt_on|date:"M j" }}{% endif %}{% endif %}
 <details><summary>{% if n.mailed_on %}Update{% elif n.kind == "hearing" %}Log mailing (certified + regular){% else %}Log mailing{% endif %}</summary>
@@ -45,7 +46,7 @@
 {% if v.status == S.LEDGER_PENDING %}<div class="card" style="border-color:var(--warn)"><h2>Committee decision awaiting your approval</h2>
 <p>The Compliance Committee approved this ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):
 {% if v.fine_amount %}<b>fine ${{ v.fine_amount }}</b>{% endif %}{% if v.suspension %} <b>suspension of {{ v.suspension }} for {{ v.suspension_days }} days</b>{% endif %}.</p>
-<p class="mut">The Committee's approval imposes it: no new Board vote is needed. Approving {% if v.fine_amount %}posts the fine to the homeowner's ledger and {% endif %}sends the Notice of Imposition (email and certified mail) to the owner{% if v.owner.tenant_name %} and the tenant{% endif %}. {% if v.fine_amount %}The fine is due 5 days after the letter date.{% endif %}</p>
+<p class="mut">The Committee's approval imposes it: no new Board vote is needed. Approving {% if v.fine_amount %}posts the fine to the homeowner's ledger and {% endif %}sends the Notice of Imposition (email and certified mail) to the owner{% if v.owner.has_tenant %} and the tenant{% endif %}. {% if v.fine_amount %}The fine is due 5 days after the letter date.{% endif %}</p>
 {% if v.fine_amount and not v.ledger_posted_on %}
 {% if ledger_configured %}<form method="post" action="{% url 'violation_action' v.pk 'impose' %}">{% csrf_token %}<input type="hidden" name="method" value="api"><button>Approve, post to Vantaca ledger &amp; send letter</button></form>
 <details style="margin-top:8px"><summary>I already posted it in Vantaca by hand</summary>{% else %}<p class="mut">Automatic posting to Vantaca isn't set up yet. Post the fine to the owner's ledger in Vantaca, then record it here:</p><div>{% endif %}

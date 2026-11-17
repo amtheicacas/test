@@ -20,6 +20,11 @@ def configured():
     return bool(settings.VANTACA_LEDGER_POST_PATH and settings.VANTACA_FINE_CHARGE_CODE and settings.VANTACA_BASE_URL)
 
 
+def account_id(owner):
+    """The Vantaca identifier the ledger posts against: the Account Number by default (VANTACA_LEDGER_ACCOUNT_FIELD)."""
+    return getattr(owner, settings.VANTACA_LEDGER_ACCOUNT_FIELD, "") or owner.account_number or owner.external_id or ""
+
+
 def reference_for(v):
     return f"HOA-VIOL-{v.pk}"  # stable per case, so a retry is recognizable to Vantaca/staff
 
@@ -27,7 +32,7 @@ def reference_for(v):
 def build_body(v, today):
     esc = lambda x: json.dumps(str(x))[1:-1]  # JSON-escape without surrounding quotes
     body = Template(settings.VANTACA_LEDGER_BODY).safe_substitute(
-        account_id=esc(v.owner.external_id), amount=f"{v.fine_amount:.2f}", date=today.isoformat(),
+        account_id=esc(account_id(v.owner)), amount=f"{v.fine_amount:.2f}", date=today.isoformat(),
         description=esc(f"HOA fine - {v.vtype.name} (case #{v.pk})"), reference=esc(reference_for(v)),
         charge_code=esc(settings.VANTACA_FINE_CHARGE_CODE))
     return json.loads(body)
@@ -37,8 +42,8 @@ def post_fine(v, today):
     """Post v.fine_amount to the owner's Vantaca account. Returns the transaction reference."""
     if not configured():
         raise LedgerError("Posting to Vantaca isn't set up yet. Post the fine in Vantaca and record it here.")
-    if not v.owner.external_id:
-        raise LedgerError("This owner has no Vantaca account ID (sync owners from Vantaca first), so the fine can't be posted automatically.")
+    if not account_id(v.owner):
+        raise LedgerError("This owner has no Vantaca account ID (import owners from Vantaca first), so the fine can't be posted automatically.")
     try:
         reply = vantaca.api_request("POST", settings.VANTACA_LEDGER_POST_PATH, build_body(v, today))
     except Exception as e:

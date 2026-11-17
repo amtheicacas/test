@@ -1,3 +1,4 @@
+import re
 import secrets
 from datetime import date
 
@@ -11,29 +12,51 @@ def photo_path(instance, filename):
     return f"photos/{secrets.token_hex(16)}.{ext}"
 
 
+def split_emails(text):
+    """'a@x.com; b@x.com' -> ['a@x.com', 'b@x.com'] (Vantaca separates several addresses with ';')."""
+    seen, out = set(), []
+    for e in re.split(r"[;,\s]+", text or ""):
+        e = e.strip()
+        if e and e.lower() not in seen:
+            seen.add(e.lower())
+            out.append(e)
+    return out
+
+
+def _norm_addr(text):
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
 class Owner(models.Model):
-    name = models.CharField(max_length=200)
-    property_address = models.CharField(max_length=250, unique=True)
+    name = models.CharField(max_length=200, help_text="Homeowner name 1 (as Vantaca lists it).")
+    second_owner_name = models.CharField(max_length=200, blank=True, help_text="Homeowner name 2. Added to letters as the second person.")
+    property_address = models.CharField(max_length=250, unique=True, help_text="The physical address. Default mailing address.")
+    lot_no = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True, help_text="Leave blank to send by mail only.")
+    additional_emails = models.TextField(blank=True, help_text="More owner emails, separated by ';'. All of them get violation emails.")
     phone = models.CharField(max_length=50, blank=True)
-    mailing_address = models.TextField(blank=True, help_text="If different from the property address.")
+    mailing_address = models.TextField(blank=True, help_text="If filled in, US Mail goes here AND to the property address.")
     notes = models.TextField(blank=True)
     city = models.CharField(max_length=80, default="Sarasota")
     state = models.CharField(max_length=2, default="FL")
     zip_code = models.CharField(max_length=10, blank=True)
-    mail_line1 = models.CharField("mailing street", max_length=200, blank=True, help_text="Only if different from the property.")
+    mail_line1 = models.CharField("mailing street", max_length=200, blank=True, help_text="Split out of the mailing address for the print service.")
     mail_city = models.CharField(max_length=80, blank=True)
     mail_state = models.CharField(max_length=2, blank=True)
     mail_zip = models.CharField(max_length=10, blank=True)
     lat = models.FloatField(null=True, blank=True)
     lng = models.FloatField(null=True, blank=True)
-    co_owner_email = models.EmailField(blank=True, help_text="A second owner on the deed. Gets notices and can have their own login.")
-    tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant.")
+    co_owner_email = models.EmailField(blank=True, help_text="Another owner's email. Gets notices and can have their own login.")
+    tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant(s).")
     tenant_email = models.EmailField(blank=True)
+    tenant_additional_emails = models.TextField(blank=True, help_text="More tenant emails, separated by ';'.")
     tenant_phone = models.CharField(max_length=50, blank=True)
+    tenant_start = models.DateField(null=True, blank=True, help_text="Lease start. Before this date the tenant isn't treated as living there.")
+    tenant_end = models.DateField(null=True, blank=True, help_text="Lease end. After this date the tenant no longer gets notices.")
     active = models.BooleanField(default=True, help_text="Untick when the owner has left (the sync does this). Disables their login.")
     external_id = models.CharField(max_length=100, unique=True, null=True, blank=True,
-                                   help_text="Account/homeowner ID in Vantaca (set by sync).")
+                                   help_text="Vantaca Homeowner ID (set by the import / sync).")
+    account_number = models.CharField(max_length=50, blank=True, help_text="Vantaca Account Number.")
     last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -42,24 +65,74 @@ class Owner(models.Model):
     def __str__(self):
         return f"{self.name} — {self.property_address}"
 
+    # ---- who gets the notice ----
+    @property
+    def display_name(self):
+        """Name on letters: name 1, plus name 2 when there is one (and it isn't already part of name 1)."""
+        n2 = self.second_owner_name.strip()
+        if n2 and _norm_addr(n2) not in _norm_addr(self.name):
+            return f"{self.name} & {n2}"
+        return self.name
+
+    @property
+    def all_emails(self):
+        """Every owner email: the main one, the ';'-separated extras and the co-owner's."""
+        return split_emails(";".join(x for x in (self.email, self.additional_emails, self.co_owner_email) if x))
+
+    @property
+    def tenant_emails(self):
+        return split_emails(";".join(x for x in (self.tenant_email, self.tenant_additional_emails) if x))
+
+    @property
+    def has_tenant(self):
+        """A tenant is on record AND the lease (if dates are given) covers today."""
+        if not self.tenant_name.strip():
+            return False
+        today = date.today()
+        return not ((self.tenant_start and self.tenant_start > today) or (self.tenant_end and self.tenant_end < today))
+
+    @property
+    def tenant_lease_ended(self):
+        return bool(self.tenant_name.strip() and self.tenant_end and self.tenant_end < date.today())
+
+    # ---- where it is mailed ----
+    @property
+    def has_separate_mailing(self):
+        m = self.mailing_address.strip()
+        return bool(m) and _norm_addr(m) != _norm_addr(self.property_address) \
+            and _norm_addr(self.property_address) not in _norm_addr(m)
+
+    def _property_postal(self, name):
+        return {"name": name, "line1": self.property_address, "city": self.city, "state": self.state, "zip": self.zip_code}
+
+    def postal(self, kind="property"):
+        """Structured address for the print/mail provider. kind: 'mailing' | 'property' | 'tenant'."""
+        if kind == "tenant":
+            return self._property_postal(self.tenant_name)
+        if kind == "mailing":
+            return {"name": self.display_name, "line1": self.mail_line1, "city": self.mail_city, "state": self.mail_state,
+                    "zip": self.mail_zip}
+        return self._property_postal(self.display_name)
+
+    def owner_mail_kinds(self):
+        """US Mail for the owner goes to the mailing address (when there is one) AND the property address."""
+        return ["mailing", "property"] if self.has_separate_mailing else ["property"]
+
+    def address_block(self, kind="property"):
+        """Printed name-and-address block. kind: 'mailing' | 'property' | 'tenant'."""
+        csz = ", ".join(x for x in (self.city, " ".join(x for x in (self.state, self.zip_code) if x)) if x)
+        if kind == "mailing":
+            return f"{self.display_name}\n{self.mailing_address.strip()}"
+        name = self.tenant_name if kind == "tenant" else self.display_name
+        return f"{name}\n{self.property_address}" + (f"\n{csz}" if csz else "")
+
     @property
     def mail_block(self):
-        return f"{self.name}\n{self.mailing_address.strip() or self.property_address}"
-
-    def postal(self, tenant=False):
-        """Structured address for the print/mail provider."""
-        if tenant:
-            return {"name": self.tenant_name, "line1": self.property_address, "city": self.city,
-                    "state": self.state, "zip": self.zip_code}
-        if self.mail_line1:
-            return {"name": self.name, "line1": self.mail_line1, "city": self.mail_city or self.city,
-                    "state": self.mail_state or self.state, "zip": self.mail_zip or self.zip_code}
-        return {"name": self.name, "line1": self.property_address, "city": self.city,
-                "state": self.state, "zip": self.zip_code}
+        return self.address_block("mailing" if self.has_separate_mailing else "property")
 
     @property
     def tenant_mail_block(self):
-        return f"{self.tenant_name}\n{self.property_address}"
+        return self.address_block("tenant")
 
 
 class ViolationType(models.Model):
@@ -217,7 +290,7 @@ class Violation(models.Model):
     @property
     def non_owner_occupied(self):
         """Rented / occupied by someone other than the owner: the tenant is the addressee and the owner gets a copy."""
-        return bool(self.owner.tenant_name)
+        return self.owner.has_tenant
 
     @property
     def pending_extension(self):

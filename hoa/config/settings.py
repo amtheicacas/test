@@ -166,3 +166,4 @@ VANTACA_FINE_CHARGE_CODE = env("VANTACA_FINE_CHARGE_CODE", "")   # the charge / 
 VANTACA_LEDGER_BODY = env("VANTACA_LEDGER_BODY", '{"accountId": "$account_id", "amount": $amount, "chargeCode": "$charge_code", '
                           '"date": "$date", "description": "$description", "reference": "$reference"}')
 VANTACA_LEDGER_REF_KEY = env("VANTACA_LEDGER_REF_KEY", "id")     # key in Vantaca's reply holding the transaction id
+VANTACA_LEDGER_ACCOUNT_FIELD = env("VANTACA_LEDGER_ACCOUNT_FIELD", "account_number")  # or "external_id" (Homeowner ID)

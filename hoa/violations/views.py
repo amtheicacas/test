@@ -312,7 +312,7 @@ def violation_action(request, pk, action):
             n = _run(request, services.finalize_imposition, v, u, f.cleaned_data["method"], f.cleaned_data["reference"])
             if n is not None:
                 messages.success(request, "Approved. " + ("Fine posted to the ledger. " if v.fine_amount else "")
-                                 + "The Notice of Imposition was sent to the owner" + (" and tenant" if v.owner.tenant_name else "") + ".")
+                                 + "The Notice of Imposition was sent to the owner" + (" and tenant" if v.owner.has_tenant else "") + ".")
     elif action == "urgent":
         _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
     elif action == "payment":
@@ -351,7 +351,7 @@ def notice_pdf(request, pk):
     notice = get_object_or_404(Notice.objects.select_related("violation"), pk=pk)
     if not can_view(request.user, notice.violation):
         raise PermissionDenied
-    to = "tenant" if (request.GET.get("to") == "tenant" and accounts.role_of(request.user) in STAFF) else "owner"
+    to = request.GET.get("to") if request.GET.get("to") in ("tenant", "owner_property") and accounts.role_of(request.user) in STAFF else "owner"
     return HttpResponse(render_notice_pdf(notice, to), content_type="application/pdf",
                         headers={"Content-Disposition": f'inline; filename="case-{notice.violation_id}-{notice.kind}.pdf"'})
 
@@ -554,7 +554,7 @@ def map_data():
             color = "green"
         else:
             color = "gray"
-        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng, "rented": bool(o.tenant_name),
+        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng, "rented": o.has_tenant,
                     "color": color, "open": len(active), "resolved": len(vs) - len(active),
                     "cases": [{"id": v.pk, "type": v.vtype.name, "status": v.get_status_display(), "url": v.get_absolute_url(),
                                "resolved": v.status in RESOLVED} for v in vs]})
@@ -650,11 +650,16 @@ def import_owners(request):
 
 @manager_only
 def import_template(request):
-    cols = ["Account ID", "Owner Name", "Property Address", "City", "State", "ZIP", "Email", "Phone", "Co-owner Email",
-            "Mailing Street", "Mailing City", "Mailing State", "Mailing ZIP", "Tenant Name", "Tenant Email", "Tenant Phone"]
-    ex = ["V-1001", "Pat Owner & Sam Owner", "12 Heron Way", "Sarasota", "FL", "34241", "pat@example.com", "941-555-0100",
-          "sam@example.com", "", "", "", "", "", "", ""]
-    return HttpResponse(",".join(cols) + "\n" + ",".join(ex) + "\n", content_type="text/csv",
+    cols = ["Homeowner ID", "Account Number", "Homeowner(s)", "Address", "Mailing Address", "Street No", "Address 1", "City", "State",
+            "Zip", "First Name", "Last Name", "Second Owner First Name", "Second Owner Last Name", "Mailing Address 1", "Lot No",
+            "Phone", "Email", "Tenant Name(s)", "Tenant Email(s)", "Tenant Phone(s)", "Tenant Min Start Date", "Tenant Min End Date"]
+    ex = ["H1001", "A-1001", "Pat Owner", "7335 Great Egret Blvd #52", "PO Box 5, Tampa, FL 33601", "", "", "Sarasota", "FL", "34241",
+          "Pat", "Owner", "Sam", "Owner", "", "52", "941-555-0100", "pat@example.com;pat.work@example.com", "", "", "", "", ""]
+    import csv as _csv
+    import io as _io
+    buf = _io.StringIO()
+    _csv.writer(buf).writerows([cols, ex])
+    return HttpResponse(buf.getvalue(), content_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="heron-landing-owner-template.csv"'})
 
 

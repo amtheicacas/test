@@ -65,25 +65,25 @@ def invite_owner(owner, request=None):
     """Create the owner's login from the email on file (first login for a household). Returns True if sent."""
     if not owner.email or not owner.active or owner.profiles.exists():
         return False
-    return invite_member(owner, owner.email, owner.name, "owner", request) is not None
+    return invite_member(owner, owner.email, owner.display_name, "owner", request) is not None
 
 
 def _relationship_for(owner, email):
     e = email.lower()
     if owner.email.lower() == e:
         return "owner"
-    if owner.co_owner_email.lower() == e:
-        return "co_owner"
-    if owner.tenant_email.lower() == e:
+    if e in {x.lower() for x in owner.tenant_emails}:
         return "tenant"
-    return "other"
+    return "co_owner" if e in {x.lower() for x in owner.all_emails} else "other"
 
 
 def household_for_email(email):
-    """The active owner record that lists this email (owner, co-owner or tenant), or None."""
+    """The active owner record that lists this email (any owner email, the co-owner's or a tenant's), or None."""
+    import re
     from django.db.models import Q
-    return Owner.objects.filter(Q(email__iexact=email) | Q(co_owner_email__iexact=email) | Q(tenant_email__iexact=email),
-                                active=True).first()
+    pat = r"(^|[;,\s])" + re.escape(email) + r"($|[;,\s])"
+    return Owner.objects.filter(Q(email__iexact=email) | Q(co_owner_email__iexact=email) | Q(tenant_email__iexact=email)
+                                | Q(additional_emails__iregex=pat) | Q(tenant_additional_emails__iregex=pat), active=True).first()
 
 
 def send_access_link(email, request=None):
@@ -96,7 +96,7 @@ def send_access_link(email, request=None):
         if user.is_active:
             _email_link(user.email, request)
         return True
-    name = owner.tenant_name if _relationship_for(owner, email) == "tenant" else owner.name
+    name = owner.tenant_name if _relationship_for(owner, email) == "tenant" else owner.display_name
     return invite_member(owner, email, name, _relationship_for(owner, email), request) is not None
 
 
