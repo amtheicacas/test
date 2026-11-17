@@ -257,7 +257,8 @@ def test_map_api_colors_and_data(client):
     login(client, "board")
     homes = {h["address"]: h for h in client.get("/api/map/").json()["homes"]}
     assert [homes[a]["color"] for a in ["1 A St", "2 A St", "3 A St", "4 A St"]] == ["red", "orange", "green", "gray"]
-    assert "5 A St" not in homes and homes["3 A St"]["resolved"] == 1
+    assert homes["5 A St"]["lat"] is None and homes["5 A St"]["color"] == "gray"  # no street coordinates yet, but still listed (the site plan needs no coordinates)
+    assert homes["3 A St"]["resolved"] == 1
     assert client.get("/map/").status_code == 200
 
 

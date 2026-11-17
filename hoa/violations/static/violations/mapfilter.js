@@ -43,15 +43,27 @@
     return counts;
   }
 
-  /* Text beside a home when the Address and/or Lot no. toggles are on ("" when neither is, or the data is missing). */
+  var ABBR = [[/\bBoulevard\b/gi, "Blvd"], [/\bDrive\b/gi, "Dr"], [/\bCourt\b/gi, "Ct"], [/\bStreet\b/gi, "St"], [/\bLane\b/gi, "Ln"],
+              [/\bRoad\b/gi, "Rd"], [/\bAvenue\b/gi, "Ave"], [/\bCircle\b/gi, "Cir"], [/\bTerrace\b/gi, "Ter"]];
+
+  /* Compact form for the crowded site plan: "6632 Dovekey Drive #13" -> "6632 Dovekey Dr" (the unit is the lot number shown in the box). */
+  function shortAddress(a, lot) {
+    var t = String(a || "");
+    ABBR.forEach(function (r) { t = t.replace(r[0], r[1]); });
+    if (lot) t = t.replace(new RegExp("\\s*#\\s*" + String(parseInt(lot, 10)) + "\\s*$"), "");
+    return t.trim();
+  }
+
+  /* Text beside a home when the Address and/or Lot no. toggles are on ("" when neither is, or the data is missing).
+     o.short gives the compact address used on the site plan. */
   function labelText(home, o) {
     var parts = [];
     if (o.lot && home.lot) parts.push("Lot " + home.lot);
-    if (o.address && home.address) parts.push(home.address);
+    if (o.address && home.address) parts.push(o.short ? shortAddress(home.address, home.lot) : home.address);
     return parts.join(" · ");
   }
 
-  var api = { homeView: homeView, stageCounts: stageCounts, colorOf: colorOf, labelText: labelText };
+  var api = { homeView: homeView, stageCounts: stageCounts, colorOf: colorOf, labelText: labelText, shortAddress: shortAddress };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.MapFilter = api;
 })(typeof window !== "undefined" ? window : this);

@@ -543,8 +543,8 @@ def _issued_on(v):
 
 
 def map_data():
-    owners = (Owner.objects.exclude(lat__isnull=True).exclude(lng__isnull=True)
-              .prefetch_related("violations__vtype", "violations__notices"))
+    # Every active home, with or without street coordinates: the Site plan goes by lot number, the street / satellite maps need lat/lng.
+    owners = Owner.objects.filter(active=True).prefetch_related("violations__vtype", "violations__notices")
     out = []
     for o in owners:
         vs = [v for v in o.violations.all() if v.status != S.DRAFT]
@@ -570,6 +570,8 @@ def _spread(homes):
     import math
     groups = {}
     for h in homes:
+        if h["lat"] is None or h["lng"] is None:
+            continue
         groups.setdefault((round(h["lat"], 5), round(h["lng"], 5)), []).append(h)
     for hs in groups.values():
         if len(hs) > 1:

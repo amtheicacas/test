@@ -539,13 +539,15 @@ def test_label_text_in_javascript():
     script = r"""
 const F = require(process.argv[1]);
 const h = {address: "6632 Dovekey Drive #13", lot: "13"};
-const out = [F.labelText(h,{address:true,lot:true}), F.labelText(h,{address:true,lot:false}), F.labelText(h,{address:false,lot:true}),
+const out = [F.shortAddress("6632 Dovekey Drive #13","13"), F.shortAddress("7233 Great Egret Boulevard #8","8"), F.shortAddress("6809 Dunlin Court #68","68"),
+  F.shortAddress("100 Main Street Unit 5","5"), F.labelText(h,{address:true,lot:false,short:true}), F.labelText(h,{address:true,lot:true}), F.labelText(h,{address:true,lot:false}), F.labelText(h,{address:false,lot:true}),
   F.labelText(h,{address:false,lot:false}), F.labelText({address:"1 A St", lot:""},{address:true,lot:true}), F.labelText({address:"1 A St", lot:""},{address:false,lot:true})];
 console.log(JSON.stringify(out));
 """
     r = subprocess.run([node, "-e", script, str(js)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert json.loads(r.stdout) == ["Lot 13 · 6632 Dovekey Drive #13", "6632 Dovekey Drive #13", "Lot 13", "", "1 A St", ""]
+    assert json.loads(r.stdout) == ["6632 Dovekey Dr", "7233 Great Egret Blvd", "6809 Dunlin Ct", "100 Main St Unit 5", "6632 Dovekey Dr",
+                                    "Lot 13 · 6632 Dovekey Drive #13", "6632 Dovekey Drive #13", "Lot 13", "", "1 A St", ""]
 
 
 # ---------- the site plan view ----------
@@ -567,3 +569,16 @@ def test_map_page_carries_the_site_plan(client):
     page = client.get("/map/").content.decode()
     assert 'id="plan-config"' in page and "site-plan.png" in page and 'id="plan"' in page and "artist&#x27;s rendering" in page.replace("'", "&#x27;")
     assert '"57"' in page  # the lot positions are embedded for the page's script
+
+
+def test_homes_without_street_coordinates_still_reach_the_site_plan(client):
+    """The first-time situation: owners imported, 'Locate homes' not run yet. The site plan must still show every home with a lot."""
+    manager(client)
+    for lot in (1, 2, 3):
+        Owner.objects.create(name=f"O{lot}", property_address=f"{lot} Egret Blvd #{lot}", lot_no=str(lot))   # no lat / lng
+    Owner.objects.create(name="Gone", property_address="9 Old St", lot_no="9", active=False)
+    homes = client.get("/api/map/").json()["homes"]
+    assert sorted(h["lot"] for h in homes) == ["1", "2", "3"]                      # active homes only
+    assert all(h["lat"] is None and h["lng"] is None for h in homes)               # no crash while spreading shared coordinates
+    page = client.get("/map/").content.decode()
+    assert "3 home(s) are not on the street / satellite maps yet" in page

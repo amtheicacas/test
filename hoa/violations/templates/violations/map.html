@@ -32,10 +32,12 @@
 #plan{background:#fff}
 .hbox{min-width:18px;height:14px;border:2px solid #fff;border-radius:3px;box-shadow:0 0 0 1px #5f6368;box-sizing:border-box;
   font:700 11px/10px system-ui,sans-serif;color:#fff;text-align:center;overflow:hidden;white-space:nowrap}
-.hbox.plan{width:30px;height:20px;line-height:16px;font-size:12px}
+.hbox.plan{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:30px;height:20px;line-height:16px;font-size:12px}
+#plan.zoomed .hbox.plan{width:44px;height:30px;line-height:26px;font-size:16px;border-width:3px}
 .hbox.gray{color:#1d2430}
 .home-label{background:transparent;border:0;box-shadow:none;font:600 11px/1.1 system-ui,sans-serif;color:#0b0b0c;white-space:nowrap;
   text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff,0 0 3px #fff;pointer-events:none}
+.plan-label{text-align:center;font-size:10px}
 .dark-labels .home-label{color:#fff;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 3px #000}
 </style>
 {{ tiles|json_script:"tile-config" }}
@@ -67,9 +69,9 @@ var planMap=L.map("plan",{crs:L.CRS.Simple,minZoom:-2,maxZoom:3,zoomSnap:.25,att
 L.imageOverlay("{% static 'violations/site-plan.png' %}",PB).addTo(planMap);
 var geoMap=L.map("map",{maxZoom:22});
 var BOARDS={
-  plan:{map:planMap,box:true,labelMinZoom:-.25,items:[],labels:L.layerGroup().addTo(planMap),
+  plan:{map:planMap,box:true,labelMinZoom:1,items:[],labels:L.layerGroup().addTo(planMap),
         toPoint:function(h){var p=PLAN.lots[String(parseInt(h.lot,10))];return p?[PH-p[1]*PH,p[0]*PW]:null;}},
-  geo:{map:geoMap,box:false,labelMinZoom:17,items:[],labels:L.layerGroup().addTo(geoMap),toPoint:function(h){return [h.lat,h.lng];}}
+  geo:{map:geoMap,box:false,labelMinZoom:17,items:[],labels:L.layerGroup().addTo(geoMap),toPoint:function(h){return (h.lat==null||h.lng==null)?null:[h.lat,h.lng];}}
 };
 
 function tilesFor(view){
@@ -96,15 +98,16 @@ function paint(B,x,color){
 
 function updateLabels(B){
   B.labels.clearLayers();
-  var o={address:$("lbl-address").checked,lot:B.box?false:$("lbl-lot").checked};   // on the site plan the lot number is inside each box
+  var o={address:$("lbl-address").checked,lot:B.box?false:$("lbl-lot").checked,short:B.box};   // on the site plan the lot number is inside each box
   if(B!==BOARDS[curView==="plan"?"plan":"geo"])return;
   if(!o.address&&!o.lot){$("lbl-hint").textContent="";return;}
-  if(B.map.getZoom()<B.labelMinZoom){$("lbl-hint").textContent="Zoom in to see labels.";return;}
+  if(B.map.getZoom()<B.labelMinZoom){$("lbl-hint").textContent="Zoom in to see address labels.";return;}
   $("lbl-hint").textContent="";
   B.items.forEach(function(x){
     if(!B.map.hasLayer(x.m))return;
     var t=MapFilter.labelText(x.h,o);if(!t)return;
-    L.marker(x.p,{interactive:false,keyboard:false,icon:L.divIcon({className:"home-label",html:esc(t),iconSize:null,iconAnchor:[B.box?-20:-12,6]})}).addTo(B.labels);
+    L.marker(x.p,{interactive:false,keyboard:false,icon:B.box?L.divIcon({className:"home-label plan-label",html:esc(t),iconSize:[130,14],iconAnchor:[65,-22]})   // centred under the box
+             :L.divIcon({className:"home-label",html:esc(t),iconSize:null,iconAnchor:[-12,6]})}).addTo(B.labels);
   });
 }
 
@@ -156,9 +159,11 @@ fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){
  $("lbl-address").checked=remember("lbl-address")==="1";
  var lot=remember("lbl-lot");$("lbl-lot").checked=(lot===null||lot==="1");   // lot numbers on by default: it reads like the plat
  document.querySelectorAll(".stage,#days,#show-empty").forEach(function(el){el.addEventListener("change",render);});
- document.querySelectorAll("#lbl-address,#lbl-lot").forEach(function(el){el.addEventListener("change",function(){remember(el.id,el.checked?"1":"0");render();});});
+ document.querySelectorAll("#lbl-address,#lbl-lot").forEach(function(el){el.addEventListener("change",function(){remember(el.id,el.checked?"1":"0");
+   if(el.id==="lbl-address"&&el.checked){var B=curView==="plan"?BOARDS.plan:BOARDS.geo;if(B.map.getZoom()<B.labelMinZoom)B.map.setZoom(B.labelMinZoom);}  // zoom in so the labels can be read
+   render();});});
  document.querySelectorAll("input[name=view]").forEach(function(r){r.addEventListener("change",function(){setView(r.value);});});
- planMap.on("zoomend",function(){updateLabels(BOARDS.plan);});geoMap.on("zoomend",function(){updateLabels(BOARDS.geo);});
+ var sizeBoxes=function(){$("plan").classList.toggle("zoomed",planMap.getZoom()>=0.75);};planMap.on("zoomend",function(){sizeBoxes();updateLabels(BOARDS.plan);});sizeBoxes();geoMap.on("zoomend",function(){updateLabels(BOARDS.geo);});
  $("stages-all").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=true});render();};
  $("stages-none").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=false});render();};
  $("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;var B=curView==="plan"?BOARDS.plan:BOARDS.geo;
