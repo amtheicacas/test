@@ -134,6 +134,7 @@ class Violation(models.Model):
     cure_required = models.TextField(help_text="What the owner must do to cure.")
     cure_days = models.PositiveIntegerField(default=15, help_text="Days allowed to cure from the notice date.")
     cure_deadline = models.DateField(null=True, blank=True)
+    extended_days = models.PositiveIntegerField(default=0, help_text="Total days added to the cure period by approved extensions.")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     token = models.CharField(max_length=64, unique=True, editable=False, default=secrets.token_urlsafe)
 
@@ -201,6 +202,15 @@ class Violation(models.Model):
             return "Sent to legal"
         return ""
 
+    @property
+    def pending_extension(self):
+        """The owner's oldest unanswered request for more time, if any."""
+        return self.responses.filter(extension_requested=True, handled=False).first()
+
+    @property
+    def total_cure_days(self):
+        return self.cure_days + self.extended_days
+
     def get_absolute_url(self):
         return reverse("violation_detail", args=[self.pk])
 
@@ -264,10 +274,22 @@ class Response(models.Model):
     cure_reported = models.BooleanField(default=False, help_text="Owner says it is fixed; needs reinspection.")
     attorney_notice = models.BooleanField(default=False, help_text="Owner will bring an attorney to the hearing.")
     handled = models.BooleanField(default=False, help_text="Staff has dealt with this request.")
+    decision = models.CharField(max_length=10, blank=True, choices=[("approved", "Approved"), ("declined", "Declined")])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["created_at"]
+
+
+class Reminder(models.Model):
+    """One cure-deadline reminder per case, deadline and threshold, so the daily job never double-sends."""
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="reminders")
+    deadline = models.DateField()
+    days_before = models.PositiveSmallIntegerField()
+    sent_at = models.DateTimeField(null=True, blank=True, help_text="Empty if skipped because a later reminder went out instead.")
+
+    class Meta:
+        unique_together = ("violation", "deadline", "days_before")
 
 
 class Event(models.Model):

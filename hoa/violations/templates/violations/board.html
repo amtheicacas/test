@@ -4,6 +4,7 @@
 {% for v in violations %}<div class="card"><h2><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a> — {{ v.owner.property_address }}</h2>
 <p>{{ v.description }}<br><span class="mut">Cure deadline was {{ v.cure_deadline|date:"M j, Y" }}.</span></p>
 {% for r in v.responses.all %}<p class="mut">{% if r.from_resident %}Owner{% else %}Staff{% endif %}: {{ r.message }}</p>{% endfor %}
+{% include "violations/_extension_request.html" with next=request.path %}
 <form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'board_queue' %}">
 <div class="row">{% for f in board_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>
 {% empty %}<div class="card mut">Nothing awaiting a board vote.</div>{% endfor %}

@@ -220,7 +220,7 @@ def violation_detail(request, pk):
         "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
         "hold_form": forms.HoldForm(),
         "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
-        "pending_ext": v.responses.filter(extension_requested=True, handled=False).first(),
+        "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
     }
     return render(request, "violations/detail.html", ctx)
 
@@ -254,19 +254,38 @@ def violation_action(request, pk, action):
     elif action == "extension":
         f = forms.ExtensionForm(P)
         if f.is_valid():
-            _run(request, services.grant_extension, v, f.cleaned_data["new_deadline"], u,
-                 f.cleaned_data["reason"], second_notice=f.cleaned_data["second_notice"],
-                 ok="New deadline set and notice sent.")
+            d = f.cleaned_data
+            _run(request, services.grant_extension, v, None if d["days"] else d["new_deadline"], u, d["reason"],
+                 second_notice=d["second_notice"], days=d["days"], ok="More time granted and the owner notified.")
+        else:
+            messages.error(request, "Enter the days to add, or an exact new deadline.")
+    elif action in ("ext_approve", "ext_decline"):
+        resp = Response.objects.filter(pk=P.get("response_id") or 0, violation=v, extension_requested=True, handled=False).first()
+        if not resp:
+            messages.error(request, "That request has already been answered.")
+        elif action == "ext_approve":
+            f = forms.ExtApproveForm(P)
+            if f.is_valid():
+                d = f.cleaned_data
+                _run(request, services.grant_extension, v, None if d["days"] else d["new_deadline"], u, d["note"],
+                     second_notice=d["second_notice"], days=d["days"], response=resp,
+                     ok=f"Approved. New cure deadline {v.cure_deadline:%b %d, %Y}; the owner has been notified.")
+                v.refresh_from_db()
+            else:
+                messages.error(request, "Enter the days to add, or an exact new deadline.")
+        else:
+            _run(request, services.decline_extension, v, resp, P.get("reason", ""), u, ok="Request declined; the owner has been told.")
+        return redirect(request.POST.get("next") or v)
     elif action == "board":
         f = forms.BoardForm(P)
         if f.is_valid():
             d = f.cleaned_data
             if d["decision"] == "extend":
-                if not d["new_deadline"]:
-                    messages.error(request, "Enter the new cure deadline.")
+                if not (d["extension_days"] or d["new_deadline"]):
+                    messages.error(request, "Enter the days to add, or an exact new deadline.")
                 else:
-                    _run(request, services.grant_extension, v, d["new_deadline"], u, f"board {d['meeting_date']}",
-                         ok="Board granted more time.")
+                    _run(request, services.grant_extension, v, None if d["extension_days"] else d["new_deadline"], u,
+                         f"board {d['meeting_date']}", days=d["extension_days"], ok="Board granted more time.")
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
                      fine=d["proposed_fine"], suspension=d["proposed_suspension"],
@@ -329,6 +348,7 @@ def board_queue(request):
     services.advance_expired()
     vs = Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype")
     return render(request, "violations/board.html", {"violations": vs, "board_form": forms.BoardForm(),
+                                                      "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
                                                       "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED)})
 
 

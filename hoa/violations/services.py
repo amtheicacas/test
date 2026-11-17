@@ -15,7 +15,7 @@ from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Event, Notice, Response, Violation
+from .models import Event, Notice, Reminder, Response, Violation
 from . import mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
@@ -152,21 +152,97 @@ def dismiss(v, user=None, note=""):
     log(v, "Dismissed (no violation / withdrawn)" + (f": {note}" if note else ""), user)
 
 
+def _email_owner(v, subject, body):
+    """Plain email to the owner (and tenant). Returns the recipients."""
+    to = [e for e in (v.owner.email, v.owner.tenant_email) if e]
+    if to:
+        sign = (f"\n\n{', '.join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)}\n"
+                if (settings.HOA_CONTACT_EMAIL or settings.HOA_PHONE) else "\n\n")
+        EmailMessage(subject, f"Dear {v.owner.name},\n\n{body}\n\nView your case or reply: {v.resident_url()}"
+                     f"{sign}On behalf of the Board of Directors\n{settings.HOA_NAME}",
+                     settings.DEFAULT_FROM_EMAIL, to).send()
+    return to
+
+
 @transaction.atomic
-def grant_extension(v, new_deadline, user=None, reason="", notify=True, second_notice=False):
-    """New deadline. As a 'second notice' it re-sends the full Notice of Violation (optional step in the process)."""
+def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, second_notice=False, days=None, response=None):
+    """Give more time. Either `days` (added to the CURRENT deadline, so the case ages as if the cure period had always
+    been that long) or an exact `new_deadline`. As a 'second notice' it re-sends the full Notice of Violation."""
     _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
-    if new_deadline <= date.today():
-        raise WorkflowError("New deadline must be in the future.")
     old = v.cure_deadline
+    if days is not None:
+        if days < 1:
+            raise WorkflowError("Enter at least 1 day.")
+        if not old:
+            raise WorkflowError("This case has no cure deadline to extend.")
+        new_deadline = old + timedelta(days=days)
+    if new_deadline is None:
+        raise WorkflowError("Enter the number of days to add, or an exact new deadline.")
+    if new_deadline <= date.today():
+        raise WorkflowError(f"The new deadline ({new_deadline:%b %d, %Y}) would already be in the past. "
+                            "Enter a later exact date, or more days.")
+    added = (new_deadline - old).days if old else 0
+    v.extended_days += max(added, 0)
     v.cure_deadline, v.status = new_deadline, S.NOTICE_SENT
     v.board_meeting_date = None
     v.save()
     v.responses.filter(extension_requested=True, handled=False).update(handled=True)
-    log(v, f"Cure deadline {'reset' if second_notice else 'extended'} {old:%b %d} → {new_deadline:%b %d, %Y}"
+    if response is not None:
+        Response.objects.filter(pk=response.pk).update(handled=True, decision="approved")
+    else:
+        v.responses.filter(extension_requested=True, decision="", handled=True).update(decision="approved")
+    log(v, f"Cure deadline {'reset' if second_notice else 'extended'}"
+        + (f" by {added} days" if added > 0 else "") + f": {old:%b %d} → {new_deadline:%b %d, %Y}"
         + (f" ({reason})" if reason else ""), user)
     if notify:
         send_notice(v, Notice.Kind.SECOND if second_notice else Notice.Kind.EXTENSION, user)
+
+
+@transaction.atomic
+def decline_extension(v, response, reason="", user=None):
+    """Say no to a request for more time. The owner gets the reason in the portal and by email."""
+    _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
+    Response.objects.filter(pk=response.pk).update(handled=True, decision="declined")
+    msg = (f"Your request for more time on the violation at {v.owner.property_address} was not approved. "
+           + (f"Reason: {reason.strip()} " if reason.strip() else "")
+           + (f"The cure deadline remains {v.cure_deadline:%B %d, %Y}." if v.status == S.NOTICE_SENT and v.cure_deadline
+              else "The case continues through the Association's process."))
+    Response.objects.create(violation=v, from_resident=False, author=user, message=msg)
+    log(v, "Extension request declined" + (f": {reason.strip()}" if reason.strip() else ""), user)
+    _email_owner(v, f"Your request for more time - {v.owner.property_address}", msg)
+
+
+def send_cure_reminders(today=None):
+    """Daily job: email owners as the cure deadline approaches (REMINDER_DAYS, default 7 and 2 days before).
+    One reminder per threshold; if the job missed days, only the most urgent unsent one goes out. Not sent while a case
+    is on hold, after the deadline, or when the owner has already said it's fixed and is awaiting reinspection."""
+    today = today or date.today()
+    sent = 0
+    for v in Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__gte=today).select_related("owner", "vtype"):
+        left = (v.cure_deadline - today).days
+        due = [d for d in sorted(settings.REMINDER_DAYS) if left <= d]  # most urgent threshold first
+        if not due:
+            continue
+        done = set(v.reminders.filter(deadline=v.cure_deadline).values_list("days_before", flat=True))
+        todo = [d for d in due if d not in done]
+        if not todo:
+            continue
+        mark = lambda sent_at: [Reminder.objects.get_or_create(violation=v, deadline=v.cure_deadline, days_before=d,
+                                                                defaults={"sent_at": sent_at if d == todo[0] else None})
+                                for d in todo]  # the rest are recorded as skipped so they never fire later
+        if v.responses.filter(cure_reported=True, handled=False).exists() or not (v.owner.email or v.owner.tenant_email):
+            mark(None)
+            continue
+        when = "today" if left == 0 else "tomorrow" if left == 1 else f"in {left} days"
+        _email_owner(v, f"Reminder: violation at {v.owner.property_address} is due {when}",
+                     f"This is a friendly reminder that the {v.vtype.name.lower()} violation at {v.owner.property_address} "
+                     f"must be corrected by {v.cure_deadline:%A, %B %d, %Y} ({when}).\n\nRequired cure: {v.cure_required}\n\n"
+                     "If you have already corrected it, please tell us (a photo helps) so it can be reinspected. If you need more "
+                     "time, please ask before the deadline. After the deadline the matter may be referred to the Board of Directors.")
+        mark(timezone.now())
+        log(v, f"Reminder emailed to owner ({left} day{'s' if left != 1 else ''} left)")
+        sent += 1
+    return sent
 
 
 def add_response(v, message, *, from_resident, user=None, extension_requested=False, extension_days=None,

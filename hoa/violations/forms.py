@@ -36,9 +36,35 @@ class DateInput(forms.DateInput):
 
 
 class ExtensionForm(forms.Form):
-    new_deadline = forms.DateField(widget=DateInput)
+    days = forms.IntegerField(required=False, min_value=1, max_value=365, label="Add this many days to the deadline")
+    new_deadline = forms.DateField(widget=DateInput, required=False, label="...or set an exact new deadline")
     second_notice = forms.BooleanField(required=False, label="Send as a full second Notice of Violation (otherwise a short extension letter)")
     reason = forms.CharField(required=False)
+
+    def clean(self):
+        d = super().clean()
+        if not d.get("days") and not d.get("new_deadline"):
+            raise forms.ValidationError("Enter the days to add, or an exact new deadline.")
+        return d
+
+
+class ExtApproveForm(forms.Form):
+    response_id = forms.IntegerField(widget=forms.HiddenInput)
+    days = forms.IntegerField(required=False, min_value=1, max_value=365, label="Days to add (edit if different)")
+    new_deadline = forms.DateField(widget=DateInput, required=False, label="or exact new deadline (optional)")
+    second_notice = forms.BooleanField(required=False, label="Send as a full second Notice of Violation")
+    note = forms.CharField(required=False, label="Note for the record (optional)")
+
+    def clean(self):
+        d = super().clean()
+        if not d.get("days") and not d.get("new_deadline"):
+            raise forms.ValidationError("Enter the days to add, or an exact new deadline.")
+        return d
+
+
+class ExtDeclineForm(forms.Form):
+    response_id = forms.IntegerField(widget=forms.HiddenInput)
+    reason = forms.CharField(required=False, label="Reason (the owner will see this)")
 
 
 class ReplyForm(forms.Form):
@@ -68,7 +94,8 @@ class BoardForm(forms.Form):
     proposed_fine = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=8,
                                        label="Proposed fine ($; up to $100/day, $1,000 total)")
     proposed_suspension = forms.CharField(required=False, label="Proposed suspension (if any)")
-    new_deadline = forms.DateField(widget=DateInput, required=False, label="New cure deadline (if granting time)")
+    extension_days = forms.IntegerField(required=False, min_value=1, max_value=365, label="Days to add (if granting time)")
+    new_deadline = forms.DateField(widget=DateInput, required=False, label="or exact new deadline (if granting time)")
     note = forms.CharField(required=False)
 
 
@@ -105,3 +132,9 @@ class ResidentForm(forms.Form):
     request_extension = forms.BooleanField(required=False, label="I need more time to cure")
     attorney_notice = forms.BooleanField(required=False, label="I will bring an attorney to the hearing")
     extension_days = forms.IntegerField(required=False, min_value=1, max_value=180, label="How many more days?")
+
+    def clean(self):
+        d = super().clean()
+        if d.get("request_extension") and not d.get("extension_days"):
+            self.add_error("extension_days", "Tell us how many more days you need.")
+        return d

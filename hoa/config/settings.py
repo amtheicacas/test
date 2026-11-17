@@ -144,3 +144,7 @@ HOA_ADDRESS_ZIP = env("HOA_ADDRESS_ZIP", env("HOA_RETURN_ZIP", ""))
 HOA_PHONE = env("HOA_PHONE", "")
 HOA_WEBSITE = env("HOA_WEBSITE", "")
 HOA_CONTACT_EMAIL = env("HOA_CONTACT_EMAIL", "")   # where owners send the response form
+
+# ---- Cure-deadline reminder emails -------------------------------------
+# Days before the deadline to email the owner (and tenant), e.g. "7,2" on a 15-day cure period.
+REMINDER_DAYS = tuple(sorted({int(x) for x in env("REMINDER_DAYS", "7,2").split(",") if x.strip()}, reverse=True))
