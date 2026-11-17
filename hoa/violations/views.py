@@ -525,11 +525,26 @@ def resident_photo(request, token, pk):
 
 # ---------- map ----------
 RESOLVED = (S.CURED, S.CLOSED, S.DISMISSED, S.FINE_REJECTED)
-SERIOUS = (S.PENDING_BOARD, S.HEARING_NEEDED, S.HEARING_SCHEDULED, S.FINE_APPROVED, S.REFERRED_LEGAL)
+SERIOUS = (S.PENDING_BOARD, S.HEARING_NEEDED, S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.REFERRED_LEGAL)
+
+# Stages offered as map filters (same steps as the progress tracker, plus the two flags).
+MAP_STAGES = [("cure", "Notice issued / cure period"), ("board", "Board review / fine issued by Board"),
+              ("committee", "Sent to Compliance Committee / hearing"), ("imposed", "Fine imposed & posted to ledger"),
+              ("hold", "On hold"), ("legal", "Sent to legal"), ("resolved", "Resolved / closed")]
+STAGE_OF = {S.NOTICE_SENT: "cure", S.PENDING_BOARD: "board", S.HEARING_NEEDED: "board", S.HEARING_SCHEDULED: "committee",
+            S.LEDGER_PENDING: "imposed", S.FINE_APPROVED: "imposed", S.ON_HOLD: "hold", S.REFERRED_LEGAL: "legal",
+            S.CURED: "resolved", S.CLOSED: "resolved", S.DISMISSED: "resolved", S.FINE_REJECTED: "resolved"}
+
+
+def _issued_on(v):
+    """When the violation was issued: the first Notice of Violation, else when it was recorded."""
+    n = next((n for n in v.notices.all() if n.kind == "violation"), None)
+    return timezone.localtime(n.created_at if n else v.created_at).date()
 
 
 def map_data():
-    owners = Owner.objects.exclude(lat__isnull=True).exclude(lng__isnull=True).prefetch_related("violations__vtype")
+    owners = (Owner.objects.exclude(lat__isnull=True).exclude(lng__isnull=True)
+              .prefetch_related("violations__vtype", "violations__notices"))
     out = []
     for o in owners:
         vs = [v for v in o.violations.all() if v.status != S.DRAFT]
@@ -545,7 +560,8 @@ def map_data():
         out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng, "rented": o.has_tenant,
                     "color": color, "open": len(active), "resolved": len(vs) - len(active),
                     "cases": [{"id": v.pk, "type": v.vtype.name, "status": v.get_status_display(), "url": v.get_absolute_url(),
-                               "resolved": v.status in RESOLVED} for v in vs]})
+                               "resolved": v.status in RESOLVED, "stage": STAGE_OF[v.status], "date": _issued_on(v).isoformat()}
+                              for v in vs]})
     return out
 
 
@@ -569,6 +585,7 @@ def _spread(homes):
 def map_page(request):
     return render(request, "violations/map.html", {
         "missing": Owner.objects.filter(lat__isnull=True, active=True).count(),
+        "stages": MAP_STAGES, "ranges": [30, 60, 90, 180],
         "tiles": {"url": settings.MAP_TILE_URL, "attr": settings.MAP_TILE_ATTRIBUTION,
                   "fallback_url": settings.MAP_TILE_FALLBACK_URL, "fallback_attr": settings.MAP_TILE_FALLBACK_ATTRIBUTION}})
 

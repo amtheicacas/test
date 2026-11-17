@@ -1,33 +1,72 @@
-{% extends "violations/base.html" %}{% block title %}Map{% endblock %}{% block content %}
+{% extends "violations/base.html" %}{% load static %}{% block title %}Map{% endblock %}{% block content %}
 <h1>Neighborhood map</h1>
-<p class="mut"><span style="color:#d92d20">●</span> with board / committee / fine / legal &nbsp; <span style="color:#f79009">●</span> open, in cure period or on hold &nbsp; <span style="color:#12b76a">●</span> resolved &nbsp; <span style="color:#98a2b3">●</span> no violations. Hover a home for details; click for cases.
+<p class="mut"><span style="color:#d92d20">●</span> board / committee / fine / legal &nbsp; <span style="color:#f79009">●</span> cure period or on hold &nbsp; <span style="color:#12b76a">●</span> resolved &nbsp; <span style="color:#98a2b3">●</span> no violations (in this view). Hover a home for details; click for cases.
 {% if missing %} {{ missing }} home(s) are not on the map yet.{% endif %}</p>
 <div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address or owner…" style="max-width:340px">
 {% if ROLE == "manager" and missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
+
+<div class="card" id="filters">
+  <div class="row" style="align-items:flex-start">
+    <div style="flex:2 1 420px"><b>Stage</b> <span class="mut">(tick any)</span> <a href="#" id="stages-all">all</a> · <a href="#" id="stages-none">none</a>
+      <div id="stage-boxes" style="display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:6px">
+        {% for key,label in stages %}<label style="font-weight:400;margin:0"><input type="checkbox" class="stage" value="{{ key }}" checked> {{ label }} <span class="mut" data-count="{{ key }}"></span></label>{% endfor %}
+      </div></div>
+    <div style="flex:1 1 200px"><b>Issued in the last</b>
+      <select id="days" style="margin-top:6px"><option value="0">All time</option>{% for d in ranges %}<option value="{{ d }}">{{ d }} days</option>{% endfor %}</select>
+      <label style="font-weight:400;margin-top:10px"><input type="checkbox" id="show-empty" checked> Show homes with no violations</label></div>
+  </div>
+  <p class="mut" id="summary" style="margin:8px 0 0"></p>
+</div>
+
 {{ tiles|json_script:"tile-config" }}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<div id="map" style="height:70vh;border-radius:10px;border:1px solid var(--line)"></div>
+<div id="map" style="height:68vh;border-radius:10px;border:1px solid var(--line)"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="{% static 'violations/mapfilter.js' %}"></script>
 <script>
-if(typeof L==="undefined"){document.getElementById("map").innerHTML="<p style='padding:16px' class='mut'>The map library could not be loaded (check your internet connection). Homes are listed below.</p>";
- fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){document.getElementById("map").insertAdjacentHTML("beforeend","<ul style='padding:0 16px 16px'>"+d.homes.map(function(h){return "<li>"+h.address+" — "+h.color+" ("+h.open+" open, "+h.resolved+" resolved)</li>"}).join("")+"</ul>");});}
-else{
 var COLORS={red:"#d92d20",orange:"#f79009",green:"#12b76a",gray:"#98a2b3"};
+function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+var $=function(id){return document.getElementById(id)};
+function filters(){return {stages:[].slice.call(document.querySelectorAll(".stage:checked")).map(function(x){return x.value}),
+  days:parseInt($("days").value,10),nowMs:Date.now(),showEmpty:$("show-empty").checked};}
+
+if(typeof L==="undefined"){$("map").innerHTML="<p style='padding:16px' class='mut'>The map library could not be loaded (check your internet connection). Homes are listed below.</p>";
+ fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){$("map").insertAdjacentHTML("beforeend","<ul style='padding:0 16px 16px'>"+d.homes.map(function(h){return "<li>"+esc(h.address)+" — "+h.color+" ("+h.open+" open, "+h.resolved+" resolved)</li>"}).join("")+"</ul>");});}
+else{
 var map=L.map("map");
-var TILES=JSON.parse(document.getElementById("tile-config").textContent);
+var TILES=JSON.parse($("tile-config").textContent);
 var base=L.tileLayer(TILES.url,{maxZoom:19,attribution:TILES.attr,referrerPolicy:"origin"}).addTo(map);
 var tileErrors=0,switched=false;  // if the main tiles keep failing (blocked, offline provider), switch to the backup provider
 base.on("tileerror",function(){tileErrors++;if(tileErrors>=4&&!switched&&TILES.fallback_url){switched=true;map.removeLayer(base);
  L.tileLayer(TILES.fallback_url,{maxZoom:19,subdomains:"abcd",attribution:TILES.fallback_attr,referrerPolicy:"origin"}).addTo(map);}});
-var HOMES=[];function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+var HOMES=[];
+
+function render(){
+  var f=filters(),shown=0,cases=0;
+  HOMES.forEach(function(x){
+    var v=MapFilter.homeView(x.h,f);
+    if(!v.visible){if(map.hasLayer(x.m))map.removeLayer(x.m);return;}
+    if(!map.hasLayer(x.m))x.m.addTo(map);
+    shown++;cases+=v.cases.length;
+    x.m.setStyle({fillColor:COLORS[v.color]});
+    x.m.setTooltipContent("<b>"+esc(x.h.address)+"</b><br>"+esc(x.h.owner)+(x.h.rented?" <i>(rented)</i>":"")+"<br>"+v.cases.length+" case"+(v.cases.length==1?"":"s")+" in this view");
+    x.m.setPopupContent("<b>"+esc(x.h.address)+"</b><br>"+(v.cases.length?v.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)+" <span class='mut'>("+c.date+")</span>"}).join("<br>"):"No violations in this view")+(v.hidden?"<br><span class='mut'>"+v.hidden+" other case"+(v.hidden==1?"":"s")+" hidden by the filters</span>":""));
+  });
+  $("summary").textContent=shown+" home"+(shown==1?"":"s")+" shown, "+cases+" case"+(cases==1?"":"s")+" match.";
+  var counts=MapFilter.stageCounts(HOMES.map(function(x){return x.h}),f.days,f.nowMs);
+  [].forEach.call(document.querySelectorAll("[data-count]"),function(el){el.textContent="("+(counts[el.getAttribute("data-count")]||0)+")";});
+}
+
 fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){var pts=[];
  d.homes.forEach(function(h){pts.push([h.lat,h.lng]);
   var m=L.circleMarker([h.lat,h.lng],{radius:8,color:"#fff",weight:1.5,fillColor:COLORS[h.color],fillOpacity:.95}).addTo(map);
-  m.bindTooltip("<b>"+esc(h.address)+"</b><br>"+esc(h.owner)+(h.rented?" <i>(rented)</i>":"")+"<br>Open: "+h.open+" · Resolved: "+h.resolved);
-  HOMES.push({h:h,m:m});
-  m.bindPopup("<b>"+esc(h.address)+"</b><br>"+(h.cases.length?h.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)}).join("<br>"):"No violations"));});
- document.getElementById("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;
-  var hit=HOMES.find(function(x){return (x.h.address+" "+x.h.owner).toLowerCase().indexOf(q)>=0});if(hit){map.setView([hit.h.lat,hit.h.lng],19);hit.m.openPopup();}});
+  m.bindTooltip("");m.bindPopup("");HOMES.push({h:h,m:m});});
+ document.querySelectorAll(".stage,#days,#show-empty").forEach(function(el){el.addEventListener("change",render);});
+ $("stages-all").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=true});render();};
+ $("stages-none").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=false});render();};
+ $("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;
+  var hit=HOMES.find(function(x){return map.hasLayer(x.m)&&(x.h.address+" "+x.h.owner).toLowerCase().indexOf(q)>=0});if(hit){map.setView([hit.h.lat,hit.h.lng],19);hit.m.openPopup();}});
+ render();
  if(pts.length)map.fitBounds(pts,{padding:[30,30]});else map.setView([27.34,-82.53],13);});
 }
 </script>{% endblock %}

@@ -422,3 +422,90 @@ def test_map_tiles_are_configurable_send_a_referer_and_have_a_backup(client, set
     assert "tile.openstreetmap.org" in body and "basemaps.cartocdn.com" in body and "referrerPolicy" in body and "tileerror" in body
     settings.MAP_TILE_URL = "https://tiles.example/{z}/{x}/{y}.png?key=K"
     assert "tiles.example" in client.get("/map/").content.decode()
+
+
+# ---------- map filters ----------
+def test_every_status_has_a_map_stage_and_every_stage_is_offered():
+    from violations import views
+    assert {st for st in Violation.Status.values if st != "draft"} <= set(views.STAGE_OF)
+    assert set(views.STAGE_OF.values()) == {k for k, _ in views.MAP_STAGES}
+
+
+def test_map_api_gives_each_case_a_stage_and_issue_date(client):
+    from violations.models import Notice
+    manager(client)
+    o = Owner.objects.create(name="A", property_address="1 A St", lat=27.3, lng=-82.5)
+    t = ViolationType.objects.create(name="Shed")
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status="pending_board")
+    n = Notice.objects.create(violation=v, kind="violation")
+    Notice.objects.filter(pk=n.pk).update(created_at=__import__("django.utils.timezone", fromlist=["now"]).now() - __import__("datetime").timedelta(days=45))
+    case = client.get("/api/map/").json()["homes"][0]["cases"][0]
+    assert case["stage"] == "board" and case["date"] == (date.today() - __import__("datetime").timedelta(days=45)).isoformat()
+
+
+def test_map_page_has_the_stage_checkboxes_and_date_ranges(client):
+    manager(client)
+    page = client.get("/map/").content.decode()
+    for label in ["Notice issued / cure period", "Board review / fine issued by Board", "Sent to Compliance Committee / hearing",
+                  "Fine imposed &amp; posted to ledger", "On hold", "Sent to legal", "Resolved / closed"]:
+        assert label in page, label
+    assert page.count('class="stage"') == 7 and page.count("checked>") >= 7
+    for d in (30, 60, 90, 180):
+        assert f'<option value="{d}">{d} days</option>' in page
+    assert "violations/mapfilter.js" in page and 'id="show-empty"' in page
+    from pathlib import Path
+    assert (Path(__file__).resolve().parents[1] / "static" / "violations" / "mapfilter.js").exists()
+
+
+def test_filter_logic_in_javascript():
+    """Runs the real mapfilter.js under node (skipped where node isn't installed)."""
+    import json
+    import pathlib
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    js = pathlib.Path(__file__).resolve().parents[1] / "static" / "violations" / "mapfilter.js"
+    script = r"""
+const F = require(process.argv[1]);
+const now = new Date("2026-11-17T12:00:00").getTime();
+const day = n => new Date(now - n*86400000).toISOString().slice(0,10);
+const all = ["cure","board","committee","imposed","hold","legal","resolved"];
+const home = (...cs) => ({cases: cs.map(([stage, age], i) => ({id:i, stage, date: day(age)}))});
+const f = (o) => Object.assign({stages: all, days: 0, nowMs: now, showEmpty: true}, o);
+const out = {};
+// colors come from the matching cases only
+const h = home(["cure", 10], ["committee", 200], ["resolved", 5]);
+out.allRed = F.homeView(h, f({})).color;                                   // committee case => red
+out.cureOnly = F.homeView(h, f({stages:["cure"]})).color;                  // orange
+out.resolvedOnly = F.homeView(h, f({stages:["resolved"]})).color;          // green
+out.hold = F.homeView(home(["hold", 1]), f({})).color;                     // orange
+out.legal = F.homeView(home(["legal", 1]), f({})).color;                   // red
+out.none = F.homeView(h, f({stages:[]})).visible;                          // no stage ticked => hidden
+// multi-select
+out.two = F.homeView(h, f({stages:["cure","resolved"]})).cases.length;     // 2
+// date ranges: issued in the LAST n days, boundary inclusive
+const edge = home(["cure", 30]);
+out.d30 = F.homeView(edge, f({days:30})).visible; out.d30b = F.homeView(home(["cure",31]), f({days:30})).visible;
+out.d60 = F.homeView(home(["cure",60]), f({days:60})).visible; out.d60b = F.homeView(home(["cure",61]), f({days:60})).visible;
+out.d90 = F.homeView(home(["cure",90]), f({days:90})).visible; out.d180 = F.homeView(home(["cure",180]), f({days:180})).visible;
+out.d180b = F.homeView(home(["cure",181]), f({days:180})).visible; out.allTime = F.homeView(home(["cure",3000]), f({days:0})).visible;
+// hidden count and empty homes
+out.hidden = F.homeView(h, f({stages:["cure"]})).hidden;                   // 2 other cases hidden
+out.emptyShown = F.homeView({cases:[]}, f({})).visible; out.emptyHidden = F.homeView({cases:[]}, f({showEmpty:false})).visible;
+out.emptyGray = F.homeView({cases:[]}, f({})).color;
+out.homeWithCasesNotMatching = F.homeView(h, f({stages:["legal"]})).visible;   // has cases, none match => hidden (not "empty")
+// counts honour the age filter
+out.counts = F.stageCounts([h, home(["cure", 100])], 90, now);
+console.log(JSON.stringify(out));
+"""
+    r = subprocess.run([node, "-e", script, str(js)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    o = json.loads(r.stdout)
+    assert (o["allRed"], o["cureOnly"], o["resolvedOnly"], o["hold"], o["legal"]) == ("red", "orange", "green", "orange", "red")
+    assert o["none"] is False and o["two"] == 2
+    assert (o["d30"], o["d30b"], o["d60"], o["d60b"], o["d90"], o["d180"], o["d180b"], o["allTime"]) == (True, False, True, False, True, True, False, True)
+    assert o["hidden"] == 2 and o["emptyShown"] is True and o["emptyHidden"] is False and o["emptyGray"] == "gray"
+    assert o["homeWithCasesNotMatching"] is False
+    assert o["counts"] == {"cure": 1, "resolved": 1}  # the 200-day committee case and the 100-day cure case fall outside 90 days
