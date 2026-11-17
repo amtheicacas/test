@@ -132,13 +132,50 @@ def test_bad_emails_are_flagged_in_the_preview():
     assert any("'nope' doesn't look like a valid email" in m for _, m in problems)
 
 
-# ---------- mailing address ----------
-def test_mailing_address_is_split_for_the_print_service():
-    load(row(Mailing_Address="PO Box 55", Mailing_Address_1="Tampa, FL 33601"))
+# ---------- mailing address (Vantaca's layout: Address includes city/state/zip; Mailing Address is a street line only) ----------
+def test_address_with_city_state_zip_is_cleaned_to_the_street():
+    load(row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", City="Sarasota", State="FL", Zip="34241"))
     o = Owner.objects.get()
-    assert o.mailing_address == "PO Box 55\nTampa, FL 33601"
-    assert (o.mail_line1, o.mail_city, o.mail_state, o.mail_zip) == ("PO Box 55", "Tampa", "FL", "33601")
-    assert o.has_separate_mailing and o.owner_mail_kinds() == ["mailing", "property"]
+    assert o.property_address == "6632 Dovekey Drive #13" and o.address_block("property").endswith("6632 Dovekey Drive #13\nSarasota, FL 34241")
+
+
+def test_mailing_that_is_just_the_property_street_is_not_a_second_address():
+    load(row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", Mailing_Address="6632 Dovekey Drive #13", Mailing_Address_1="Dovekey Drive #13"))
+    o = Owner.objects.get()
+    assert not o.has_separate_mailing and o.mailing_address == "" and o.owner_mail_kinds() == ["property"]
+    assert vantaca.check_rows([row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241", Mailing_Address="6632 Dovekey Drive #13")]) == []
+
+
+def test_mailing_address_1_is_not_glued_onto_the_mailing_address():
+    load(row(Mailing_Address="9180 Swing Branch Road", Mailing_Address_1="Swing Branch Road"))
+    assert Owner.objects.get().mailing_address == "9180 Swing Branch Road"  # not "9180 Swing Branch Road\nSwing Branch Road"
+
+
+def test_out_of_town_owner_with_only_a_street_line_is_flagged_not_dropped():
+    load(row(Address="6809 Dunlin Court #68 Sarasota, FL 34241", Mailing_Address="9180 Swing Branch Road.", Mailing_Address_1="Swing Branch Road."))
+    o = Owner.objects.get()
+    assert o.has_separate_mailing and o.mailing_address == "9180 Swing Branch Road" and o.mail_city == ""  # trailing period dropped
+    problems = vantaca.check_rows([row(Mailing_Address="PO Box 636")])
+    assert len(problems) == 1 and "no city, state and ZIP" in problems[0][1]
+
+
+def test_mailing_city_state_zip_columns_complete_the_address_when_the_report_has_them():
+    load(row(**{"Mailing Address": "PO Box 636", "Mailing City": "Tampa", "Mailing State": "FL", "Mailing Zip": "33601"}))
+    o = Owner.objects.get()
+    assert (o.mail_line1, o.mail_city, o.mail_state, o.mail_zip) == ("PO Box 636", "Tampa", "FL", "33601")
+    assert vantaca.check_rows([row(**{"Mailing Address": "PO Box 636", "Mailing City": "Tampa", "Mailing State": "FL", "Mailing Zip": "33601"})]) == []
+
+
+def test_a_full_mailing_address_in_one_cell_is_split():
+    load(row(Mailing_Address="PO Box 55, Tampa, FL 33601"))
+    o = Owner.objects.get()
+    assert (o.mail_line1, o.mail_city, o.mail_state, o.mail_zip) == ("PO Box 55", "Tampa", "FL", "33601") and o.has_separate_mailing
+
+
+def test_repeated_problems_are_shown_once_with_their_rows():
+    problems = vantaca.check_rows([row(**{"Homeowner ID": f"H{i}", "Address": f"{i} A St", "Mailing Address": f"{i} Far Rd"}) for i in range(1, 41)])
+    groups = vantaca.group_problems(problems)
+    assert len(groups) == 1 and groups[0][1] == list(range(1, 41))
 
 
 @pytest.mark.parametrize("text,expected", [
@@ -151,11 +188,6 @@ def test_mailing_address_is_split_for_the_print_service():
 def test_us_address_parsing(text, expected):
     got = vantaca.parse_us_address(text)
     assert (got and (got["line1"], got["city"], got["state"], got["zip"])) == (expected or None)
-
-
-def test_unsplittable_mailing_address_is_flagged_and_letters_still_go_to_the_property():
-    problems = vantaca.check_rows([row(Mailing_Address="somewhere far away")])
-    assert any("couldn't be split into street, city, state and ZIP" in m for _, m in problems)
 
 
 def test_mailing_same_as_property_is_not_a_second_address():
@@ -199,7 +231,7 @@ def test_hearing_notice_is_certified_to_both_addresses_and_the_tenant(settings):
 
 def test_an_incomplete_mailing_address_does_not_stop_the_property_mailing(settings):
     _lob(settings)
-    load(row(Mailing_Address="somewhere far away"))
+    load(row(Mailing_Address="9180 Swing Branch Road"))  # street line only: no city/state/ZIP
     v = case_for(Owner.objects.get())
     sent = []
     with mock.patch.object(mailing, "lob_send", side_effect=lambda to, pdf, d, extra=None: sent.append(to["line1"]) or {"id": "x"}):

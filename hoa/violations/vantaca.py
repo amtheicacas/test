@@ -107,11 +107,24 @@ def parse_date(text):
     return None, False
 
 
+def _strip_city_state_zip(street, city, state, zip_code):
+    """'6632 Dovekey Drive #13 Sarasota, FL 34241' -> '6632 Dovekey Drive #13' (Vantaca's Address includes city, state and ZIP)."""
+    if city and state and zip_code:
+        pat = rf",?\s*{re.escape(city)}\b,?\s*{re.escape(state)}\b\.?,?\s*{re.escape(zip_code)}(?:-\d{{4}})?\s*$"
+        street = re.sub(pat, "", street, flags=re.I)
+    return street.strip(" ,")
+
+
+def _norm_street(text):
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
 def normalize(row):
     """One import row -> {field: value} for the Owner, plus '_notes' (things worth a second look)."""
     notes = []
     name = _pick(row, "name") or f"{_pick(row, 'first')} {_pick(row, 'last')}".strip()
-    street = _pick(row, "property_address") or f"{_pick(row, 'street_no')} {_pick(row, 'address1')}".strip()
+    street = _strip_city_state_zip(_pick(row, "property_address") or f"{_pick(row, 'street_no')} {_pick(row, 'address1')}".strip(),
+                                   _pick(row, "city"), _pick(row, "state"), _pick(row, "zip_code"))
     emails = split_emails(_pick(row, "email"))
     d = {"external_id": _pick(row, "external_id") or None, "account_number": _pick(row, "account_number"),
          "name": name, "property_address": street, "lot_no": _pick(row, "lot_no"),
@@ -135,14 +148,19 @@ def normalize(row):
     if d.get("tenant_name") and d.get("tenant_end") and d["tenant_end"] < date.today():
         notes.append(f"Tenant {d['tenant_name']}'s lease ended {d['tenant_end']:%m/%d/%Y}, so they will not receive notices.")
     if _any_column(row, MAILING_FIELDS):
-        text = "\n".join(x for x in (_pick(row, "mailing_address"), _pick(row, "mailing_address1")) if x)
-        parsed = parse_us_address(text)
-        d["mailing_address"] = text
-        d.update(mail_line1=(parsed or {}).get("line1", _pick(row, "mailing_address")), mail_city=(parsed or {}).get("city", _pick(row, "mail_city")),
-                 mail_state=(parsed or {}).get("state", _pick(row, "mail_state")), mail_zip=(parsed or {}).get("zip", _pick(row, "mail_zip")))
-        if text and not (d["mail_city"] and d["mail_state"] and d["mail_zip"]):
-            notes.append("The mailing address couldn't be split into street, city, state and ZIP, which the print service needs. "
-                         "Letters will still go to the property address; fix the mailing address to mail it too.")
+        # "Mailing Address" is the owner's mailing street line. ("Mailing Address 1" repeats it without the house number, so it is
+        # only a fallback.) Vantaca's report has no mailing city/state/ZIP unless those columns are added.
+        text = (_pick(row, "mailing_address") or _pick(row, "mailing_address1")).strip().rstrip(".")
+        if not text or _norm_street(text) in _norm_street(street) or _norm_street(street) in _norm_street(text):
+            d.update(mailing_address="", mail_line1="", mail_city="", mail_state="", mail_zip="")  # same place: no second address
+        else:
+            parsed = parse_us_address(text)
+            d["mailing_address"] = text
+            d.update(mail_line1=(parsed or {}).get("line1", text), mail_city=(parsed or {}).get("city", _pick(row, "mail_city")),
+                     mail_state=(parsed or {}).get("state", _pick(row, "mail_state")), mail_zip=(parsed or {}).get("zip", _pick(row, "mail_zip")))
+            if not (d["mail_city"] and d["mail_state"] and d["mail_zip"]):
+                notes.append("The mailing address is somewhere other than the property but has no city, state and ZIP, which the print service "
+                             "needs. Letters will go to the property address only until the mailing city, state and ZIP are added.")
     d["_notes"] = notes
     return d
 
@@ -387,3 +405,11 @@ def mapping_problems(mapping):
     if dup:
         probs.append("More than one column is matched to: " + ", ".join(dup) + ". Only one column can be used for each.")
     return probs
+
+
+def group_problems(problems):
+    """[(row, message)] -> [(message, [rows])], in order of first appearance, so one issue affecting 40 rows is one line."""
+    groups = {}
+    for row, msg in problems:
+        groups.setdefault(msg, []).append(row)
+    return list(groups.items())

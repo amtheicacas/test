@@ -628,7 +628,7 @@ def import_owners(request):
                     messages.success(request, "Imported: " + ", ".join(f"{v} {k}" for k, v in result.items() if v))
                     return redirect("import_owners")
                 _, result, problems = vantaca.preview_rows(mapped)
-                ctx.update(step="preview", mapping=mapping, preview=result, problems=problems, n=len(rows))
+                ctx.update(step="preview", mapping=mapping, preview=result, problems=vantaca.group_problems(problems), n=len(rows))
         if ctx.get("step") == "map":
             samples = {h: [r[h] for r in rows if r.get(h)][:3] for h in headers}
             ctx.update(columns=[(i, h, samples[h], ctx["mapping"].get(h, "")) for i, h in enumerate(headers)], n=len(rows),

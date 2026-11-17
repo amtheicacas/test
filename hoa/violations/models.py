@@ -98,9 +98,9 @@ class Owner(models.Model):
     # ---- where it is mailed ----
     @property
     def has_separate_mailing(self):
-        m = self.mailing_address.strip()
-        return bool(m) and _norm_addr(m) != _norm_addr(self.property_address) \
-            and _norm_addr(self.property_address) not in _norm_addr(m)
+        """A mailing address on file that is really somewhere else (not just the property's own street again)."""
+        m, p = _norm_addr(self.mailing_address), _norm_addr(self.property_address)
+        return bool(m) and m not in p and p not in m
 
     def _property_postal(self, name):
         return {"name": name, "line1": self.property_address, "city": self.city, "state": self.state, "zip": self.zip_code}

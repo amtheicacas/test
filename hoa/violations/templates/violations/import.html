@@ -15,7 +15,7 @@
 <p class="mut"><b>Step 3 of 3: preview.</b> Nothing has been saved yet.</p>
 <div class="card"><h2>{{ n }} row{{ n|pluralize }}</h2>
 <p><b>{{ preview.created }}</b> new owner{{ preview.created|pluralize }}, <b>{{ preview.updated }}</b> to update, <b>{{ preview.skipped }}</b> skipped.</p>
-{% if problems %}<h3>Check these</h3><ul>{% for r,m in problems %}<li>Row {{ r }}: {{ m }}</li>{% endfor %}</ul>{% else %}<p class="mut">No problems found.</p>{% endif %}
+{% if problems %}<h3>Check these</h3><ul>{% for m,rows in problems %}<li><b>{{ rows|length }} row{{ rows|length|pluralize }}:</b> {{ m }}<br><span class="mut">Rows {{ rows|slice:":15"|join:", " }}{% if rows|length > 15 %}, and {{ rows|length|add:"-15" }} more{% endif %}</span></li>{% endfor %}</ul>{% else %}<p class="mut">No problems found.</p>{% endif %}
 <form method="post">{% csrf_token %}{% for h,f in mapping.items %}<input type="hidden" name="map_{{ forloop.counter0 }}" value="{{ f }}">{% endfor %}
 <label><input type="checkbox" name="invite"> Also email new owners an invitation to create their login</label>
 <button name="action" value="apply" style="margin-top:8px">Import now</button> <button class="sec" name="action" value="map">Back to matching</button> <button class="sec" name="action" value="cancel">Cancel</button></form></div>
