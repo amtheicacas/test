@@ -142,9 +142,16 @@ HOA_ADDRESS_CITY = env("HOA_ADDRESS_CITY", env("HOA_RETURN_CITY", "Sarasota"))
 HOA_ADDRESS_STATE = env("HOA_ADDRESS_STATE", env("HOA_RETURN_STATE", "FL"))
 HOA_ADDRESS_ZIP = env("HOA_ADDRESS_ZIP", env("HOA_RETURN_ZIP", ""))
 HOA_PHONE = env("HOA_PHONE", "")
-HOA_WEBSITE = env("HOA_WEBSITE", "")
+HOA_WEBSITE = env("HOA_WEBSITE", "www.myheronlanding.com")
 HOA_CONTACT_EMAIL = env("HOA_CONTACT_EMAIL", "")   # where owners send the response form
 
 # ---- Cure-deadline reminder emails -------------------------------------
 # Days before the deadline to email the owner (and tenant), e.g. "7,2" on a 15-day cure period.
 REMINDER_DAYS = tuple(sorted({int(x) for x in env("REMINDER_DAYS", "7,2").split(",") if x.strip()}, reverse=True))
+
+# ---- Fining Resolution details ------------------------------------------
+HEARING_NOTICE_RECOMMENDED_DAYS = int(env("HEARING_NOTICE_RECOMMENDED_DAYS", "20"))  # the Resolution recommends 20 (law: 14)
+HEARING_REGULAR_COPY = env("HEARING_REGULAR_COPY", "1") == "1"   # optional extra first-class copy of the Notice of Hearing
+HOA_CONTACT_NAME = env("HOA_CONTACT_NAME", "the Association")    # "contact ___ at phone or email" in the Notice of Hearing
+HOA_PAYMENT_PAYABLE_TO = env("HOA_PAYMENT_PAYABLE_TO", "Heron Landing Homeowners Association, Inc.")
+HOA_PAYMENT_ADDRESS = env("HOA_PAYMENT_ADDRESS", "")             # "c/o ..." where fines are mailed

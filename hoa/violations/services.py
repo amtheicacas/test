@@ -296,8 +296,11 @@ def fine_problems(v, amount):
 
 
 @transaction.atomic
-def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspension=""):
-    """Board vote at a meeting. 'proceed' only PROPOSES a fine and/or suspension; nothing is owed until the committee approves."""
+def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspension="", votes_for=None, votes_against=None,
+                 suspension_days=None):
+    """Board vote at a meeting. 'proceed' only PROPOSES a fine and/or suspension; nothing is owed until the committee approves.
+    Per the Fining Resolution it takes a majority of the Board; the vote is recorded. A suspension names the Common Areas /
+    facilities and a number of days."""
     _require(v, S.PENDING_BOARD)
     v.board_meeting_date = meeting_date
     if decision == "proceed":
@@ -305,18 +308,35 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
         suspension = (suspension or "").strip()
         if not fine and not suspension:
             raise WorkflowError("Enter the proposed fine amount and/or suspension the Board voted on.")
-        problems = fine_problems(v, fine)
+        if votes_for is None or votes_against is None or votes_for <= votes_against:
+            raise WorkflowError("A fine or suspension needs a majority of the Board. Enter the votes for and against "
+                                "(votes for must be more than votes against).")
+        if suspension and not suspension_days:
+            raise WorkflowError("A suspension needs a number of days (the Board sets a reasonable period).")
+        if suspension_days and not suspension:
+            raise WorkflowError("Say which Common Areas or facilities the suspension applies to.")
+        problems = fine_problems(v, fine) if fine else []
         if problems:
             raise WorkflowError(" ".join(problems))
         v.proposed_fine, v.proposed_suspension, v.status = fine, suspension, S.HEARING_NEEDED
-        what = " and ".join(x for x in [f"fine ${fine:,.2f}" if fine else "", f"suspension ({suspension})" if suspension else ""] if x)
-        log(v, f"Board voted {meeting_date:%b %d, %Y} to propose: {what}" + (f". {note}" if note else ""), user)
+        v.proposed_suspension_days = suspension_days or None
+        v.board_votes_for, v.board_votes_against = votes_for, votes_against
+        what = " and ".join(x for x in [f"fine ${fine:,.2f}" if fine else "",
+                                        f"suspension of {suspension} for {suspension_days} days" if suspension else ""] if x)
+        log(v, f"Board voted {meeting_date:%b %d, %Y} ({votes_for}-{votes_against}) to levy: {what}"
+            + (f". {note}" if note else ""), user)
     elif decision == "dismiss":
         v.status = S.DISMISSED
         log(v, f"Board voted {meeting_date:%b %d, %Y} to dismiss" + (f": {note}" if note else ""), user)
     else:
         raise WorkflowError("Unknown decision.")
     v.save()
+
+
+def short_notice(meeting, today=None):
+    """True if the hearing is closer than the Resolution's recommended notice (20 days). The law's minimum is 14."""
+    today = today or date.today()
+    return timezone.localtime(meeting.starts_at).date() < today + timedelta(days=settings.HEARING_NOTICE_RECOMMENDED_DAYS)
 
 
 def create_meeting(starts_at, zoom_link="", location="", user=None):
@@ -370,6 +390,8 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
         today = today or date.today()
         v.status = S.FINE_APPROVED
         v.fine_amount, v.suspension = v.proposed_fine, v.proposed_suspension
+        v.suspension_days = v.proposed_suspension_days
+        v.suspension_effective_on = today if v.suspension else None
         v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS) if v.fine_amount else None
         v.save()
         log(v, f"Committee approved ({votes_for}-{votes_against})" + (f": {note}" if note else ""), user)

@@ -25,6 +25,16 @@ Create manager, board and committee logins in `/admin/` under Users (add a **Pro
 
 Configuration is by environment variables: `HOA_NAME`, `MANAGER_*`, `OFFICE_PHONE`, `SITE_URL` (used in links), `SECRET_KEY` and `DJANGO_DEBUG=0` for production, `EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD` for SMTP (without `EMAIL_HOST`, emails print to the console). Run `python manage.py advance_violations` daily from cron; the dashboard and board queue also do it when opened.
 
+## The Fining Resolution (April 17, 2023)
+The letters and rules follow the Resolution Establishing Compliance Committee and Creating Fining/Suspension Procedures:
+- **Notice of Violation** (Exhibit 1): first-class mail, "information to believe", cure-by date, the fine/suspension/lawsuit/attorney's-fees warning, and (for rented homes) the owner joint-and-several-liability paragraph. It keeps the courtesy-notice layout.
+- **Board vote:** a fine and/or suspension needs a **majority of the Board**; the vote is recorded. A suspension names the Common Areas/facilities and a number of days. The vote only *proposes* it.
+- **Notice of Hearing** (Exhibit 2): certified mail with return receipt, plus an optional regular copy (`HEARING_REGULAR_COPY`), at least 14 days ahead (enforced) and **20 recommended** (a warning appears under 20; `HEARING_NOTICE_RECOMMENDED_DAYS`). Wording follows the exhibit: Section 720.305(2)(b), right to counsel with 7 days' notice, hearing in absence, the owner paragraph and suspension sentence for rented homes, a copy of the Notice of Violation attached.
+- **Compliance Committee:** 3+ voting members, majority approves; once approved it is imposed with no further Board vote.
+- **Notice of Imposition** (Exhibit 3): certified mail, the fine due within 5 days, payable to the Association (`HOA_PAYMENT_PAYABLE_TO`, `HOA_PAYMENT_ADDRESS`), and the suspension (all owners, tenants, occupants, guests; not ingress/egress or parking).
+- The Board may skip steps for health/safety threats (the "Refer to Board now" button).
+Please have your attorney confirm the wording and that this matches Fla. Stat. 720.305 as it applies to you.
+
 ## Extensions and reminders
 - **Approving more time adds the days to the current deadline** (not to today), so the case ages as if the cure period had always been that long: a 15-day notice with 10 approved days is a 25-day cure period. The case card shows "15 days + 10 extended".
 - When an owner asks for more time (in the portal, with the number of days), the board queue and the case show **Approve**, which you can **edit** (change the days, or set an exact date), or **Decline** with a reason the owner sees and is emailed. Staff can also grant time on their own. Approving sends the owner an extension letter (email plus mail) or, if ticked, a full second Notice of Violation.

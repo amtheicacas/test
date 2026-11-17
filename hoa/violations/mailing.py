@@ -21,8 +21,12 @@ K = Notice.Kind
 
 
 def _services_for(kind):
+    """Per the Fining Resolution: the Notice of Hearing goes certified mail, return receipt requested, with an optional extra
+    regular copy; the Notice of Imposition carries a certified mail number too. Everything else is first-class."""
     if kind == K.HEARING:
-        return [("certified_return_receipt", "certified"), (None, "first_class")]
+        return [("certified_return_receipt", "certified")] + ([(None, "first_class")] if settings.HEARING_REGULAR_COPY else [])
+    if kind == K.FINE:
+        return [("certified_return_receipt", "certified")]
     return [(None, "first_class")]
 
 
@@ -82,7 +86,7 @@ def dispatch(notice, render):
     if ids:
         notice.mailed_on = date.today()
         notice.tracking_number = tracking
-        notice.method = "certified" if notice.kind == K.HEARING else "first_class"
+        notice.method = "certified" if notice.kind in (K.HEARING, K.FINE) else "first_class"
     notice.save()
     log(v, f"{notice.get_kind_display()} sent to print/mail provider ({len(ids)} piece(s))"
         + (f" — ERRORS: {notice.provider_note}" if errors else ""))

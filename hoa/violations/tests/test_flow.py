@@ -79,10 +79,12 @@ def _to_board(violation, user):
 def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
     _to_board(violation, user)
     with pytest.raises(services.WorkflowError):  # board must name a fine and/or suspension
-        services.board_decide(violation, "proceed", date.today(), user)
+        services.board_decide(violation, "proceed", date.today(), user, votes_for=3, votes_against=0)
     with pytest.raises(services.WorkflowError):  # over the $1,000 total cap
-        services.board_decide(violation, "proceed", date.today(), user, fine=1500)
-    services.board_decide(violation, "proceed", date.today(), user, fine=250)
+        services.board_decide(violation, "proceed", date.today(), user, fine=1500, votes_for=3, votes_against=0)
+    with pytest.raises(services.WorkflowError):  # needs a majority of the Board
+        services.board_decide(violation, "proceed", date.today(), user, fine=250, votes_for=1, votes_against=2)
+    services.board_decide(violation, "proceed", date.today(), user, fine=250, votes_for=3, votes_against=1)
     violation.refresh_from_db()
     assert violation.status == S.HEARING_NEEDED and violation.proposed_fine == 250
     soon = services.create_meeting(timezone.now() + timedelta(days=5), "https://zoom.us/j/1", user=user)
@@ -113,13 +115,15 @@ def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
 
 def test_suspension_only_and_legal_referral(violation, user):
     _to_board(violation, user)
-    services.board_decide(violation, "proceed", date.today(), user, suspension="Pool for 30 days")
+    services.board_decide(violation, "proceed", date.today(), user, suspension="the pool and clubhouse", suspension_days=30,
+                          votes_for=3, votes_against=0)
     Violation.objects.filter(pk=violation.pk).update(status=S.HEARING_SCHEDULED,
                                                      hearing_date=timezone.now() - timedelta(days=1))
     violation.refresh_from_db()
     services.committee_decide(violation, 3, 0, user)
     violation.refresh_from_db()
-    assert violation.fine_amount is None and violation.suspension == "Pool for 30 days"
+    assert violation.fine_amount is None and violation.suspension == "the pool and clubhouse" and violation.suspension_days == 30
+    assert violation.suspension_effective_on == date.today()
     with pytest.raises(services.WorkflowError):
         services.record_payment(violation, date.today(), user)
     services.refer_to_attorney(violation, user)

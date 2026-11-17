@@ -142,7 +142,10 @@ class Violation(models.Model):
     # Board stage: the vote only PROPOSES a fine and/or suspension
     board_meeting_date = models.DateField(null=True, blank=True)
     proposed_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
-    proposed_suspension = models.CharField(max_length=300, blank=True, help_text="e.g. 'Pool and clubhouse use for 30 days'.")
+    proposed_suspension = models.CharField(max_length=300, blank=True, help_text="Which Common Areas/facilities, e.g. 'pool and clubhouse'.")
+    proposed_suspension_days = models.PositiveIntegerField(null=True, blank=True)
+    board_votes_for = models.PositiveSmallIntegerField(null=True, blank=True)
+    board_votes_against = models.PositiveSmallIntegerField(null=True, blank=True)
     held_from = models.CharField(max_length=20, blank=True)
     hold_reason = models.CharField(max_length=300, blank=True)
     held_on = models.DateField(null=True, blank=True)
@@ -155,6 +158,8 @@ class Violation(models.Model):
     committee_votes_against = models.PositiveSmallIntegerField(null=True, blank=True)
     fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text="Imposed amount (set when committee approves).")
     suspension = models.CharField(max_length=300, blank=True)
+    suspension_days = models.PositiveIntegerField(null=True, blank=True)
+    suspension_effective_on = models.DateField(null=True, blank=True)
     fine_due_on = models.DateField(null=True, blank=True)
     fine_paid_on = models.DateField(null=True, blank=True)
     cured_on = models.DateField(null=True, blank=True)
@@ -201,6 +206,11 @@ class Violation(models.Model):
         if self.status == self.Status.REFERRED_LEGAL:
             return "Sent to legal"
         return ""
+
+    @property
+    def non_owner_occupied(self):
+        """Rented / occupied by someone other than the owner: the tenant is the addressee and the owner gets a copy."""
+        return bool(self.owner.tenant_name)
 
     @property
     def pending_extension(self):

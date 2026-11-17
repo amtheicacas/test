@@ -288,14 +288,18 @@ def violation_action(request, pk, action):
                          f"board {d['meeting_date']}", days=d["extension_days"], ok="Board granted more time.")
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
-                     fine=d["proposed_fine"], suspension=d["proposed_suspension"],
+                     fine=d["proposed_fine"], suspension=d["proposed_suspension"], votes_for=d["board_votes_for"],
+                     votes_against=d["board_votes_against"], suspension_days=d["proposed_suspension_days"],
                      ok="Board decision recorded. It will go to the next Compliance Committee meeting you assign.")
         return redirect(request.POST.get("next") or v)
     elif action == "assign":
         f = forms.AssignForm(P)
         if f.is_valid():
-            _run(request, services.assign_to_meeting, v, f.cleaned_data["meeting"], u,
-                 ok="Sent to the Compliance Committee; hearing notice emailed and sent for certified mailing.")
+            m = f.cleaned_data["meeting"]
+            if _run(request, services.assign_to_meeting, v, m, u,
+                    ok="Sent to the Compliance Committee; hearing notice emailed and sent for certified mailing.") and services.short_notice(m):
+                messages.warning(request, f"This is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
+                                          f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
         else:
             messages.error(request, "Choose an upcoming committee meeting (create one under Meetings).")
     elif action == "committee":
@@ -373,6 +377,9 @@ def meeting_assign_all(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     done, skipped = services.assign_all_to_meeting(m, request.user)
     messages.success(request, f"{len(done)} case(s) sent to the committee; hearing notices emailed and sent for certified mailing.")
+    if done and services.short_notice(m):
+        messages.warning(request, f"This meeting is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
+                                  f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
     for v, why in skipped:
         messages.error(request, f"Case #{v.pk} not added: {why}")
     return redirect("meetings")

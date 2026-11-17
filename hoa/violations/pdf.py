@@ -22,7 +22,7 @@ K = Notice.Kind
 ss = getSampleStyleSheet()
 BODY = ParagraphStyle("body", parent=ss["Normal"], fontName="Helvetica", fontSize=9.5, leading=12.2, spaceAfter=5)
 BOLD = ParagraphStyle("bold", parent=BODY, fontName="Helvetica-Bold")
-RULE = ParagraphStyle("rule", parent=BODY, fontName="Helvetica-Bold", fontSize=9, leading=11.6)
+RULE = ParagraphStyle("rule", parent=BODY, fontName="Helvetica-Bold", fontSize=8.5, leading=10.9)
 SMALL = ParagraphStyle("small", parent=BODY, fontSize=8.5, leading=11, textColor="#444444")
 HEAD = ParagraphStyle("head", parent=BODY, fontName="Helvetica", fontSize=13, leading=16, alignment=TA_CENTER, spaceAfter=1)
 HEADSM = ParagraphStyle("headsm", parent=BODY, fontSize=9.5, leading=12, alignment=TA_CENTER, spaceAfter=0)
@@ -92,6 +92,36 @@ def _signoff():
             _p(f"On Behalf of the Board of Directors\n{settings.HOA_NAME}", BODY)]
 
 
+ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def num_words(n):
+    """30 -> 'thirty', 45 -> 'forty-five' (the Resolution's letters write the number in words and digits)."""
+    n = int(n)
+    if n < 20:
+        return ONES[n]
+    if n < 100:
+        return TENS[n // 10] + (f"-{ONES[n % 10]}" if n % 10 else "")
+    if n < 1000:
+        return ONES[n // 100] + " hundred" + (f" {num_words(n % 100)}" if n % 100 else "")
+    return str(n)
+
+
+# Verbatim from the Fining Resolution (Exhibits 1 and 2): included only when the Lot is occupied by someone other than the owner.
+OWNER_LIABILITY_NOV = ("This Notice is also being provided to the record Owner(s) of the Lot. Pursuant to Florida law and the "
+    "Governing Documents, the Owner is jointly and severally liable for the conduct of his or her tenants, and the occupants of "
+    "the Lot, as well as their guests, licensees, or invitees. Accordingly, if the violation is not corrected, this letter serves "
+    "as notice that the Association may also take the above-referenced actions against the Owner(s), either directly, or jointly "
+    "and severally.")
+OWNER_LIABILITY_HEARING = ("This Notice is also being provided to the record Owner(s) of the Lot. Pursuant to Florida law and the "
+    "Governing Documents, the Owner is jointly and severally liable for the conduct of his or her tenants, and the occupants of the "
+    "Lot, as well as their guests, licensees, or invitees. Accordingly, the fine may also be imposed against the Owner(s), either "
+    "directly, or jointly and severally. In cases where only a non-Owner (e.g., tenant, occupant, or invitee) is fined, the Owner "
+    "shall be jointly and severally liable for payment of the fine.")
+OWNER_SUSPENSION_SENTENCE = " Owners shall likewise be suspended from common facility use during the period of the suspension of a non-Owner."
+
+
 def _respond_line(v):
     bits = [f"Respond, send photos of the corrected condition, or ask for more time at: {v.resident_url()}"]
     contact = ", ".join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)
@@ -108,7 +138,7 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated):
     top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                              ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     cure_by = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"within {v.cure_days} days of receipt of this notice"
-    s = letterhead() + [top, Spacer(1, 8),
+    s = letterhead() + [_p("FIRST CLASS MAIL", BOLD), top, Spacer(1, 8),
         _p(f"RE: {v.owner.property_address} located at {settings.HOA_NAME} Violation of the Covenants and Restrictions. "
            "All Governing Documents can be located and reviewed in the Homeowner Portal or at the Association's Website."),
         _p(f"Dear {to_name}:"),
@@ -116,7 +146,9 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated):
            "One reason for having such restrictions is to protect the rights of homeowners in the community, both yours "
            "and those of your neighbors. Another reason is to ensure all properties are attractively maintained to "
            "preserve the collective character and value of our neighborhood in a manner consistent with the original "
-           "design of the development. Your property has been inspected and found to be in violation."),
+           "design of the development. Your property has been inspected and found to be in violation. The Board of Directors "
+           f"has information to believe that you ({'or your tenant(s), guest(s), or invitee(s)' if v.non_owner_occupied else 'or your guest(s) or invitee(s)'}) "
+           "are in violation of the Association's Governing Documents."),
         Spacer(1, 2)]
     if notice_kind == K.SECOND:
         s.append(_p("This is a second notice. The deadline below replaces the one in your earlier notice.", BOLD))
@@ -134,11 +166,18 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated):
              "by immediately correcting the problem. If you can correct this situation in a reasonable length of time, we "
              f"thank you for making {settings.HOA_NAME} a better community, and you can consider this matter resolved."),
           _p("If you are unable to take corrective action, please submit a violation correction plan using the attached "
-             f"Correction Response Form within {v.cure_days} days of receipt of this notice. If the violation is not "
-             "corrected, the matter may be referred to the Board of Directors. A fine or suspension may be imposed only "
-             "after notice, a hearing and Compliance Committee approval."),
-          _respond_line(v)]
-    return s + _signoff()
+             f"Correction Response Form within {v.cure_days} days of receipt of this notice."),
+          _p("Please be advised that you must comply with the above on or before the date stated. If you fail or refuse to comply, or "
+             "if further violations occur, the Association may, with proper notice, pursue further action against you to enforce the "
+             "Governing Documents. Such action may include (but is not limited to): imposing a fine against you and/or suspending your "
+             "right to use certain Common Areas and facilities. A fine or suspension may be imposed only after notice, a hearing, and "
+             "approval by the Compliance Committee. Further, the Association may also file a lawsuit against you to compel your "
+             "compliance with the Governing Documents. If the Association takes any of the foregoing legal actions, it will seek to "
+             "recover its attorneys' fees and costs as permitted by the Governing Documents and the Florida Homeowners' Association "
+             "Act, Chapter 720 of the Florida Statutes.")]
+    if v.non_owner_occupied:
+        s.append(_p(OWNER_LIABILITY_NOV))
+    return s + [_respond_line(v)] + _signoff()
 
 
 def _response_form(v, to_name, mail_block, dated):
@@ -193,29 +232,74 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
             s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to "
                         f"{v.cure_deadline:%B %d, %Y}."))
         elif notice.kind == K.HEARING:
-            s += [_p(f"At its meeting on {v.board_meeting_date:%B %d, %Y}, the Board voted to levy {_what(v)} against you for "
-                     f"the violation described in the attached Notice of Violation ({v.vtype}{ref}). This vote is only a "
-                     "proposal. Nothing is final and nothing is owed unless a majority of the Compliance Committee approves it "
-                     "after a hearing."),
-                  _p("Hearing:", BOLD),
-                  _p(f"{timezone.localtime(v.hearing_date):%A, %B %d, %Y at %I:%M %p}\nPlace: {v.hearing_location or 'to be announced'}"),
-                  _p("You have the right to attend and speak, give evidence or a written statement, review and respond to the "
-                     "information the Association relies on, and bring an attorney (please notify us in writing at least "
-                     f"{settings.ATTORNEY_NOTICE_DAYS} days before the hearing). If you do not attend, the hearing will still go "
-                     "ahead and the Committee may decide without you. This notice is given at least "
-                     f"{settings.HEARING_NOTICE_DAYS} days before the hearing by certified mail (return receipt requested), "
-                     "regular mail and email.")]
+            nov = v.notices.filter(kind=K.VIOLATION).first()
+            nov_date = f"{timezone.localtime(nov.created_at):%B %d, %Y}" if nov else "(date)"
+            s.insert(len(letterhead()), _p(f"CERTIFIED MAIL # {notice.tracking_number or '_______________'}", BOLD))
+            vote = (f"the Board voted to levy a fine against you in the amount of ${v.proposed_fine:,.2f}" if v.proposed_fine
+                    else "the Board voted to suspend your Lot's right to use certain Common Areas and facilities")
+            when = f"during its meeting on {v.board_meeting_date:%B %d, %Y}, " if v.board_meeting_date else ""
+            s.append(_p(f"The violation described in the Association's Notice of Violation dated {nov_date}, copy attached, has not "
+                        f"been corrected and/or has resumed. Accordingly, {when}{vote}."))
+            if v.proposed_suspension:
+                days = v.proposed_suspension_days
+                s.append(_p(f"The Association has {'also ' if v.proposed_fine else ''}suspended your Lot's right to use "
+                            f"{v.proposed_suspension} for a period of {num_words(days)} ({days}) days."))
+            h = timezone.localtime(v.hearing_date)
+            s += [_p("Pursuant to Section 720.305(2)(b), Florida Statutes, there will be a hearing before the Compliance Committee on "
+                     f"{h:%A}, {h:%B %d, %Y}, at {h:%I:%M %p} at {v.hearing_location or 'a place to be announced'} to determine "
+                     "whether to confirm or reject the fine and/or suspension that the Board levied."),
+                  _p("You have a right to attend the hearing to respond, to present evidence, and to provide written or oral argument. "
+                     "You also have an opportunity at the hearing to review, challenge, and respond to any material considered by the "
+                     "Association. You have a right to be represented by counsel at the hearing. If you intend to appear with counsel, "
+                     f"please notify the Association, in writing, no later than seven ({settings.ATTORNEY_NOTICE_DAYS}) days prior to the "
+                     "hearing so that the Association has sufficient time to arrange for its counsel to be present should it choose to do so."),
+                  _p("If you fail to appear at the hearing, the fine and/or suspension, if confirmed by the Committee, will be imposed "
+                     "after a hearing has been conducted in your absence. If you have any questions about scheduling, please contact "
+                     f"{settings.HOA_CONTACT_NAME}" + (f" at {settings.HOA_PHONE}" if settings.HOA_PHONE else "")
+                     + (f" or {settings.HOA_CONTACT_EMAIL}" if settings.HOA_CONTACT_EMAIL else "") + "."),
+                  _p("In the event the Committee confirms the fine and/or suspension levied by the Board, the fine and/or suspension "
+                     "will be imposed. If the Committee rejects the fine and/or suspension, it will not be imposed. You will receive "
+                     "written notice of any fine and/or suspension imposed.")]
+            if v.non_owner_occupied:
+                s.append(_p(OWNER_LIABILITY_HEARING + (OWNER_SUSPENSION_SENTENCE if v.proposed_suspension else "")
+                            + " Owners have the right to attend the Committee Hearing."))
         elif notice.kind == K.FINE:
-            bits = []
+            s.insert(len(letterhead()), _p(f"CERTIFIED MAIL # {notice.tracking_number or '_______________'}", BOLD))
+            nov = v.notices.filter(kind=K.VIOLATION).first()
+            hd = timezone.localtime(v.hearing_date) if v.hearing_date else None
+            s.append(_p(f"Re: Notice of Violation dated {timezone.localtime(nov.created_at):%B %d, %Y}; Hearing held "
+                        f"{hd:%B %d, %Y}." if nov and hd else "Re: Compliance Committee hearing.", BOLD))
+            hdate = f"{hd:%B %d, %Y}" if hd else "(date)"
             if v.fine_amount:
-                bits.append(f"a fine of ${v.fine_amount:,.2f}, payable within {settings.FINE_PAYMENT_DAYS} days of the date of this "
-                            f"letter (by {v.fine_due_on:%B %d, %Y}). Please contact the Association for how to pay")
+                s.append(_p(f"During the Compliance Committee hearing on {hdate}, the Committee determined that the Board properly "
+                            f"levied a fine against you in the amount of ${v.fine_amount:,.2f}, as authorized by law."))
             if v.suspension:
-                bits.append(f"a suspension: {v.suspension}")
-            s.append(_p("Following the hearing, a majority of the Compliance Committee approved the Board's proposal. The following "
-                        f"is imposed: {'; and '.join(bits)}. If the violation is not corrected and the fine paid, the matter may be "
-                        "referred to the Association's attorney, and you may be responsible for attorney's fees and costs as allowed "
-                        "by the governing documents and Florida law."))
+                lead = ("The Committee also confirmed" if v.fine_amount
+                        else f"During the Compliance Committee hearing on {hdate}, the Committee confirmed")
+                s.append(_p(f"{lead} to suspend your right to use {v.suspension} for a period of {num_words(v.suspension_days)} "
+                            f"({v.suspension_days}) days, effective {v.suspension_effective_on:%B %d, %Y}."))
+            imposed = []
+            if v.fine_amount:
+                imposed.append("As such, the fine is now imposed against you.")
+            if v.suspension:
+                imposed.append(("Likewise, as" if v.fine_amount else "As such, as") + f" of the date of this letter, the suspension is imposed "
+                               f"for a period of {num_words(v.suspension_days)} ({v.suspension_days}) days. The suspension applies to all "
+                               "Owners, tenants, occupants, guests, licensees, and invitees. It does not apply to the portion of the Common "
+                               "Areas used to provide access or utility services to the parcel, and does not prohibit vehicular or pedestrian "
+                               "ingress and egress, including the right to park.")
+            s.append(_p(" ".join(imposed)))
+            if v.fine_amount:
+                s.append(_p(f"You must pay the fine no later than five ({settings.FINE_PAYMENT_DAYS}) days from the date of this letter "
+                            f"(by {v.fine_due_on:%B %d, %Y}).", BOLD))
+                s.append(_p("You may remit payment of the fine to the Association" + (f", {settings.HOA_PAYMENT_ADDRESS}" if settings.HOA_PAYMENT_ADDRESS
+                            else (f", {hoa_address()}" if hoa_address() else "")) + f". Checks should be made payable to {settings.HOA_PAYMENT_PAYABLE_TO}. "
+                            "If you fail to pay the fine, or violate the Association's suspension order, the Association reserves all rights "
+                            "available under law to collect the fine and enforce the suspension. These include (but are not limited to) filing "
+                            "an action in a court of competent jurisdiction to recover the fine and/or enforce the suspension."))
+            else:
+                s.append(_p("If you violate the Association's suspension order, the Association reserves all rights available under law to "
+                            "enforce the suspension, including filing an action in a court of competent jurisdiction."))
+            s.append(_p("Thank you for your prompt attention to this matter."))
         s += [_respond_line(v)] + _signoff()
         if notice.kind == K.HEARING:  # procedure: Notice of Hearing includes a copy of the earlier Notice of Violation
             first = v.notices.filter(kind=K.VIOLATION).first()
