@@ -1,7 +1,9 @@
 {% extends "violations/base.html" %}{% block title %}Map{% endblock %}{% block content %}
 <h1>Neighborhood map</h1>
 <p class="mut"><span style="color:#d92d20">●</span> with board / committee / fine / legal &nbsp; <span style="color:#f79009">●</span> open, in cure period or on hold &nbsp; <span style="color:#12b76a">●</span> resolved &nbsp; <span style="color:#98a2b3">●</span> no violations. Hover a home for details; click for cases.
-{% if missing %} {{ missing }} owner(s) have no map location yet; run <code>python manage.py geocode_owners</code>.{% endif %}</p>
+{% if missing %} {{ missing }} home(s) are not on the map yet.{% endif %}</p>
+<div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address or owner…" style="max-width:340px">
+{% if ROLE == "manager" and missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <div id="map" style="height:70vh;border-radius:10px;border:1px solid var(--line)"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -11,12 +13,15 @@ if(typeof L==="undefined"){document.getElementById("map").innerHTML="<p style='p
 else{
 var COLORS={red:"#d92d20",orange:"#f79009",green:"#12b76a",gray:"#98a2b3"};
 var map=L.map("map");L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
-function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
+var HOMES=[];function esc(s){var d=document.createElement("div");d.textContent=s;return d.innerHTML;}
 fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){var pts=[];
  d.homes.forEach(function(h){pts.push([h.lat,h.lng]);
   var m=L.circleMarker([h.lat,h.lng],{radius:8,color:"#fff",weight:1.5,fillColor:COLORS[h.color],fillOpacity:.95}).addTo(map);
-  m.bindTooltip("<b>"+esc(h.address)+"</b><br>"+esc(h.owner)+"<br>Open: "+h.open+" · Resolved: "+h.resolved);
+  m.bindTooltip("<b>"+esc(h.address)+"</b><br>"+esc(h.owner)+(h.rented?" <i>(rented)</i>":"")+"<br>Open: "+h.open+" · Resolved: "+h.resolved);
+  HOMES.push({h:h,m:m});
   m.bindPopup("<b>"+esc(h.address)+"</b><br>"+(h.cases.length?h.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)}).join("<br>"):"No violations"));});
+ document.getElementById("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;
+  var hit=HOMES.find(function(x){return (x.h.address+" "+x.h.owner).toLowerCase().indexOf(q)>=0});if(hit){map.setView([hit.h.lat,hit.h.lng],19);hit.m.openPopup();}});
  if(pts.length)map.fitBounds(pts,{padding:[30,30]});else map.setView([27.34,-82.53],13);});
 }
 </script>{% endblock %}

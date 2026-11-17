@@ -7,7 +7,8 @@
 {% for r in v.responses.all %}<p class="mut">{% if r.from_resident %}Owner{% else %}Staff{% endif %}: {{ r.message }}</p>{% endfor %}
 {% include "violations/_extension_request.html" with next=request.path %}
 <form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'board_queue' %}">
-<div class="row">{% for f in board_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>
+<p class="mut">Suggested fine from the violation type: ${{ v.vtype.default_fine }}. The vote only proposes it; a majority of the Board is required.</p>
+<div class="row">{% for f in v.bform %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>
 {% empty %}<div class="card mut">Nothing awaiting a board vote.</div>{% endfor %}
 {% if need_hearing %}<div class="card"><h2>Approved by board — waiting to be sent to a committee meeting (<a href="{% url 'meetings' %}">Committee meetings</a>)</h2>{% for v in need_hearing %}<p><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a></p>{% endfor %}</div>{% endif %}
 {% endblock %}

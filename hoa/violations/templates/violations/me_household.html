@@ -1,0 +1,9 @@
+{% extends "violations/base.html" %}{% block title %}My household{% endblock %}{% block content %}
+<h1>My household</h1>
+<p class="mut">Everyone listed here signs in with their own email and password and sees the same violations, letters and messages for {{ owner.property_address }}.</p>
+<div class="card"><table><tr><th>Name<th>Email<th>Role<th></tr>
+{% for p in members %}<tr><td>{{ p.user.get_full_name|default:"—" }}{% if p.user == request.user %} <span class="pill">you</span>{% endif %}<td>{{ p.user.email }}<td>{{ p.get_relationship_display }}{% if not p.user.is_active %} <span class="pill">no access</span>{% endif %}
+<td>{% if p.user != request.user and p.user.is_active %}<form method="post" onsubmit="return confirm('Remove this person\'s access?')">{% csrf_token %}<input type="hidden" name="remove" value="{{ p.pk }}"><button class="sec">Remove</button></form>{% endif %}</tr>{% endfor %}</table></div>
+{% if can_add %}<form class="card" method="post"><h2>Add someone</h2>{% csrf_token %}{{ form.as_p }}<button>Send invitation</button></form>
+{% else %}<div class="card mut">Your household has reached its limit of logins. Remove someone to add another.</div>{% endif %}
+{% endblock %}

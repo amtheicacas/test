@@ -1,0 +1,11 @@
+{% extends "violations/base.html" %}{% block title %}Import owners{% endblock %}{% block content %}
+<h1>Import owners</h1>
+<p class="mut">Upload a CSV of homes and owners, from a Vantaca export or typed up by hand. Existing owners are matched by Vantaca account ID, then property address, and updated; nothing is deleted. You'll see a preview first. <a href="{% url 'import_template' %}">Download a template</a>.</p>
+<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}<button>Preview</button></form>
+{% if preview %}<div class="card"><h2>Preview of {{ n }} row{{ n|pluralize }}</h2>
+<p><b>{{ preview.created }}</b> new owner{{ preview.created|pluralize }}, <b>{{ preview.updated }}</b> to update, <b>{{ preview.skipped }}</b> skipped. Nothing has been saved yet.</p>
+{% if problems %}<h3>Check these</h3><ul>{% for r,m in problems %}<li>Row {{ r }}: {{ m }}</li>{% endfor %}</ul>{% else %}<p class="mut">No problems found.</p>{% endif %}
+<p class="mut">Columns found: {{ columns|join:", " }}</p>
+<form method="post" enctype="multipart/form-data">{% csrf_token %}<p class="mut">To import, choose the same file again and tick the box if you want invitations sent:</p>{{ form.as_p }}<input type="hidden" name="apply" value="1"><button>Import now</button></form></div>{% endif %}
+<div class="card"><h2>Columns it understands</h2><p class="mut">Account ID, Owner Name, Property Address (units like "#52" are fine), City, State, ZIP, Email, Co-owner Email, Phone, Mailing Street/City/State/ZIP (if different), Tenant Name, Tenant Email, Tenant Phone, Latitude and Longitude (optional). Names of columns can vary a little (for example "Homeowner Name" or "Account Number"). If a file has tenant columns, a blank tenant means the home is no longer rented.</p></div>
+{% endblock %}

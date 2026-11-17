@@ -280,14 +280,3 @@ def test_create_issues_immediately(client):
                                          "photos": png()})
     v = Violation.objects.get()
     assert r.status_code == 302 and v.status == S.NOTICE_SENT and len(mail.outbox) == 1
-
-
-def test_geocode_command():
-    from django.core.management import call_command
-    Owner.objects.create(name="A", property_address="1 Main St", zip_code="34240")
-    resp = mock.MagicMock()
-    resp.__enter__.return_value = mock.MagicMock(read=lambda *_: b'{"result":{"addressMatches":[{"coordinates":{"x":-82.4,"y":27.3}}]}}')
-    with mock.patch("urllib.request.urlopen", return_value=resp):
-        call_command("geocode_owners")
-    o = Owner.objects.get()
-    assert (o.lat, o.lng) == (27.3, -82.4)

@@ -149,3 +149,15 @@ class ResidentForm(forms.Form):
 class ImposeForm(forms.Form):
     method = forms.ChoiceField(choices=[("api", "Post through the Vantaca API"), ("manual", "I posted it in Vantaca by hand")], initial="manual")
     reference = forms.CharField(required=False, label="Vantaca transaction / reference # (optional)")
+
+
+class HouseholdForm(forms.Form):
+    name = forms.CharField(max_length=150, label="Name")
+    email = forms.EmailField(label="Email (they sign in with this)")
+    relationship = forms.ChoiceField(choices=[("co_owner", "Co-owner / spouse"), ("tenant", "Tenant / renter"),
+                                              ("other", "Other household member")])
+
+
+class ImportForm(forms.Form):
+    file = forms.FileField(label="Owner list (CSV)")
+    invite = forms.BooleanField(required=False, label="Also email new owners an invitation to create their login")

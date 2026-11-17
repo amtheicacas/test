@@ -59,7 +59,7 @@
 <form method="post" action="{% url 'violation_action' v.pk 'committee' %}">{% csrf_token %}<div class="row">{% for f in committee_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record decision</button></form></div>{% endif %}
 
 <div class="card"><h2>Conversation</h2>
-{% for r in v.responses.all %}<p><b>{% if r.from_resident %}Owner{% else %}Staff{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span>{% if r.cure_reported %} <span class="pill">says it's fixed</span>{% endif %}{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}{% if r.extension_requested %} <span class="pill">extension request{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">No messages yet.</p>{% endfor %}
+{% for r in v.responses.all %}<p><b>{% if r.from_resident %}{{ r.author.get_full_name|default:"Owner" }}{% else %}Staff{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span>{% if r.cure_reported %} <span class="pill">says it's fixed</span>{% endif %}{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}{% if r.extension_requested %} <span class="pill">extension request{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">No messages yet.</p>{% endfor %}
 <form method="post" action="{% url 'violation_action' v.pk 'reply' %}">{% csrf_token %}{{ reply_form.message }}<button class="sec" style="margin-top:6px">Reply (shows on owner's page)</button></form></div>
 
 {% if v.status == S.FINE_APPROVED %}<div class="card"><h2>After imposition</h2><div class="row">

@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import accounts, forms, ledger, services, standards_search
+from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
 from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
@@ -359,7 +359,9 @@ def notice_pdf(request, pk):
 @staff_only
 def board_queue(request):
     services.advance_expired()
-    vs = Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype")
+    vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype"))
+    for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
+        v.bform = forms.BoardForm(initial={"proposed_fine": v.vtype.default_fine})
     return render(request, "violations/board.html", {"ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
@@ -447,7 +449,8 @@ def _handle_owner_post(request, v, form):
     if not v.is_open:
         messages.error(request, "This case is closed.")
         return
-    services.add_response(v, d["message"], from_resident=True, extension_requested=d["request_extension"],
+    services.add_response(v, d["message"], from_resident=True, user=request.user if request.user.is_authenticated else None,
+                          extension_requested=d["request_extension"],
                           extension_days=d["extension_days"] if d["request_extension"] else None,
                           cure_reported=d["cure_reported"], attorney_notice=d["attorney_notice"])
     n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
@@ -474,6 +477,32 @@ def my_violation(request, pk):
         return redirect("my_violation", pk=pk)
     return render(request, "violations/me_detail.html", {"v": v, "steps": v.stage_steps(), "form": form, "S": S,
                                                          "notices": v.notices.all(), "state_url": f"/me/{pk}/state/"})
+
+
+@homeowner_only
+def my_household(request):
+    """Everyone with a login on this household sees the same violations, letters and messages."""
+    o = accounts.owner_of(request.user)
+    if o is None:
+        raise Http404
+    form = forms.HouseholdForm(request.POST or None)
+    if request.method == "POST":
+        if request.POST.get("remove"):
+            p = o.profiles.filter(pk=request.POST["remove"]).exclude(user=request.user).select_related("user").first()
+            if p:
+                p.user.is_active = False
+                p.user.save(update_fields=["is_active"])
+                messages.success(request, f"{p.user.get_full_name() or p.user.email} no longer has access.")
+            return redirect("my_household")
+        if form.is_valid():
+            d = form.cleaned_data
+            if accounts.invite_member(o, d["email"], d["name"], d["relationship"], request):
+                messages.success(request, f"Invitation sent to {d['email']}. They'll see the same violations and messages as you.")
+                return redirect("my_household")
+            messages.error(request, "Couldn't add that person: that email may already have a login, or your household is at its "
+                                    f"limit of {settings.MAX_LOGINS_PER_HOUSEHOLD} logins.")
+    return render(request, "violations/me_household.html", {"owner": o, "members": accounts.household_logins(o), "form": form,
+                                                            "can_add": accounts.can_add_login(o)})
 
 
 @homeowner_only
@@ -525,18 +554,77 @@ def map_data():
             color = "green"
         else:
             color = "gray"
-        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng,
+        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng, "rented": bool(o.tenant_name),
                     "color": color, "open": len(active), "resolved": len(vs) - len(active),
                     "cases": [{"id": v.pk, "type": v.vtype.name, "status": v.get_status_display(), "url": v.get_absolute_url(),
                                "resolved": v.status in RESOLVED} for v in vs]})
     return out
 
 
+def _spread(homes):
+    """Units in one building share a coordinate: fan them out in a small ring so every home is its own dot."""
+    import math
+    groups = {}
+    for h in homes:
+        groups.setdefault((round(h["lat"], 5), round(h["lng"], 5)), []).append(h)
+    for hs in groups.values():
+        if len(hs) > 1:
+            r = 0.00003 * (1 + len(hs) / 6)
+            for i, h in enumerate(sorted(hs, key=lambda x: x["address"])):
+                a = 2 * math.pi * i / len(hs)
+                h["lat"] += r * math.sin(a)
+                h["lng"] += r * math.cos(a)
+    return homes
+
+
 @staff_only
 def map_page(request):
-    return render(request, "violations/map.html", {"missing": Owner.objects.filter(lat__isnull=True).count()})
+    return render(request, "violations/map.html", {"missing": Owner.objects.filter(lat__isnull=True, active=True).count()})
 
 
 @staff_only
 def map_api(request):
-    return JsonResponse({"homes": map_data()})
+    return JsonResponse({"homes": _spread(map_data())})
+
+
+# ---------- importing the owner list, and putting homes on the map ----------
+manager_only = role_required("manager")
+
+
+@manager_only
+def import_owners(request):
+    """Upload a CSV of owners (from Vantaca or by hand): preview, then apply."""
+    form = forms.ImportForm(request.POST or None, request.FILES or None)
+    ctx = {"form": form}
+    if request.method == "POST" and form.is_valid():
+        text = request.FILES["file"].read().decode("utf-8-sig", errors="replace")
+        if request.POST.get("apply"):
+            result = vantaca.sync_csv(text, invite=form.cleaned_data["invite"])
+            messages.success(request, ", ".join(f"{v} {k}" for k, v in result.items() if v))
+            return redirect("import_owners")
+        rows, result, problems = vantaca.preview_csv(text)
+        ctx.update(preview=result, problems=problems, n=len(rows), text=text,
+                   columns=sorted({k for r in rows[:1] for k in r}))
+    return render(request, "violations/import.html", ctx)
+
+
+@manager_only
+def import_template(request):
+    cols = ["Account ID", "Owner Name", "Property Address", "City", "State", "ZIP", "Email", "Phone", "Co-owner Email",
+            "Mailing Street", "Mailing City", "Mailing State", "Mailing ZIP", "Tenant Name", "Tenant Email", "Tenant Phone"]
+    ex = ["V-1001", "Pat Owner & Sam Owner", "12 Heron Way", "Sarasota", "FL", "34241", "pat@example.com", "941-555-0100",
+          "sam@example.com", "", "", "", "", "", "", ""]
+    return HttpResponse(",".join(cols) + "\n" + ",".join(ex) + "\n", content_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="heron-landing-owner-template.csv"'})
+
+
+@manager_only
+@require_POST
+def locate_homes(request):
+    try:
+        located, missing = geocoding.geocode_missing()
+    except Exception as e:  # service down / blocked network: say so instead of crashing
+        messages.error(request, f"Couldn't reach the address lookup service ({type(e).__name__}). Try again later.")
+        return redirect("map")
+    messages.success(request, f"{located} home(s) placed on the map." + (f" {missing} could not be found: check those addresses." if missing else ""))
+    return redirect("map")

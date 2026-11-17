@@ -9,7 +9,7 @@
 {% if v.status == "fine_approved" %}<p>{% if v.fine_amount %}<b>Fine imposed: ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"F j, Y" }}.</b>{% endif %} {% if v.suspension %}Suspension: {{ v.suspension }}.{% endif %}</p>{% endif %}
 <div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">your photo</small>{% endif %}</a>{% endfor %}</div></div>
 <div class="card"><h2>Letters</h2><table>{% for n in notices %}<tr><td>{{ n.get_kind_display }}<td class="mut">{{ n.created_at|date:"M j, Y" }}<td><a href="{% url 'notice_pdf' n.pk %}" target="_blank">View / print</a></tr>{% endfor %}</table></div>
-<div class="card" id="thread"><h2>Messages</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}You{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span><br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None yet.</p>{% endfor %}</div>
+<div class="card" id="thread"><h2>Messages</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}{% if r.author_id == request.user.id or not r.author %}You{% else %}{{ r.author.first_name|default:r.author.email }}{% endif %}{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span><br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None yet.</p>{% endfor %}</div>
 {% if v.is_open %}<form class="card" method="post" enctype="multipart/form-data"><h2>Send a message</h2>{% csrf_token %}{{ form.non_field_errors }}
 {{ form.message.label_tag }}{{ form.message }}{{ form.message.errors }}
 <label><input type="checkbox" name="cure_reported"> {{ form.cure_reported.label }}</label>

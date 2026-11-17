@@ -33,7 +33,12 @@ FIELD_ALIASES = {
     "mail_line1": ["mailingstreet", "mailingaddress1", "mailaddress1"], "mail_city": ["mailingcity"],
     "mail_state": ["mailingstate"], "mail_zip": ["mailingzip", "mailingzipcode"],
     "lat": ["latitude", "lat"], "lng": ["longitude", "lng", "lon"],
+    "co_owner_email": ["coowneremail", "coowneremailaddress", "secondaryemail", "email2", "secondownersemail"],
+    "tenant_name": ["tenantname", "renter", "renterName", "tenant", "occupantname"],
+    "tenant_email": ["tenantemail", "renteremail", "occupantemail"],
+    "tenant_phone": ["tenantphone", "renterphone"],
 }
+HOUSEHOLD_FIELDS = ("co_owner_email", "tenant_name", "tenant_email", "tenant_phone")
 
 
 def _norm(k):
@@ -43,10 +48,15 @@ def _norm(k):
 def _pick(row, field):
     lookup = {_norm(k): v for k, v in row.items()}
     for alias in FIELD_ALIASES[field]:
-        v = lookup.get(alias)
+        v = lookup.get(_norm(alias))
         if v not in (None, ""):
             return str(v).strip()
     return ""
+
+
+def _has_column(row, field):
+    keys = {_norm(k) for k in row}
+    return any(_norm(a) in keys for a in FIELD_ALIASES[field])
 
 
 def normalize(row):
@@ -55,7 +65,9 @@ def normalize(row):
             "property_address": _pick(row, "property_address"), "email": _pick(row, "email"),
             "phone": _pick(row, "phone"), "mailing_address": _pick(row, "mailing_address"),
             **{f: _pick(row, f) for f in ("city", "state", "zip_code", "mail_line1", "mail_city", "mail_state", "mail_zip")},
-            **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")}}
+            **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")},
+            # tenant / co-owner: only touched when the file has that column (a blank then means "none", e.g. the tenant moved out)
+            **{f: _pick(row, f) for f in HOUSEHOLD_FIELDS if _has_column(row, f)}}
 
 
 def upsert_owner(row):
@@ -78,6 +90,9 @@ def upsert_owner(row):
             setattr(owner, f, d[f])
     for f in ("lat", "lng"):
         if d[f] is not None:
+            setattr(owner, f, d[f])
+    for f in HOUSEHOLD_FIELDS:
+        if f in d:
             setattr(owner, f, d[f])
     if d["external_id"]:
         owner.external_id = d["external_id"]
@@ -159,3 +174,38 @@ def fetch_owners_from_api():
 
 def sync_api(**kw):
     return sync_rows(fetch_owners_from_api(), **kw)
+
+
+def check_rows(rows):
+    """Problems worth fixing before importing: [(row_number, message)]. Row 1 is the first data row."""
+    from django.core.validators import validate_email
+    from django.core.exceptions import ValidationError
+    problems, seen = [], {}
+    for i, row in enumerate(rows, start=1):
+        d = normalize(row)
+        if not d["name"] or not d["property_address"]:
+            problems.append((i, "Skipped: needs an owner name and a property address."))
+            continue
+        key = d["property_address"].lower()
+        if key in seen:
+            problems.append((i, f"Same property address as row {seen[key]}: the later row wins."))
+        seen[key] = i
+        for f in ("email", "co_owner_email", "tenant_email"):
+            if d.get(f):
+                try:
+                    validate_email(d[f])
+                except ValidationError:
+                    problems.append((i, f"'{d[f]}' doesn't look like a valid email."))
+        if not d["zip_code"]:
+            problems.append((i, "No ZIP code (needed for mailing and the map)."))
+    return problems
+
+
+def preview_csv(text):
+    """What importing would do, without changing anything."""
+    from django.db import transaction
+    rows = list(csv.DictReader(io.StringIO(text)))
+    with transaction.atomic():
+        result = sync_rows(rows)
+        transaction.set_rollback(True)
+    return rows, result, check_rows(rows)
