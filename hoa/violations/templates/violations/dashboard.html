@@ -1,7 +1,61 @@
-{% extends "violations/base.html" %}{% block content %}
-<h1>Dashboard</h1>
-<div class="card"><div class="grid">{% for label,n,val in counts %}<a class="stat" style="text-decoration:none;color:inherit" href="{% url 'violation_list' %}?status={{ val }}"><b>{{ n }}</b><span class="mut">{{ label }}</span></a>{% endfor %}</div></div>
-<div class="card"><h2>Needs attention</h2><ul>
+{% extends "violations/base.html" %}{% block title %}Dashboard{% endblock %}{% block content %}
+<style>
+.hero{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:16px;background:linear-gradient(135deg,var(--card) 0%,var(--bg) 100%)}
+.hero img{height:64px;width:auto;flex:0 0 auto}
+.hero h1{margin:0 0 4px;font-size:1.5rem}
+.hero p{margin:0;color:var(--mut);max-width:62ch;line-height:1.5}
+.hero .go{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin-bottom:16px}
+.tile{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 16px;text-decoration:none;color:inherit;display:block}
+.tile b{display:block;font-size:2rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--mut);font-size:.85rem}
+.tile.hot{border-color:var(--warn)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:16px}
+.bars{display:grid;gap:8px;margin-top:8px}
+.bar{display:grid;grid-template-columns:200px 1fr 34px;gap:10px;align-items:center;font-size:.9rem;text-decoration:none;color:inherit}
+.bar .t{height:12px;background:var(--bg);border-radius:6px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--acc);border-radius:0 4px 4px 0;min-width:2px}
+.bar.zero .t i{min-width:0}.bar.zero{opacity:.55}
+.bar em{font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
+.cols{display:flex;gap:10px;align-items:flex-end;height:120px;margin-top:10px}
+.cols div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:.8rem;color:var(--mut)}
+.cols i{display:block;width:100%;max-width:44px;background:var(--acc);border-radius:4px 4px 0 0;margin-bottom:4px;min-height:2px}
+.cols b{color:var(--ink);font-weight:600}
+@media(max-width:640px){.hero{flex-direction:column;align-items:flex-start}.hero .go{margin-left:0}.bar{grid-template-columns:110px 1fr 28px}}
+</style>
+<div class="hero">
+  <img src="{% load static %}{% static 'violations/heron-landing-logo.png' %}" alt="">
+  <div>
+    <h1>Violation Manager</h1>
+    <p>Everything the Board and management need to keep Heron Landing fair and consistent: courtesy notices, cure periods, owner replies, Board votes, Compliance Committee hearings and fines, each step following Florida Statute 720.305 and our Fining Resolution. The cards below show where every open case stands and what is waiting on you.</p>
+  </div>
+  <div class="go"><a class="btn" href="{% url 'violation_create' %}">+ New violation</a><a class="btn sec" href="{% url 'map' %}">Open map</a></div>
+</div>
+
+<div class="tiles">
+  <a class="tile" href="{% url 'violation_list' %}?status=open"><b>{{ kpi_open }}</b><span>Open cases</span></a>
+  <a class="tile" href="{% url 'map' %}"><b>{{ kpi_homes }}</b><span>Homes with an open case</span></a>
+  <a class="tile{% if board_queue %} hot{% endif %}" href="{% url 'board_queue' %}"><b>{{ board_queue }}</b><span>Awaiting Board vote</span></a>
+  <a class="tile"><b>{{ kpi_cured30 }}</b><span>Cured in last 30 days</span></a>
+  <a class="tile"><b>{% if kpi_rate is None %}&ndash;{% else %}{{ kpi_rate }}%{% endif %}</b><span>Of all cases ended in compliance</span></a>
+  <a class="tile"><b>${{ kpi_fines|floatformat:0 }}</b><span>Fines imposed to date</span></a>
+</div>
+
+<div class="two">
+  <div class="card"><h2>Where cases are right now</h2>
+    <div class="bars">{% for p in pipeline %}<a class="bar{% if not p.n %} zero{% endif %}" href="{% url 'violation_list' %}?status={{ p.key }}"><span>{{ p.label }}</span><span class="t"><i style="width:{{ p.pct }}%"></i></span><em>{{ p.n }}</em></a>{% endfor %}</div>
+  </div>
+  <div class="card"><h2>Most common violations</h2>
+    {% if top_types %}<div class="bars">{% for t in top_types %}<div class="bar"><span title="{{ t.vtype__name }}">{{ t.vtype__name|truncatechars:30 }}</span><span class="t"><i style="width:{{ t.pct }}%"></i></span><em>{{ t.n }}</em></div>{% endfor %}</div>
+    {% else %}<p class="mut">Nothing recorded yet.</p>{% endif %}
+  </div>
+</div>
+<div class="card"><h2>Violations observed, last 6 months</h2>
+  <div class="cols">{% for t in trend %}<div title="{{ t.label }}: {{ t.n }}"><b>{{ t.n }}</b><i style="height:{{ t.pct }}%"></i>{{ t.label }}</div>{% endfor %}</div>
+</div>
+
+<h2 style="margin:22px 0 8px">Needs your attention</h2>
+<div class="card"><ul>
 <li><a href="{% url 'board_queue' %}">{{ board_queue }} awaiting board vote</a>, {{ need_hearing }} need a hearing scheduled</li>
 <li>{{ unmailed }} notice(s) not yet logged as mailed</li></ul></div>
 {% if ledger_pending %}<div class="card" style="border-color:var(--warn)"><h2>Committee decisions awaiting approval to post &amp; send</h2><table>{% for v in ledger_pending %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a><td>{% if v.fine_amount %}fine ${{ v.fine_amount }}{% endif %} {{ v.suspension }}<td><a class="btn" href="{{ v.get_absolute_url }}">Review</a></tr>{% endfor %}</table></div>{% endif %}

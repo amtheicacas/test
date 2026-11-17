@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -139,7 +139,53 @@ def home(request):
         "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
         "today": date.today(),
     }
+    ctx.update(_dashboard_visuals(counts))
     return render(request, "violations/dashboard.html", ctx)
+
+
+PIPELINE = [("Cure period", "notice_sent"), ("Board vote", "pending_board"), ("Schedule hearing", "hearing_needed"),
+            ("Committee / hearing", "hearing_scheduled"), ("Post to ledger", "ledger_pending"),
+            ("Imposed", "fine_approved"), ("On hold", "on_hold")]
+
+
+def _dashboard_visuals(counts):
+    """Numbers behind the dashboard graphics: pipeline, top rule types, 6-month trend, headline tiles."""
+    today = date.today()
+    peak = max([counts.get(k, 0) for _, k in PIPELINE] + [1])
+    pipeline = [{"label": l, "key": k, "n": counts.get(k, 0), "pct": round(100 * counts.get(k, 0) / peak)}
+                for l, k in PIPELINE]
+    top = list(Violation.objects.values("vtype__name").annotate(n=Count("id")).order_by("-n")[:6])
+    top_peak = max([t["n"] for t in top] + [1])
+    for t in top:
+        t["pct"] = round(100 * t["n"] / top_peak)
+    months = []
+    y, m = today.year, today.month
+    for _ in range(6):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    months.reverse()
+    trend = []
+    for y, m in months:
+        trend.append({"label": date(y, m, 1).strftime("%b"),
+                      "n": Violation.objects.filter(observed_on__year=y, observed_on__month=m).count()})
+    t_peak = max([t["n"] for t in trend] + [1])
+    for t in trend:
+        t["pct"] = round(100 * t["n"] / t_peak)
+    open_qs = Violation.objects.filter(status__in=Violation.OPEN)
+    cured_30 = Violation.objects.filter(cured_on__gte=today - timedelta(days=30)).count()
+    total = Violation.objects.count()
+    cured_all = sum(counts.get(k, 0) for k in ("cured", "closed"))
+    return {
+        "pipeline": pipeline, "top_types": top, "trend": trend,
+        "kpi_open": open_qs.count(),
+        "kpi_homes": open_qs.values("owner").distinct().count(),
+        "kpi_cured30": cured_30,
+        "kpi_rate": round(100 * cured_all / total) if total else None,
+        "kpi_fines": Violation.objects.filter(status__in=["fine_approved", "closed"], fine_amount__isnull=False)
+                     .aggregate(t=Sum("fine_amount"))["t"] or 0,
+    }
 
 
 # ---------- staff / board ----------
