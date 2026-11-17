@@ -16,6 +16,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Event, Notice, Response, Violation
+from . import mailing
+from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -37,6 +39,7 @@ def _require(v, *allowed):
 def send_notice(v, kind, user=None):
     """Create a notice and email it with the PDF to the owner (and tenant, if any). Mailing is logged separately."""
     notice = Notice.objects.create(violation=v, kind=kind)
+    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
     recipients = [e for e in (v.owner.email, v.owner.tenant_email) if e]
     if recipients:
         pdf = render_notice_pdf(notice)
@@ -112,10 +115,31 @@ def record_payment(v, paid_on, user=None):
 
 @transaction.atomic
 def refer_to_attorney(v, user=None, note=""):
-    _require(v, S.FINE_APPROVED)
+    _require(v, *[st for st in Violation.OPEN if st != S.DRAFT])
     v.status, v.legal_referred_on = S.REFERRED_LEGAL, date.today()
     v.save()
     log(v, "Referred to the Association's attorney" + (f": {note}" if note else ""), user)
+
+
+@transaction.atomic
+def put_on_hold(v, reason, user=None):
+    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.ON_HOLD)])
+    if not reason.strip():
+        raise WorkflowError("Give a reason for the hold.")
+    v.held_from, v.hold_reason, v.held_on, v.status = v.status, reason.strip(), date.today(), S.ON_HOLD
+    v.save()
+    log(v, f"Put on hold: {reason.strip()}", user)
+
+
+@transaction.atomic
+def resume(v, user=None):
+    _require(v, S.ON_HOLD)
+    back = v.held_from or S.NOTICE_SENT
+    if back == S.NOTICE_SENT and v.cure_deadline and v.held_on:  # the cure clock was paused
+        v.cure_deadline += timedelta(days=(date.today() - v.held_on).days)
+    v.status, v.held_from, v.hold_reason, v.held_on = back, "", "", None
+    v.save()
+    log(v, f"Hold lifted — back to '{v.get_status_display()}'", user)
 
 
 @transaction.atomic
@@ -217,20 +241,41 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
     v.save()
 
 
+def create_meeting(starts_at, zoom_link="", location="", user=None):
+    if isinstance(starts_at, datetime) and timezone.is_naive(starts_at):
+        starts_at = timezone.make_aware(starts_at)
+    if not (zoom_link or location):
+        raise WorkflowError("Add a Zoom link and/or a location for the meeting.")
+    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location)
+
+
 @transaction.atomic
-def schedule_hearing(v, hearing_dt, location="", user=None, today=None):
+def assign_to_meeting(v, meeting, user=None, today=None):
+    """Send a board-approved case to a Compliance Committee meeting: stage changes and the Notice of Hearing
+    (with the Zoom link, proposed amount and the original notice) goes out by email and certified + regular mail."""
     _require(v, S.HEARING_NEEDED, S.HEARING_SCHEDULED)
     today = today or date.today()
-    if isinstance(hearing_dt, datetime) and timezone.is_naive(hearing_dt):
-        hearing_dt = timezone.make_aware(hearing_dt)
     min_day = today + timedelta(days=settings.HEARING_NOTICE_DAYS)
-    if timezone.localtime(hearing_dt).date() < min_day:
+    if timezone.localtime(meeting.starts_at).date() < min_day:
         raise WorkflowError(f"Hearing must be at least {settings.HEARING_NOTICE_DAYS} days after notice "
                             f"(earliest {min_day:%b %d, %Y}).")
-    v.hearing_date, v.hearing_location, v.status = hearing_dt, location, S.HEARING_SCHEDULED
+    v.committee_meeting, v.hearing_date, v.hearing_location = meeting, meeting.starts_at, meeting.place
+    v.status = S.HEARING_SCHEDULED
     v.save()
-    log(v, f"Compliance Committee hearing set for {timezone.localtime(hearing_dt):%b %d, %Y %I:%M %p}", user)
+    log(v, f"Sent to Compliance Committee meeting {timezone.localtime(meeting.starts_at):%b %d, %Y %I:%M %p}", user)
     return send_notice(v, Notice.Kind.HEARING, user)
+
+
+def assign_all_to_meeting(meeting, user=None, today=None):
+    """Batch: every board-approved case waiting for a hearing goes onto this meeting. Returns (done, skipped)."""
+    done, skipped = [], []
+    for v in Violation.objects.filter(status=S.HEARING_NEEDED):
+        try:
+            assign_to_meeting(v, meeting, user, today)
+            done.append(v)
+        except WorkflowError as e:
+            skipped.append((v, str(e)))
+    return done, skipped
 
 
 @transaction.atomic

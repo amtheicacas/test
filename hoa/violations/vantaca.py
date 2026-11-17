@@ -28,6 +28,10 @@ FIELD_ALIASES = {
     "email": ["email", "emailaddress", "primaryemail"],
     "phone": ["phone", "phonenumber", "primaryphone", "homephone", "cellphone"],
     "mailing_address": ["mailingaddress", "mailaddress", "billingaddress"],
+    "city": ["city", "propertycity"], "state": ["state", "propertystate"], "zip_code": ["zip", "zipcode", "postalcode", "propertyzip"],
+    "mail_line1": ["mailingstreet", "mailingaddress1", "mailaddress1"], "mail_city": ["mailingcity"],
+    "mail_state": ["mailingstate"], "mail_zip": ["mailingzip", "mailingzipcode"],
+    "lat": ["latitude", "lat"], "lng": ["longitude", "lng", "lon"],
 }
 
 
@@ -48,7 +52,9 @@ def normalize(row):
     name = _pick(row, "name") or f"{_pick(row, 'first')} {_pick(row, 'last')}".strip()
     return {"external_id": _pick(row, "external_id") or None, "name": name,
             "property_address": _pick(row, "property_address"), "email": _pick(row, "email"),
-            "phone": _pick(row, "phone"), "mailing_address": _pick(row, "mailing_address")}
+            "phone": _pick(row, "phone"), "mailing_address": _pick(row, "mailing_address"),
+            **{f: _pick(row, f) for f in ("city", "state", "zip_code", "mail_line1", "mail_city", "mail_state", "mail_zip")},
+            **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")}}
 
 
 def upsert_owner(row):
@@ -63,8 +69,15 @@ def upsert_owner(row):
         owner = Owner.objects.filter(property_address__iexact=d["property_address"]).first()
     created = owner is None
     owner = owner or Owner()
-    for f in ("name", "property_address", "email", "phone", "mailing_address"):
+    for f in ("name", "property_address", "email", "phone", "mailing_address", "mail_line1", "mail_city",
+              "mail_state", "mail_zip"):
         setattr(owner, f, d[f])
+    for f in ("city", "state", "zip_code"):  # keep model defaults (Sarasota, FL) when the export has no value
+        if d[f]:
+            setattr(owner, f, d[f])
+    for f in ("lat", "lng"):
+        if d[f] is not None:
+            setattr(owner, f, d[f])
     if d["external_id"]:
         owner.external_id = d["external_id"]
     owner.last_synced_at = timezone.now()

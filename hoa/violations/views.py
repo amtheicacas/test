@@ -1,22 +1,56 @@
-from datetime import date
-
-from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from datetime import timedelta
+import json
+from datetime import date, timedelta
+from functools import wraps
 
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.views import redirect_to_login
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Exists, OuterRef, Q
-from django.utils import timezone
-from django.http import FileResponse, Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import forms, services
-from .models import Notice, Photo, Response, Violation
+from . import accounts, forms, services
+from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
 MAX_UPLOAD = 10 * 1024 * 1024
+STAFF = ("manager", "board")
+COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL)
+
+
+def role_required(*roles):
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(request, *a, **kw):
+            if not request.user.is_authenticated:
+                return redirect_to_login(request.get_full_path())
+            if accounts.role_of(request.user) not in roles:
+                raise PermissionDenied
+            return fn(request, *a, **kw)
+        return wrapper
+    return deco
+
+
+staff_only = role_required(*STAFF)
+staff_or_committee = role_required(*STAFF, "committee")
+homeowner_only = role_required("homeowner")
+
+
+def can_view(user, v):
+    """Per-case access: staff see all; committee only cases sent to a meeting; homeowners only their own."""
+    role = accounts.role_of(user)
+    if role in STAFF:
+        return True
+    if role == "committee":
+        return v.committee_meeting_id is not None and v.status in COMMITTEE_VISIBLE
+    if role == "homeowner":
+        o = accounts.owner_of(user)
+        return bool(o) and v.owner_id == o.id and v.status != S.DRAFT
+    return False
 
 
 def _is_image(f):
@@ -52,7 +86,6 @@ def _run(request, fn, *a, ok=None, **kw):
         messages.error(request, str(e))
 
 
-# ---------- staff ----------
 def _awaiting_reply():
     """Owner messages with no staff reply since; the procedure promises a response within 48-72 hours."""
     later_staff = Response.objects.filter(violation=OuterRef("violation"), from_resident=False,
@@ -64,8 +97,17 @@ def _awaiting_reply():
     return [(r, r.created_at < cutoff) for r in qs]
 
 
-@login_required
-def dashboard(request):
+# ---------- landing / dashboard ----------
+def home(request):
+    if not request.user.is_authenticated:
+        return redirect_to_login("/")
+    role = accounts.role_of(request.user)
+    if role == "homeowner":
+        return redirect("my_violations")
+    if role == "committee":
+        return redirect("committee_home")
+    if role not in STAFF:
+        raise PermissionDenied
     services.advance_expired()
     counts = dict(Violation.objects.values_list("status").annotate(c=Count("id")))
     ctx = {
@@ -85,21 +127,32 @@ def dashboard(request):
     return render(request, "violations/dashboard.html", ctx)
 
 
-@login_required
+# ---------- staff / board ----------
+@staff_only
 def violation_list(request):
     qs = Violation.objects.select_related("owner", "vtype")
-    status, q = request.GET.get("status", ""), request.GET.get("q", "").strip()
+    g = request.GET
+    status, q, vtype = g.get("status", ""), g.get("q", "").strip(), g.get("type", "")
     if status == "open":
         qs = qs.filter(status__in=Violation.OPEN)
     elif status:
         qs = qs.filter(status=status)
+    if vtype:
+        qs = qs.filter(vtype_id=vtype)
     if q:
         qs = qs.filter(Q(owner__name__icontains=q) | Q(owner__property_address__icontains=q)
-                       | Q(description__icontains=q))
-    return render(request, "violations/list.html", {"violations": qs, "status": status, "q": q, "statuses": S.choices})
+                       | Q(description__icontains=q) | Q(vtype__name__icontains=q))
+    if g.get("from"):
+        qs = qs.filter(observed_on__gte=g["from"])
+    if g.get("to"):
+        qs = qs.filter(observed_on__lte=g["to"])
+    from .models import ViolationType
+    return render(request, "violations/list.html", {"violations": qs, "status": status, "q": q, "statuses": S.choices,
+                                                    "types": ViolationType.objects.all(), "vtype": vtype,
+                                                    "frm": g.get("from", ""), "to": g.get("to", "")})
 
 
-@login_required
+@staff_only
 def violation_create(request):
     form = forms.ViolationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -107,46 +160,56 @@ def violation_create(request):
         v.created_by = request.user
         v.save()
         n = _save_photos(v, request.FILES.getlist("photos"))
-        services.log(v, f"Violation drafted with {n} photo(s)", request.user)
+        services.log(v, f"Violation recorded with {n} photo(s)", request.user)
+        if form.cleaned_data["send_now"]:
+            if _run(request, services.issue_first_notice, v, request.user,
+                    ok="Notice issued: emailed and sent to the print/mail provider.") is None:
+                messages.info(request, "Saved as a draft instead.")
         return redirect(v)
     return render(request, "violations/form.html", {"form": form})
 
 
-@login_required
+@staff_only
 def violation_detail(request, pk):
-    v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), pk=pk)
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     ctx = {
-        "v": v, "S": S,
+        "v": v, "S": S, "steps": v.stage_steps(),
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(),
         "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
-        "hearing_form": forms.HearingForm(), "committee_form": forms.CommitteeForm(),
+        "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
+        "hold_form": forms.HoldForm(),
         "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
         "pending_ext": v.responses.filter(extension_requested=True, handled=False).first(),
     }
     return render(request, "violations/detail.html", ctx)
 
 
-@login_required
+@staff_only
 @require_POST
 def violation_action(request, pk, action):
     v = get_object_or_404(Violation, pk=pk)
-    u = request.user
-    P = request.POST
+    u, P = request.user, request.POST
     if action == "add_photos":
         n = _save_photos(v, request.FILES.getlist("photos"))
         services.log(v, f"{n} photo(s) added", u)
         messages.success(request, f"{n} photo(s) added.")
     elif action == "send_notice":
-        _run(request, services.issue_first_notice, v, u, ok="Notice issued and emailed. Print the PDF and mail it, then log the mailing.")
+        _run(request, services.issue_first_notice, v, u, ok="Notice issued: emailed and sent to the print/mail provider (or ready to print).")
     elif action == "cure":
-        _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked cured.")
+        _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked corrected.")
     elif action == "dismiss":
         _run(request, services.dismiss, v, u, P.get("note", ""), ok="Dismissed.")
+    elif action == "hold":
+        f = forms.HoldForm(P)
+        if f.is_valid():
+            _run(request, services.put_on_hold, v, f.cleaned_data["reason"], u, ok="Case put on hold.")
+    elif action == "resume":
+        _run(request, services.resume, v, u, ok="Hold lifted.")
     elif action == "reply":
         f = forms.ReplyForm(P)
         if f.is_valid():
             services.add_response(v, f.cleaned_data["message"], from_resident=False, user=u)
-            messages.success(request, "Reply recorded (visible to the owner on their page).")
+            messages.success(request, "Reply sent (the owner sees it in their portal).")
     elif action == "extension":
         f = forms.ExtensionForm(P)
         if f.is_valid():
@@ -166,21 +229,17 @@ def violation_action(request, pk, action):
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
                      fine=d["proposed_fine"], suspension=d["proposed_suspension"],
-                     ok="Board decision recorded. Schedule the committee hearing next.")
+                     ok="Board decision recorded. It will go to the next Compliance Committee meeting you assign.")
         return redirect(request.POST.get("next") or v)
-    elif action == "hearing":
-        f = forms.HearingForm(P)
+    elif action == "assign":
+        f = forms.AssignForm(P)
         if f.is_valid():
-            _run(request, services.schedule_hearing, v, f.cleaned_data["hearing_date"], f.cleaned_data["location"],
-                 u, ok="Hearing scheduled; hearing notice emailed.")
+            _run(request, services.assign_to_meeting, v, f.cleaned_data["meeting"], u,
+                 ok="Sent to the Compliance Committee; hearing notice emailed and sent for certified mailing.")
         else:
-            messages.error(request, "Enter a valid hearing date and time.")
+            messages.error(request, "Choose an upcoming committee meeting (create one under Meetings).")
     elif action == "committee":
-        f = forms.CommitteeForm(P)
-        if f.is_valid():
-            d = f.cleaned_data
-            _run(request, services.committee_decide, v, d["votes_for"], d["votes_against"], u, d["note"],
-                 ok="Committee decision recorded.")
+        _committee_vote(request, v, forms.CommitteeForm(P))
     elif action == "urgent":
         _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
     elif action == "payment":
@@ -192,7 +251,16 @@ def violation_action(request, pk, action):
     return redirect(v)
 
 
-@login_required
+def _committee_vote(request, v, f):
+    if f.is_valid():
+        d = f.cleaned_data
+        _run(request, services.committee_decide, v, d["votes_for"], d["votes_against"], request.user, d["note"],
+             ok="Committee decision recorded.")
+    else:
+        messages.error(request, "Enter the number of votes for and against.")
+
+
+@staff_only
 @require_POST
 def notice_mailed(request, pk):
     notice = get_object_or_404(Notice, pk=pk)
@@ -205,15 +273,17 @@ def notice_mailed(request, pk):
     return redirect(notice.violation)
 
 
-@login_required
+@role_required(*STAFF, "committee", "homeowner")
 def notice_pdf(request, pk):
-    notice = get_object_or_404(Notice, pk=pk)
-    to = "tenant" if request.GET.get("to") == "tenant" else "owner"
+    notice = get_object_or_404(Notice.objects.select_related("violation"), pk=pk)
+    if not can_view(request.user, notice.violation):
+        raise PermissionDenied
+    to = "tenant" if (request.GET.get("to") == "tenant" and accounts.role_of(request.user) in STAFF) else "owner"
     return HttpResponse(render_notice_pdf(notice, to), content_type="application/pdf",
                         headers={"Content-Disposition": f'inline; filename="case-{notice.violation_id}-{notice.kind}.pdf"'})
 
 
-@login_required
+@staff_only
 def board_queue(request):
     services.advance_expired()
     vs = Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype")
@@ -221,34 +291,168 @@ def board_queue(request):
                                                       "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED)})
 
 
-@login_required
+# ---------- Compliance Committee meetings ----------
+@staff_only
+def meetings(request):
+    form = forms.MeetingForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        d = form.cleaned_data
+        m = _run(request, services.create_meeting, d["starts_at"], d["zoom_link"], d["location"], request.user,
+                 ok="Meeting created.")
+        if m:
+            return redirect("meetings")
+    return render(request, "violations/meetings.html", {
+        "form": form, "meetings": CommitteeMeeting.objects.annotate(n=Count("violations")),
+        "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner")})
+
+
+@staff_only
+@require_POST
+def meeting_assign_all(request, pk):
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    done, skipped = services.assign_all_to_meeting(m, request.user)
+    messages.success(request, f"{len(done)} case(s) sent to the committee; hearing notices emailed and sent for certified mailing.")
+    for v, why in skipped:
+        messages.error(request, f"Case #{v.pk} not added: {why}")
+    return redirect("meetings")
+
+
+@staff_or_committee
+def committee_home(request):
+    now = timezone.now()
+    ms = CommitteeMeeting.objects.annotate(n=Count("violations"))
+    return render(request, "violations/committee_home.html", {
+        "upcoming": ms.filter(starts_at__gte=now - timedelta(hours=12)).order_by("starts_at"),
+        "past": ms.filter(starts_at__lt=now - timedelta(hours=12))[:6]})
+
+
+@staff_or_committee
+def committee_meeting(request, pk):
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    cases = m.violations.select_related("owner", "vtype").order_by("owner__property_address")
+    return render(request, "violations/committee_meeting.html", {"m": m, "cases": cases, "S": S})
+
+
+@staff_or_committee
+def committee_case(request, pk):
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
+    if not can_view(request.user, v):
+        raise PermissionDenied
+    return render(request, "violations/committee_case.html", {
+        "v": v, "S": S, "steps": v.stage_steps(), "committee_form": forms.CommitteeForm(),
+        "can_vote": v.status == S.HEARING_SCHEDULED and v.hearing_date and v.hearing_date <= timezone.now()})
+
+
+@staff_or_committee
+@require_POST
+def committee_vote(request, pk):
+    v = get_object_or_404(Violation, pk=pk)
+    if not can_view(request.user, v):
+        raise PermissionDenied
+    _committee_vote(request, v, forms.CommitteeForm(request.POST))
+    return redirect("committee_case", pk=pk)
+
+
+# ---------- photos ----------
+@role_required(*STAFF, "committee", "homeowner")
 def photo_file(request, pk):
-    p = get_object_or_404(Photo, pk=pk)
+    p = get_object_or_404(Photo.objects.select_related("violation"), pk=pk)
+    if not can_view(request.user, p.violation):
+        raise PermissionDenied
     return FileResponse(p.image.open("rb"))
 
 
-# ---------- resident (no login; unguessable token) ----------
+# ---------- homeowner portal (login) ----------
+def _handle_owner_post(request, v, form):
+    d = form.cleaned_data
+    if not v.is_open:
+        messages.error(request, "This case is closed.")
+        return
+    services.add_response(v, d["message"], from_resident=True, extension_requested=d["request_extension"],
+                          extension_days=d["extension_days"] if d["request_extension"] else None,
+                          cure_reported=d["cure_reported"], attorney_notice=d["attorney_notice"])
+    n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
+    if n:
+        services.log(v, f"Owner uploaded {n} photo(s)")
+    messages.success(request, "Thank you — your message has been sent to the association.")
+
+
+@homeowner_only
+def my_violations(request):
+    o = accounts.owner_of(request.user)
+    vs = Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype") if o else []
+    return render(request, "violations/me_list.html", {"owner": o, "violations": vs})
+
+
+@homeowner_only
+def my_violation(request, pk):
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), pk=pk)
+    if not can_view(request.user, v):
+        raise Http404
+    form = forms.ResidentForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        _handle_owner_post(request, v, form)
+        return redirect("my_violation", pk=pk)
+    return render(request, "violations/me_detail.html", {"v": v, "steps": v.stage_steps(), "form": form, "S": S,
+                                                         "notices": v.notices.all(), "state_url": f"/me/{pk}/state/"})
+
+
+@homeowner_only
+def my_violation_state(request, pk):
+    v = get_object_or_404(Violation, pk=pk)
+    if not can_view(request.user, v):
+        raise Http404
+    return JsonResponse({"sig": f"{v.status}:{v.notices.count()}:{v.responses.count()}:{v.photos.count()}"})
+
+
+# ---------- resident via emailed private link (no login) ----------
 def resident(request, token):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), token=token)
     if v.status == S.DRAFT:
         raise Http404
     form = forms.ResidentForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        d = form.cleaned_data
-        if not v.is_open:
-            messages.error(request, "This case is closed.")
-        else:
-            services.add_response(v, d["message"], from_resident=True, extension_requested=d["request_extension"],
-                                  extension_days=d["extension_days"] if d["request_extension"] else None,
-                                  cure_reported=d["cure_reported"], attorney_notice=d["attorney_notice"])
-            n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
-            if n:
-                services.log(v, f"Owner uploaded {n} photo(s)")
-            messages.success(request, "Thank you — your response has been sent to the association.")
+        _handle_owner_post(request, v, form)
         return redirect("resident", token=token)
-    return render(request, "violations/resident.html", {"v": v, "form": form})
+    return render(request, "violations/resident.html", {"v": v, "form": form, "steps": v.stage_steps()})
 
 
 def resident_photo(request, token, pk):
     p = get_object_or_404(Photo, pk=pk, violation__token=token)
     return FileResponse(p.image.open("rb"))
+
+
+# ---------- map ----------
+RESOLVED = (S.CURED, S.CLOSED, S.DISMISSED, S.FINE_REJECTED)
+SERIOUS = (S.PENDING_BOARD, S.HEARING_NEEDED, S.HEARING_SCHEDULED, S.FINE_APPROVED, S.REFERRED_LEGAL)
+
+
+def map_data():
+    owners = Owner.objects.exclude(lat__isnull=True).exclude(lng__isnull=True).prefetch_related("violations__vtype")
+    out = []
+    for o in owners:
+        vs = [v for v in o.violations.all() if v.status != S.DRAFT]
+        active = [v for v in vs if v.status not in RESOLVED]
+        if any(v.status in SERIOUS for v in active):
+            color = "red"
+        elif active:
+            color = "orange"
+        elif vs:
+            color = "green"
+        else:
+            color = "gray"
+        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng,
+                    "color": color, "open": len(active), "resolved": len(vs) - len(active),
+                    "cases": [{"id": v.pk, "type": v.vtype.name, "status": v.get_status_display(), "url": v.get_absolute_url(),
+                               "resolved": v.status in RESOLVED} for v in vs]})
+    return out
+
+
+@staff_only
+def map_page(request):
+    return render(request, "violations/map.html", {"missing": Owner.objects.filter(lat__isnull=True).count()})
+
+
+@staff_only
+def map_api(request):
+    return JsonResponse({"homes": map_data()})

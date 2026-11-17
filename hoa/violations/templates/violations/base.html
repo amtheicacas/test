@@ -21,11 +21,17 @@ button,.btn{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:
 button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}button.bad{background:var(--bad)}
 .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}.mut{color:var(--mut)}.photos img{max-width:220px;border-radius:8px;border:1px solid var(--line);margin:0 8px 8px 0}
 .late{color:var(--bad);font-weight:600}ul.tl{list-style:none;padding:0;margin:0}ul.tl li{padding:4px 0;border-bottom:1px solid var(--line)}
+ol.steps{list-style:none;display:flex;gap:4px;padding:0;margin:8px 0;flex-wrap:wrap}ol.steps li{flex:1;min-width:110px;padding:6px 8px;border-radius:6px;border:1px solid var(--line);font-size:.8rem;color:var(--mut);text-align:center}
+ol.steps li.done{color:var(--ok);border-color:var(--ok)}ol.steps li.current{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:600}
+.pill.flag{color:var(--warn);border-color:var(--warn)}
 details summary{cursor:pointer;color:var(--acc)}
 @media(max-width:600px){th{display:none}}
 </style></head><body>
 <header><strong>{{ HOA_NAME }}</strong>
-{% if user.is_authenticated %}<a href="{% url 'dashboard' %}">Dashboard</a><a href="{% url 'violation_list' %}?status=open">Violations</a>
-<a href="{% url 'board_queue' %}">Board queue</a><a href="{% url 'violation_create' %}">+ New</a><a href="{% url 'admin:index' %}">Owners/Types</a>
+{% if user.is_authenticated %}
+{% if ROLE == "manager" or ROLE == "board" %}<a href="{% url 'dashboard' %}">Dashboard</a><a href="{% url 'violation_list' %}?status=open">Violations</a><a href="{% url 'board_queue' %}">Board queue</a><a href="{% url 'meetings' %}">Committee meetings</a><a href="{% url 'map' %}">Map</a><a href="{% url 'violation_create' %}">+ New</a>
+<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form>{% if ROLE == "manager" %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+{% elif ROLE == "committee" %}<a href="{% url 'committee_home' %}">Committee meetings</a>
+{% elif ROLE == "homeowner" %}<a href="{% url 'my_violations' %}">My violations</a>{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
 <main>{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>

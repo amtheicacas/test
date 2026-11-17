@@ -1,0 +1,7 @@
+{% extends "violations/base.html" %}{% block title %}My violations{% endblock %}{% block content %}
+<h1>My violations</h1>
+{% if owner %}<p class="mut">{{ owner.property_address }}</p>{% endif %}
+{% for v in violations %}<div class="card"><h2><a href="{% url 'my_violation' v.pk %}">{{ v.vtype }}</a> <span class="pill">{{ v.get_status_display }}</span></h2>
+{% include "violations/_steps.html" with steps=v.stage_steps %}
+<p>{{ v.description|truncatechars:160 }}</p>{% if v.status == "notice_sent" %}<p><b>Cure by {{ v.cure_deadline|date:"F j, Y" }}</b></p>{% endif %}</div>
+{% empty %}<div class="card mut">You have no violations on file.</div>{% endfor %}{% endblock %}

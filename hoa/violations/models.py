@@ -18,6 +18,15 @@ class Owner(models.Model):
     phone = models.CharField(max_length=50, blank=True)
     mailing_address = models.TextField(blank=True, help_text="If different from the property address.")
     notes = models.TextField(blank=True)
+    city = models.CharField(max_length=80, default="Sarasota")
+    state = models.CharField(max_length=2, default="FL")
+    zip_code = models.CharField(max_length=10, blank=True)
+    mail_line1 = models.CharField("mailing street", max_length=200, blank=True, help_text="Only if different from the property.")
+    mail_city = models.CharField(max_length=80, blank=True)
+    mail_state = models.CharField(max_length=2, blank=True)
+    mail_zip = models.CharField(max_length=10, blank=True)
+    lat = models.FloatField(null=True, blank=True)
+    lng = models.FloatField(null=True, blank=True)
     tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant.")
     tenant_email = models.EmailField(blank=True)
     tenant_phone = models.CharField(max_length=50, blank=True)
@@ -34,6 +43,17 @@ class Owner(models.Model):
     @property
     def mail_block(self):
         return f"{self.name}\n{self.mailing_address.strip() or self.property_address}"
+
+    def postal(self, tenant=False):
+        """Structured address for the print/mail provider."""
+        if tenant:
+            return {"name": self.tenant_name, "line1": self.property_address, "city": self.city,
+                    "state": self.state, "zip": self.zip_code}
+        if self.mail_line1:
+            return {"name": self.name, "line1": self.mail_line1, "city": self.mail_city or self.city,
+                    "state": self.mail_state or self.state, "zip": self.mail_zip or self.zip_code}
+        return {"name": self.name, "line1": self.property_address, "city": self.city,
+                "state": self.state, "zip": self.zip_code}
 
     @property
     def tenant_mail_block(self):
@@ -54,13 +74,38 @@ class ViolationType(models.Model):
         return self.name
 
 
+class CommitteeMeeting(models.Model):
+    """A Compliance Committee meeting (homeowner hearing). Aged cases are batched onto one meeting."""
+    starts_at = models.DateTimeField()
+    zoom_link = models.URLField(blank=True)
+    location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-starts_at"]
+
+    def __str__(self):
+        return f"Committee meeting {self.starts_at:%b %d, %Y %I:%M %p}"
+
+    @property
+    def place(self):
+        return " · ".join(x for x in [f"Zoom: {self.zoom_link}" if self.zoom_link else "", self.location] if x) or "to be announced"
+
+    @property
+    def has_occurred(self):
+        from django.utils import timezone
+        return self.starts_at <= timezone.now()
+
+
 class Violation(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         NOTICE_SENT = "notice_sent", "Cure period running"
         PENDING_BOARD = "pending_board", "Awaiting board vote"
         HEARING_NEEDED = "hearing_needed", "Board approved — schedule hearing"
-        HEARING_SCHEDULED = "hearing_scheduled", "Committee hearing scheduled"
+        HEARING_SCHEDULED = "hearing_scheduled", "Sent to Compliance Committee"
+        ON_HOLD = "on_hold", "On hold"
         FINE_APPROVED = "fine_approved", "Imposed by committee — awaiting payment / cure"
         FINE_REJECTED = "fine_rejected", "Rejected by committee"
         REFERRED_LEGAL = "referred_legal", "Referred to attorney"
@@ -69,7 +114,8 @@ class Violation(models.Model):
         DISMISSED = "dismissed", "Dismissed"
 
     OPEN = [Status.DRAFT, Status.NOTICE_SENT, Status.PENDING_BOARD, Status.HEARING_NEEDED,
-            Status.HEARING_SCHEDULED, Status.FINE_APPROVED]
+            Status.HEARING_SCHEDULED, Status.FINE_APPROVED,
+            Status.ON_HOLD]
 
     owner = models.ForeignKey(Owner, on_delete=models.PROTECT, related_name="violations")
     vtype = models.ForeignKey(ViolationType, on_delete=models.PROTECT, verbose_name="violation type")
@@ -86,7 +132,12 @@ class Violation(models.Model):
     board_meeting_date = models.DateField(null=True, blank=True)
     proposed_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     proposed_suspension = models.CharField(max_length=300, blank=True, help_text="e.g. 'Pool and clubhouse use for 30 days'.")
+    held_from = models.CharField(max_length=20, blank=True)
+    hold_reason = models.CharField(max_length=300, blank=True)
+    held_on = models.DateField(null=True, blank=True)
     # Committee stage
+    committee_meeting = models.ForeignKey(CommitteeMeeting, null=True, blank=True, on_delete=models.SET_NULL,
+                                          related_name="violations")
     hearing_date = models.DateTimeField(null=True, blank=True)
     hearing_location = models.CharField(max_length=250, blank=True)
     committee_votes_for = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -116,6 +167,28 @@ class Violation(models.Model):
         if self.cure_deadline and self.status == self.Status.NOTICE_SENT:
             return (self.cure_deadline - date.today()).days
         return None
+
+    STEPS = ["Notice issued", "Cure period", "Board review", "Compliance Committee", "Decision", "Closed"]
+
+    def stage_index(self):
+        St = self.Status
+        st = self.held_from if self.status == St.ON_HOLD and self.held_from else self.status
+        return {St.DRAFT: -1, St.NOTICE_SENT: 1, St.PENDING_BOARD: 2, St.HEARING_NEEDED: 2, St.HEARING_SCHEDULED: 3,
+                St.FINE_APPROVED: 4, St.REFERRED_LEGAL: 4}.get(st, 5)
+
+    def stage_steps(self):
+        """[(label, 'done'|'current'|'todo')] for the progress tracker shown to owners and staff."""
+        cur = self.stage_index()
+        return [(label, "done" if i < cur or (cur == 5 and i == 5) else "current" if i == cur else "todo")
+                for i, label in enumerate(self.STEPS)]
+
+    @property
+    def stage_flag(self):
+        if self.status == self.Status.ON_HOLD:
+            return "On hold"
+        if self.status == self.Status.REFERRED_LEGAL:
+            return "Sent to legal"
+        return ""
 
     def get_absolute_url(self):
         return reverse("violation_detail", args=[self.pk])
@@ -156,6 +229,9 @@ class Notice(models.Model):
     method = models.CharField(max_length=20, blank=True, choices=[("first_class", "First-class mail"),
         ("certified", "Certified, return receipt"), ("hand", "Hand delivered")])
     return_receipt_on = models.DateField(null=True, blank=True)
+    provider = models.CharField(max_length=20, blank=True, help_text="Print/mail provider that handled it.")
+    provider_ids = models.CharField(max_length=500, blank=True)
+    provider_note = models.CharField(max_length=300, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -187,3 +263,20 @@ class Event(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+class Profile(models.Model):
+    """Role for a login. Superusers/staff without a profile are treated as managers."""
+    class Role(models.TextChoices):
+        MANAGER = "manager", "Manager (full access)"
+        BOARD = "board", "Board member (sees everything)"
+        COMMITTEE = "committee", "Compliance Committee (assigned hearings only)"
+        HOMEOWNER = "homeowner", "Homeowner (own violations)"
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.HOMEOWNER)
+    owner = models.ForeignKey(Owner, null=True, blank=True, on_delete=models.SET_NULL, related_name="profiles",
+                              help_text="Required for homeowner logins.")
+
+    def __str__(self):
+        return f"{self.user} ({self.role})"

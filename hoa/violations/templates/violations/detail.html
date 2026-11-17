@@ -1,6 +1,6 @@
 {% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
 <h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
-<div class="card">
+<div class="card">{% include "violations/_steps.html" %}
 <p><b>{{ v.owner.name }}</b> · {{ v.owner.property_address }} · {{ v.owner.email|default:"no email (mail only)" }}</p>
 <p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
 <p><b>Cure required:</b> {{ v.cure_required }}</p>
@@ -21,7 +21,7 @@
 {% if v.notices.all %}<div class="card"><h2>Notices (email + mail)</h2><table><tr><th>Notice<th>Email<th>Mailed</tr>
 {% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<br><a href="{% url 'notice_pdf' n.pk %}" target="_blank">Print{% if v.owner.tenant_name %} (owner){% endif %}</a>{% if v.owner.tenant_name %} · <a href="{% url 'notice_pdf' n.pk %}?to=tenant" target="_blank">Print (tenant)</a>{% endif %}
 <td>{% if n.emailed_at %}{{ n.emailed_at|date:"M j" }} → {{ n.emailed_to }}{% else %}<span class="mut">not emailed</span>{% endif %}
-<td>{% if n.mailed_on %}{{ n.get_method_display|default:"Mailed" }} {{ n.mailed_on|date:"M j, Y" }} {{ n.tracking_number }}{% if n.return_receipt_on %}<br>Return receipt {{ n.return_receipt_on|date:"M j" }}{% endif %}{% endif %}
+<td>{% if n.provider %}<span class="pill">{{ n.provider }}</span> {% endif %}{% if n.provider_note %}<span class="late">{{ n.provider_note }}</span> {% endif %}{% if n.mailed_on %}{{ n.get_method_display|default:"Mailed" }} {{ n.mailed_on|date:"M j, Y" }} {{ n.tracking_number }}{% if n.return_receipt_on %}<br>Return receipt {{ n.return_receipt_on|date:"M j" }}{% endif %}{% endif %}
 <details><summary>{% if n.mailed_on %}Update{% elif n.kind == "hearing" %}Log mailing (certified + regular){% else %}Log mailing{% endif %}</summary>
 <form method="post" action="{% url 'notice_mailed' n.pk %}">{% csrf_token %}{{ mailed_form.as_p }}<button class="sec">Save</button></form></details></tr>{% endfor %}</table></div>{% endif %}
 
@@ -36,9 +36,10 @@
 {% if v.status == S.PENDING_BOARD %}<div class="card"><h2>Board vote</h2><p class="mut">The vote only proposes a fine/suspension. It is not final until the Compliance Committee approves it.</p>
 <form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<div class="row">{% for f in board_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>{% endif %}
 
-{% if v.status == S.HEARING_NEEDED or v.status == S.HEARING_SCHEDULED %}<div class="card"><h2>{% if v.status == S.HEARING_NEEDED %}Schedule Compliance Committee hearing{% else %}Reschedule hearing{% endif %}</h2>
-<p class="mut">Needs at least 14 days' notice. The Notice of Hearing (with the proposed amount and a copy of the Notice of Violation) is emailed automatically. Print it and send it by certified mail (return receipt) and regular mail, then log both.</p>
-<form method="post" action="{% url 'violation_action' v.pk 'hearing' %}">{% csrf_token %}<div class="row">{% for f in hearing_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Schedule &amp; send notice</button></form></div>{% endif %}
+{% if v.status == S.HEARING_NEEDED %}<div class="card"><h2>Send to Compliance Committee</h2>
+<p class="mut">Pick an upcoming meeting (create one under <a href="{% url 'meetings' %}">Committee meetings</a>; you can also send every waiting case at once there). Needs at least 14 days' notice. The Notice of Hearing, with the Zoom link, proposed amount and a copy of the Notice of Violation, is emailed and sent for certified + regular mail.</p>
+<form method="post" action="{% url 'violation_action' v.pk 'assign' %}" class="row">{% csrf_token %}{{ assign_form.meeting }}<button>Send to committee</button></form></div>{% endif %}
+{% if v.status == S.HEARING_SCHEDULED %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
 
 {% if v.status == S.HEARING_SCHEDULED %}<div class="card"><h2>Committee decision</h2>
 <p class="mut">After the hearing. The committee (3+ owners who are not board members, officers, employees or their relatives) confirms or rejects the Board's proposal. A majority approval makes it final; a Notice of Imposition goes out and the fine is due in 5 days.</p>
@@ -50,10 +51,14 @@
 
 {% if v.status == S.FINE_APPROVED %}<div class="card"><h2>After imposition</h2><div class="row">
 {% if v.fine_amount and not v.fine_paid_on %}<form method="post" action="{% url 'violation_action' v.pk 'payment' %}">{% csrf_token %}{{ payment_form.paid_on }}<button style="margin-top:6px">Record fine paid</button></form>{% endif %}
-<form method="post" action="{% url 'violation_action' v.pk 'legal' %}">{% csrf_token %}<input name="note" placeholder="Note"><button class="bad" style="margin-top:6px">Refer to attorney</button></form></div>
+</div>
 <p class="mut">The case closes automatically once the violation is corrected (mark cured below) and any fine is paid.</p></div>{% endif %}
 
-{% if v.is_open %}<div class="card"><h2>Close</h2><div class="row">
+{% if v.is_open %}{% if v.status == S.ON_HOLD %}<div class="card"><h2>On hold</h2><p>{{ v.hold_reason }} (since {{ v.held_on|date:"M j, Y" }})</p><form method="post" action="{% url 'violation_action' v.pk 'resume' %}">{% csrf_token %}<button>Lift hold</button></form></div>
+{% elif v.is_open and v.status != S.DRAFT %}<div class="card"><h2>Hold / legal</h2><div class="row">
+<form method="post" action="{% url 'violation_action' v.pk 'hold' %}">{% csrf_token %}{{ hold_form.reason }}<button class="sec" style="margin-top:6px">Put on hold</button></form>
+<form method="post" action="{% url 'violation_action' v.pk 'legal' %}">{% csrf_token %}<input name="note" placeholder="Note"><button class="bad" style="margin-top:6px">Send to legal</button></form></div></div>{% endif %}
+<div class="card"><h2>Close</h2><div class="row">
 {% if v.status != S.DRAFT %}<form method="post" action="{% url 'violation_action' v.pk 'cure' %}">{% csrf_token %}<input name="note" placeholder="Note (e.g. reinspected, verified)"><button style="margin-top:6px">Mark corrected</button></form>{% endif %}
 <form method="post" action="{% url 'violation_action' v.pk 'dismiss' %}">{% csrf_token %}<input name="note" placeholder="Reason"><button class="bad" style="margin-top:6px">Dismiss (no violation)</button></form></div></div>{% endif %}
 

@@ -1,0 +1,2 @@
+<ol class="steps">{% for label,state in steps %}<li class="{{ state }}">{{ label }}</li>{% endfor %}</ol>
+{% if v.stage_flag %}<p><span class="pill flag">{{ v.stage_flag }}</span>{% if v.status == "on_hold" and v.hold_reason %} <span class="mut">{{ v.hold_reason }}</span>{% endif %}</p>{% endif %}

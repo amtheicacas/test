@@ -6,9 +6,12 @@ from .models import Violation
 
 
 class ViolationForm(forms.ModelForm):
+    send_now = forms.BooleanField(required=False, initial=True,
+        label="Issue immediately: email the owner and send to the print/mail provider")
+
     class Meta:
         model = Violation
-        fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days"]
+        fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days", "safety_issue"]
         widgets = {"observed_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                    "description": forms.Textarea(attrs={"rows": 3}),
                    "cure_required": forms.Textarea(attrs={"rows": 3})}
@@ -61,10 +64,25 @@ class BoardForm(forms.Form):
     note = forms.CharField(required=False)
 
 
-class HearingForm(forms.Form):
-    hearing_date = forms.DateTimeField(widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
-                                       input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"])
-    location = forms.CharField(required=False, label="Place / virtual meeting link")
+class MeetingForm(forms.Form):
+    starts_at = forms.DateTimeField(widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+                                    input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"], label="Meeting date and time")
+    zoom_link = forms.URLField(required=False, label="Zoom link", assume_scheme="https")
+    location = forms.CharField(required=False, label="In-person location (optional)")
+
+
+class AssignForm(forms.Form):
+    meeting = forms.ModelChoiceField(queryset=None, label="Committee meeting")
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        from django.utils import timezone
+        from .models import CommitteeMeeting
+        self.fields["meeting"].queryset = CommitteeMeeting.objects.filter(starts_at__gt=timezone.now()).order_by("starts_at")
+
+
+class HoldForm(forms.Form):
+    reason = forms.CharField(label="Reason for hold")
 
 
 class CommitteeForm(forms.Form):

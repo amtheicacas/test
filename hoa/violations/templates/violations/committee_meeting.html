@@ -1,0 +1,9 @@
+{% extends "violations/base.html" %}{% block title %}Meeting{% endblock %}{% block content %}
+<p><a href="{% url 'committee_home' %}">← Meetings</a></p>
+<h1>{{ m.starts_at|date:"l, F j, Y g:i A" }}</h1><p class="mut">{{ m.place }}</p>
+{% if m.zoom_link %}<p><a class="btn" href="{{ m.zoom_link }}" target="_blank" rel="noopener">Join Zoom</a></p>{% endif %}
+<div class="card"><table><tr><th>Property<th>Violation<th>Board proposed<th>Status</tr>
+{% for v in cases %}<tr><td><a href="{% url 'committee_case' v.pk %}">{{ v.owner.property_address }}</a><br><span class="mut">{{ v.owner.name }}</span>
+<td>{{ v.vtype }}<td>{% if v.proposed_fine %}${{ v.proposed_fine }}{% endif %} {{ v.proposed_suspension }}
+<td><span class="pill">{% if v.status == "hearing_scheduled" %}Awaiting decision{% elif v.status == "fine_rejected" %}Rejected{% else %}Approved{% endif %}</span></tr>
+{% empty %}<tr><td colspan=4 class="mut">No cases assigned yet.</tr>{% endfor %}</table></div>{% endblock %}

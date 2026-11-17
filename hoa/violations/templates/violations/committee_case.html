@@ -1,0 +1,17 @@
+{% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
+<p><a href="{% url 'committee_meeting' v.committee_meeting_id %}">← Meeting list</a></p>
+<h1>{{ v.owner.property_address }} — {{ v.vtype }}</h1>
+<div class="card">{% include "violations/_steps.html" %}
+<p><b>Owner:</b> {{ v.owner.name }}{% if v.owner.tenant_name %} · tenant {{ v.owner.tenant_name }}{% endif %}</p>
+<p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
+<p><b>Cure required:</b> {{ v.cure_required }} · deadline {{ v.cure_deadline|date:"M j, Y" }}</p>
+<p><b>Board vote ({{ v.board_meeting_date|date:"M j, Y" }}) proposed:</b> {% if v.proposed_fine %}fine ${{ v.proposed_fine }}{% endif %} {% if v.proposed_suspension %}suspension: {{ v.proposed_suspension }}{% endif %}</p>
+<div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div></div>
+<div class="card"><h2>Letters sent</h2><table>{% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<td class="mut">{{ n.created_at|date:"M j, Y" }}{% if n.emailed_at %} · emailed{% endif %}{% if n.mailed_on %} · mailed {{ n.get_method_display }}{% if n.return_receipt_on %}, receipt {{ n.return_receipt_on|date:"M j" }}{% endif %}{% endif %}<td><a href="{% url 'notice_pdf' n.pk %}" target="_blank">View</a></tr>{% endfor %}</table></div>
+<div class="card"><h2>Owner correspondence</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}Owner{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j" }}</span>{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None.</p>{% endfor %}</div>
+{% if v.status == "hearing_scheduled" %}<div class="card"><h2>Committee decision</h2>
+{% if can_vote %}<p class="mut">At least 3 members must vote; a majority approving imposes the Board's proposal. The committee confirms or rejects it and does not change the amount.</p>
+<form method="post" action="{% url 'committee_vote' v.pk %}">{% csrf_token %}<div class="row">{% for f in committee_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record decision</button></form>
+{% else %}<p class="mut">Voting opens at the meeting time.</p>{% endif %}</div>
+{% elif v.committee_votes_for is not None %}<div class="card"><h2>Decision</h2><p>{{ v.committee_votes_for }}–{{ v.committee_votes_against }}: {{ v.get_status_display }}</p></div>{% endif %}
+{% endblock %}

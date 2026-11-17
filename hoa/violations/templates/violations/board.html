@@ -7,5 +7,5 @@
 <form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'board_queue' %}">
 <div class="row">{% for f in board_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>
 {% empty %}<div class="card mut">Nothing awaiting a board vote.</div>{% endfor %}
-{% if need_hearing %}<div class="card"><h2>Approved by board — hearing not yet scheduled</h2>{% for v in need_hearing %}<p><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a></p>{% endfor %}</div>{% endif %}
+{% if need_hearing %}<div class="card"><h2>Approved by board — waiting to be sent to a committee meeting (<a href="{% url 'meetings' %}">Committee meetings</a>)</h2>{% for v in need_hearing %}<p><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a></p>{% endfor %}</div>{% endif %}
 {% endblock %}

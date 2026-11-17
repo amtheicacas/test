@@ -38,7 +38,8 @@ def _nov_story(v, kind, dated, recipient_name, ref):
          _p(v.description), Spacer(1, 4), _p("Required cure:", BOLD), _p(v.cure_required)]
     if kind == K.SECOND:
         s.append(_p("This is a second notice. Your earlier deadline has been replaced by the new deadline below."))
-    s.append(_p(f"Please cure this violation by {v.cure_deadline:%B %d, %Y}. If it is not cured, the Board of "
+    by = f"by {v.cure_deadline:%B %d, %Y}" if v.cure_deadline else "promptly"
+    s.append(_p(f"Please cure this violation {by}. If it is not cured, the Board of "
                 "Directors may vote to propose a fine and/or suspension. Nothing can be imposed unless you are "
                 "given notice of a hearing and a majority of the Compliance Committee, a group of owners, approves "
                 "it. If you believe this notice is a mistake, or need more time, please contact the Manager in "

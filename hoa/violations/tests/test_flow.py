@@ -28,7 +28,7 @@ def media(settings, tmp_path):
 
 @pytest.fixture
 def user():
-    return get_user_model().objects.create_user("mgr", password="pw-for-tests-123")
+    return get_user_model().objects.create_user("mgr", password="pw-for-tests-123", is_staff=True)
 
 
 @pytest.fixture
@@ -85,10 +85,12 @@ def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
     services.board_decide(violation, "proceed", date.today(), user, fine=250)
     violation.refresh_from_db()
     assert violation.status == S.HEARING_NEEDED and violation.proposed_fine == 250
+    soon = services.create_meeting(timezone.now() + timedelta(days=5), "https://zoom.us/j/1", user=user)
     with pytest.raises(services.WorkflowError):  # 14-day rule
-        services.schedule_hearing(violation, timezone.now() + timedelta(days=5), user=user)
-    n = services.schedule_hearing(violation, timezone.now() + timedelta(days=15), "Zoom", user)
-    assert n.kind == Notice.Kind.HEARING
+        services.assign_to_meeting(violation, soon, user)
+    m = services.create_meeting(timezone.now() + timedelta(days=15), "https://zoom.us/j/2", user=user)
+    n = services.assign_to_meeting(violation, m, user)
+    assert n.kind == Notice.Kind.HEARING and "zoom.us/j/2" in violation.hearing_location
     assert services.render_notice_pdf(n).startswith(b"%PDF")
     with pytest.raises(services.WorkflowError):  # hearing hasn't happened yet
         services.committee_decide(violation, 3, 0, user)
