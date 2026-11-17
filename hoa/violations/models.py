@@ -18,6 +18,9 @@ class Owner(models.Model):
     phone = models.CharField(max_length=50, blank=True)
     mailing_address = models.TextField(blank=True, help_text="If different from the property address.")
     notes = models.TextField(blank=True)
+    external_id = models.CharField(max_length=100, unique=True, null=True, blank=True,
+                                   help_text="Account/homeowner ID in Vantaca (set by sync).")
+    last_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["property_address"]

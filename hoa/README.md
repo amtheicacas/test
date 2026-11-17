@@ -29,3 +29,11 @@ Every action is recorded on a case timeline.
 - Letters are generated for you to print and mail; a mail-service integration (Lob, USPS) isn't included. Mail the notice by the method your documents require (some need certified mail).
 - Photos are stored on local disk behind login or the private token. Use object storage for production.
 - Not yet built: user roles (all staff can do everything), suspension of use rights, repeat-offense tracking, fine payments/ledger, a custom flowchart (send it and I'll match it).
+
+## Vantaca homeowner sync
+Vantaca stays the source of truth for owner names, emails, phones and addresses; this app only reads.
+```
+python manage.py sync_vantaca --csv owners.csv   # works today: use any Vantaca owner/homeowner export
+python manage.py sync_vantaca                    # API: needs VANTACA_BASE_URL / _OWNERS_PATH / _USER / _PASSWORD
+```
+Owners are matched on Vantaca's account ID, then property address, so hand-entered owners get linked, not duplicated. Notes and violations are never overwritten. Schedule it daily from cron. The API client is untested against a live Vantaca account; adjust `FIELD_ALIASES` in `violations/vantaca.py` to match the real response.

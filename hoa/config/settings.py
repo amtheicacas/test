@@ -90,3 +90,9 @@ FINE_MAX_PER_VIOLATION = int(env("FINE_MAX_PER_VIOLATION", "100"))
 FINE_AGGREGATE_CAP = int(env("FINE_AGGREGATE_CAP", "1000"))
 # Fla. Stat. 720.305(2)(b): at least 14 days' notice before the committee hearing.
 HEARING_NOTICE_DAYS = int(env("HEARING_NOTICE_DAYS", "14"))
+
+# ---- Vantaca sync (all optional) ---------------------------------------
+VANTACA_BASE_URL = env("VANTACA_BASE_URL", "")            # e.g. the API host Vantaca gives you
+VANTACA_USER = env("VANTACA_USER", "")                    # Basic-auth credentials issued by Vantaca
+VANTACA_PASSWORD = env("VANTACA_PASSWORD", "")
+VANTACA_OWNERS_PATH = env("VANTACA_OWNERS_PATH", "")      # read endpoint that lists homeowners, from the API docs
