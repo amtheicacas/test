@@ -32,8 +32,10 @@ class Command(BaseCommand):
         owners = [Owner.objects.get_or_create(property_address=ad, defaults=dict(
             name=n, email=f"{n.split()[0].lower()}@example.com", zip_code="34240", lat=la, lng=lo))[0]
             for n, ad, la, lo in homes]
-        shed = ViolationType.objects.get_or_create(name="Unapproved shed", defaults=dict(reference="Declaration Art. VII §3"))[0]
-        trash = ViolationType.objects.get_or_create(name="Trash cans visible", defaults=dict(reference="Rules §4.2"))[0]
+        from django.core.management import call_command
+        call_command("load_standards", verbosity=0)  # the real Community Standards list
+        shed = ViolationType.objects.get(code="3.55")      # temporary structure
+        trash = ViolationType.objects.get(code="3.22")     # garbage cans visible
         spec = [(owners[0], shed, S.NOTICE_SENT), (owners[1], trash, S.PENDING_BOARD), (owners[2], shed, S.HEARING_NEEDED),
                 (owners[3], trash, S.HEARING_SCHEDULED), (owners[4], shed, S.CURED), (owners[5], trash, S.ON_HOLD)]
         meeting = CommitteeMeeting.objects.get_or_create(
@@ -42,7 +44,7 @@ class Command(BaseCommand):
             if Violation.objects.filter(owner=o).exists():
                 continue
             v = Violation.objects.create(owner=o, vtype=t, observed_on=date.today() - timedelta(days=30),
-                                         description="Observed from the street; see photo.", cure_required="Correct within the cure period.",
+                                         description="Observed from the street; see photo.", cure_required=t.cure_template.replace("[", "").replace("]", ""),
                                          cure_days=15, cure_deadline=date.today() + (timedelta(days=9) if st == S.NOTICE_SENT else -timedelta(days=15)))
             Photo.objects.create(violation=v, image=img(f"{t.name} - {o.property_address}"))
             services.send_notice(v, "violation")

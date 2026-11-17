@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import accounts, forms, services
+from . import accounts, forms, services, standards_search
 from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
@@ -64,12 +64,26 @@ def _is_image(f):
         f.seek(0)
 
 
+def _taken_at(f):
+    """When the photo was taken, from EXIF (DateTimeOriginal), or None."""
+    from datetime import datetime
+    from PIL import Image
+    try:
+        exif = Image.open(f).getexif()
+        raw = exif.get_ifd(0x8769).get(36867) or exif.get(306)
+        return timezone.make_aware(datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")) if raw else None
+    except Exception:
+        return None
+    finally:
+        f.seek(0)
+
+
 def _save_photos(v, files, from_resident=False):
     n = 0
     for f in files:
         if f.size > MAX_UPLOAD or not _is_image(f):
             continue
-        p = Photo(violation=v, from_resident=from_resident)
+        p = Photo(violation=v, from_resident=from_resident, taken_at=_taken_at(f))
         p.image.save(f.name, f, save=False)
         p.save()
         n += 1
@@ -153,6 +167,29 @@ def violation_list(request):
 
 
 @staff_only
+def standards_search_api(request):
+    """JSON for the violation picker. ?q=text (local search); add &ai=1 to also ask the AI."""
+    q = request.GET.get("q", "").strip()[:500]
+    local = [standards_search.serialize(t) for t in standards_search.local_search(q)]
+    out = {"results": local, "ai": False, "ai_available": standards_search.ai_available()}
+    if request.GET.get("ai") == "1" and q:
+        ai = standards_search.ai_search(q)
+        if ai is None:
+            out["ai_note"] = "AI search isn't available right now; showing keyword matches."
+        else:
+            out["ai"] = True
+            seen = set()
+            ai_items = []
+            for vt, why in ai:
+                d = standards_search.serialize(vt)
+                d["reason"] = why
+                ai_items.append(d)
+                seen.add(vt.pk)
+            out["results"] = ai_items + [r for r in local if r["id"] not in seen]
+    return JsonResponse(out)
+
+
+@staff_only
 def violation_create(request):
     form = forms.ViolationForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -166,7 +203,11 @@ def violation_create(request):
                     ok="Notice issued: emailed and sent to the print/mail provider.") is None:
                 messages.info(request, "Saved as a draft instead.")
         return redirect(v)
-    return render(request, "violations/form.html", {"form": form})
+    from .models import ViolationType
+    catalog = [standards_search.serialize(t) for t in ViolationType.objects.exclude(code__isnull=True).order_by("section", "code")]
+    return render(request, "violations/form.html", {"form": form, "catalog": catalog,
+                                                    "ai_available": standards_search.ai_available(),
+                                                    "categories": sorted({c["category"] for c in catalog})})
 
 
 @staff_only

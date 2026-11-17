@@ -46,8 +46,10 @@ def send_notice(v, kind, user=None):
         subject = f"{notice.get_kind_display()} — {v.owner.property_address} (Case #{v.pk})"
         body = (f"Dear {v.owner.name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "
                 f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos "
-                f"of the cure here:\n{v.resident_url()}\n\nQuestions? {settings.MANAGER_NAME}, "
-                f"{settings.MANAGER_EMAIL}, {settings.OFFICE_PHONE}\n\n{settings.HOA_NAME}")
+                f"of the cure here:\n{v.resident_url()}\n\n"
+                + (f"Questions? {', '.join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)}\n\n"
+                   if (settings.HOA_CONTACT_EMAIL or settings.HOA_PHONE) else "")
+                + f"On behalf of the Board of Directors\n{settings.HOA_NAME}")
         msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, recipients)
         msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
         msg.send()

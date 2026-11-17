@@ -1,6 +1,97 @@
-{% extends "violations/base.html" %}{% block content %}
+{% extends "violations/base.html" %}{% block title %}New violation{% endblock %}{% block content %}
 <h1>New violation</h1>
-<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}
-<label>Photo(s) of the violation</label><input type="file" name="photos" accept="image/*" multiple>
-<p class="mut">Leave "Issue immediately" checked to send right away, or uncheck it to save a draft and review first. Owner or violation type missing? Add them under <a href="{% url 'admin:index' %}">Owners/Types</a>.</p>
-<button>Save</button></form>{% endblock %}
+
+<div class="card" id="picker">
+  <h2>1. Find the violation</h2>
+  <p class="mut">Describe what you saw (for example <i>"trash cans left at the curb all week"</i>), or browse by category. Picking a rule fills in the section, a drafted observation and a drafted cure for you to review.</p>
+  <div class="row">
+    <input id="pq" type="search" placeholder="What did you see?  e.g. car parked on the street overnight" autocomplete="off">
+    <select id="pcat"><option value="">All categories</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
+    {% if ai_available %}<button type="button" class="sec" id="pai" style="flex:0 0 auto">Ask AI</button>{% endif %}
+  </div>
+  <div id="pnote" class="mut" style="margin:6px 0"></div>
+  <div id="presults" style="max-height:260px;overflow:auto;margin-top:6px"></div>
+</div>
+
+<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}
+  <h2>2. Review and edit</h2>
+  <div id="rulebox" class="card" style="display:none;background:var(--bg)">
+    <b id="ruletitle"></b>
+    <details><summary>Show the rule text that will be quoted in the letter</summary><p id="ruletext" style="white-space:pre-line;margin-top:6px"></p></details>
+  </div>
+  <div id="brackets" class="msg warning" style="display:none"></div>
+  {{ form.as_p }}
+  <label>Photo(s) of the violation</label><input type="file" name="photos" accept="image/*" multiple>
+  <p class="mut">Leave "Issue immediately" checked to send right away, or uncheck it to save a draft and review first. Anything in [square brackets] must be replaced with the specifics before it can be sent.</p>
+  <button>Save</button>
+</form>
+
+{{ catalog|json_script:"catalog-data" }}
+<script>
+(function () {
+  var CAT = JSON.parse(document.getElementById("catalog-data").textContent);
+  var byId = {}; CAT.forEach(function (c) { byId[c.id] = c; });
+  var $ = function (id) { return document.getElementById(id); };
+  var q = $("pq"), cat = $("pcat"), box = $("presults"), note = $("pnote");
+  var desc = $("id_description"), cure = $("id_cure_required"), days = $("id_cure_days"), sel = $("id_vtype");
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+
+  function show(items, aiOn) {
+    if (!items.length) { box.innerHTML = '<p class="mut">No matches. Try different words, or choose a category.</p>'; return; }
+    box.innerHTML = items.map(function (c) {
+      return '<div class="card" style="margin:0 0 6px;cursor:pointer" data-id="' + c.id + '">' +
+        '<b>§' + esc(c.section) + ' ' + esc(c.title) + '</b> <span class="pill">' + esc(c.category) + '</span>' +
+        (c.reason ? '<br><span class="mut">AI: ' + esc(c.reason) + '</span>' : '') +
+        '<br><span class="mut">' + esc((c.observed || "").slice(0, 120)) + '</span></div>';
+    }).join("");
+  }
+  function browse() {
+    var c = cat.value;
+    show(CAT.filter(function (x) { return !c || x.category === c; }));
+  }
+  var timer;
+  function search(ai) {
+    var text = q.value.trim();
+    if (!text) { note.textContent = ""; browse(); return; }
+    fetch("{% url 'standards_search' %}?q=" + encodeURIComponent(text) + (ai ? "&ai=1" : ""), { credentials: "same-origin" })
+      .then(function (r) { return r.json(); }).then(function (d) {
+        var items = d.results;
+        if (cat.value) items = items.filter(function (x) { return x.category === cat.value; });
+        note.textContent = d.ai ? "AI-suggested matches first." : (d.ai_note || "");
+        show(items);
+      });
+  }
+  q.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { search(false); }, 200); });
+  cat.addEventListener("change", function () { q.value ? search(false) : browse(); });
+  if ($("pai")) $("pai").addEventListener("click", function () { note.textContent = "Asking AI…"; search(true); });
+
+  function bracketCheck() {
+    var n = ((desc.value + " " + cure.value).match(/\[[^\]]*\]/g) || []).length;
+    var b = $("brackets");
+    b.style.display = n ? "block" : "none";
+    b.textContent = n ? n + " [bracketed] part" + (n > 1 ? "s" : "") + " still to fill in below. Replace each with the specifics." : "";
+  }
+  function apply(c) {
+    sel.value = c.id;
+    desc.value = c.observed; cure.value = c.cure; days.value = c.cure_days;
+    $("rulebox").style.display = "block";
+    $("ruletitle").textContent = c.reference;
+    $("ruletext").textContent = c.rule;
+    bracketCheck();
+    desc.focus();
+    $("rulebox").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  box.addEventListener("click", function (e) {
+    var el = e.target.closest("[data-id]");
+    if (el) apply(byId[el.getAttribute("data-id")]);
+  });
+  sel.addEventListener("change", function () {
+    var c = byId[sel.value];
+    if (c && (!desc.value.trim() || confirm("Replace the current text with the drafted text for this rule?"))) apply(c);
+  });
+  desc.addEventListener("input", bracketCheck); cure.addEventListener("input", bracketCheck);
+  browse(); bracketCheck();
+  if (sel.value && byId[sel.value]) { $("rulebox").style.display = "block"; $("ruletitle").textContent = byId[sel.value].reference; $("ruletext").textContent = byId[sel.value].rule; }
+})();
+</script>
+{% endblock %}

@@ -6,6 +6,7 @@ urlpatterns = [
     path("", views.home, name="dashboard"),
     path("violations/", views.violation_list, name="violation_list"),
     path("violations/new/", views.violation_create, name="violation_create"),
+    path("violations/standards/search/", views.standards_search_api, name="standards_search"),
     path("violations/<int:pk>/", views.violation_detail, name="violation_detail"),
     path("violations/<int:pk>/<str:action>/", views.violation_action, name="violation_action"),
     path("notices/<int:pk>/mailed/", views.notice_mailed, name="notice_mailed"),

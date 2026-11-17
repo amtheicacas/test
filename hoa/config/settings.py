@@ -131,3 +131,16 @@ HOA_RETURN_LINE1 = env("HOA_RETURN_LINE1", "")            # return address print
 HOA_RETURN_CITY = env("HOA_RETURN_CITY", "Sarasota")
 HOA_RETURN_STATE = env("HOA_RETURN_STATE", "FL")
 HOA_RETURN_ZIP = env("HOA_RETURN_ZIP", "")
+
+# ---- Optional AI help finding the right violation ----------------------
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", "")   # leave blank to hide the "Ask AI" button
+AI_MODEL = env("AI_MODEL", "claude-opus-5-5")      # only the typed description + the public rule titles are sent
+
+# ---- Letterhead (shown on every notice; no management company) ---------
+HOA_ADDRESS_LINE1 = env("HOA_ADDRESS_LINE1", env("HOA_RETURN_LINE1", ""))
+HOA_ADDRESS_CITY = env("HOA_ADDRESS_CITY", env("HOA_RETURN_CITY", "Sarasota"))
+HOA_ADDRESS_STATE = env("HOA_ADDRESS_STATE", env("HOA_RETURN_STATE", "FL"))
+HOA_ADDRESS_ZIP = env("HOA_ADDRESS_ZIP", env("HOA_RETURN_ZIP", ""))
+HOA_PHONE = env("HOA_PHONE", "")
+HOA_WEBSITE = env("HOA_WEBSITE", "")
+HOA_CONTACT_EMAIL = env("HOA_CONTACT_EMAIL", "")   # where owners send the response form

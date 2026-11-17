@@ -67,6 +67,15 @@ class ViolationType(models.Model):
                                  help_text="Governing document cite, e.g. 'Declaration Art. VII §3(b)'.")
     default_cure_days = models.PositiveIntegerField(default=15)
     default_fine = models.DecimalField(max_digits=8, decimal_places=2, default=100)
+    # Filled from the Community Standards (load_standards); blank for hand-made types
+    code = models.CharField(max_length=30, unique=True, null=True, blank=True, help_text="e.g. 3.22-timing")
+    section = models.CharField(max_length=10, blank=True, help_text="Community Standards section, e.g. 3.22")
+    standards_title = models.CharField(max_length=200, blank=True)
+    category = models.CharField(max_length=60, blank=True)
+    rule_text = models.TextField(blank=True, help_text="Verbatim text of the rule, quoted in the notice.")
+    observed_template = models.TextField(blank=True, help_text="Drafted 'what was observed'. [Brackets] must be filled in.")
+    cure_template = models.TextField(blank=True, help_text="Drafted cure. [Brackets] must be filled in.")
+    keywords = models.TextField(blank=True, help_text="Words people use for this issue (search only).")
 
     class Meta:
         ordering = ["name"]
@@ -169,7 +178,8 @@ class Violation(models.Model):
             return (self.cure_deadline - date.today()).days
         return None
 
-    STEPS = ["Notice issued", "Cure period", "Board review", "Compliance Committee", "Decision", "Closed"]
+    STEPS = ["Notice issued", "Cure period", "Fine issued by Board",
+             "Violation sent to Compliance Committee / Homeowner Hearing", "Fine Imposed & Posted to Ledger", "Closed"]
 
     def stage_index(self):
         St = self.Status
@@ -210,6 +220,11 @@ class Photo(models.Model):
     caption = models.CharField(max_length=200, blank=True)
     from_resident = models.BooleanField(default=False, help_text="Cure evidence uploaded by the owner.")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    taken_at = models.DateTimeField(null=True, blank=True, help_text="From the photo's EXIF data when present.")
+
+    @property
+    def shown_at(self):
+        return self.taken_at or self.uploaded_at
 
 
 class Notice(models.Model):
