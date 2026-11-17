@@ -1,0 +1,11 @@
+{% extends "violations/base.html" %}{% block content %}
+<h1>Dashboard</h1>
+<div class="card"><div class="grid">{% for label,n,val in counts %}<a class="stat" style="text-decoration:none;color:inherit" href="{% url 'violation_list' %}?status={{ val }}"><b>{{ n }}</b><span class="mut">{{ label }}</span></a>{% endfor %}</div></div>
+<div class="card"><h2>Needs attention</h2><ul>
+<li><a href="{% url 'board_queue' %}">{{ board_queue }} awaiting board vote</a>, {{ need_hearing }} need a hearing scheduled</li>
+<li>{{ unmailed }} notice(s) not yet logged as mailed</li></ul></div>
+{% if pending_requests %}<div class="card"><h2>Owner extension requests</h2><table>{% for r in pending_requests %}
+<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a></td><td>{{ r.message|truncatechars:90 }}{% if r.extension_days %} ({{ r.extension_days }} days){% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
+<div class="card"><h2>Cure periods running</h2><table><tr><th>Case<th>Property<th>Deadline</tr>{% for v in expiring %}
+<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<td>{{ v.cure_deadline|date:"M j, Y" }} <span class="{% if v.days_left < 0 %}late{% else %}mut{% endif %}">({{ v.days_left }} days)</span></tr>{% empty %}<tr><td colspan=3 class="mut">None</tr>{% endfor %}</table></div>
+{% endblock %}

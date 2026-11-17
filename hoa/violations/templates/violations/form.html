@@ -1,0 +1,6 @@
+{% extends "violations/base.html" %}{% block content %}
+<h1>New violation</h1>
+<form class="card" method="post" enctype="multipart/form-data">{% csrf_token %}{{ form.as_p }}
+<label>Photo(s) of the violation</label><input type="file" name="photos" accept="image/*" multiple>
+<p class="mut">It is saved as a draft. Review it, then send the notice from the case page. Owner or violation type missing? Add them under <a href="{% url 'admin:index' %}">Owners/Types</a>.</p>
+<button>Save draft</button></form>{% endblock %}

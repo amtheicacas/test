@@ -1,0 +1,49 @@
+{% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
+<h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
+<div class="card">
+<p><b>{{ v.owner.name }}</b> · {{ v.owner.property_address }} · {{ v.owner.email|default:"no email (mail only)" }}</p>
+<p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
+<p><b>Cure required:</b> {{ v.cure_required }}</p>
+<p><b>Cure window:</b> {{ v.cure_days }} days{% if v.cure_deadline %} · deadline <b>{{ v.cure_deadline|date:"M j, Y" }}</b>{% if v.days_left is not None %} <span class="{% if v.days_left < 0 %}late{% else %}mut{% endif %}">({{ v.days_left }} days)</span>{% endif %}{% endif %}</p>
+{% if v.hearing_date %}<p><b>Hearing:</b> {{ v.hearing_date|date:"l M j, Y g:i A" }} {{ v.hearing_location }}</p>{% endif %}
+{% if v.fine_amount %}<p><b>Fine approved:</b> ${{ v.fine_amount }} ({{ v.committee_votes_for }}–{{ v.committee_votes_against }})</p>{% endif %}
+<div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div>
+{% if v.status != S.DRAFT %}<p class="mut">Owner link: <a href="{% url 'resident' v.token %}">{{ v.resident_url }}</a></p>{% endif %}
+</div>
+
+{% if v.status == S.DRAFT %}<div class="card"><h2>Ready to send?</h2>
+<form method="post" action="{% url 'violation_action' v.pk 'add_photos' %}" enctype="multipart/form-data" class="row">{% csrf_token %}<input type="file" name="photos" accept="image/*" multiple><button class="sec">Add photos</button></form>
+<form method="post" action="{% url 'violation_action' v.pk 'send_notice' %}" style="margin-top:8px">{% csrf_token %}<button>Issue notice (starts {{ v.cure_days }}-day cure period, emails the owner)</button></form></div>{% endif %}
+
+{% if v.notices.all %}<div class="card"><h2>Notices (email + mail)</h2><table><tr><th>Notice<th>Email<th>Mailed</tr>
+{% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<br><a href="{% url 'notice_pdf' n.pk %}" target="_blank">Print PDF</a>
+<td>{% if n.emailed_at %}{{ n.emailed_at|date:"M j" }} → {{ n.emailed_to }}{% else %}<span class="mut">not emailed</span>{% endif %}
+<td>{% if n.mailed_on %}{{ n.mailed_on|date:"M j, Y" }} {{ n.tracking_number }}{% else %}
+<form method="post" action="{% url 'notice_mailed' n.pk %}" class="row">{% csrf_token %}<input type="date" name="mailed_on" required><input name="tracking_number" placeholder="Tracking # (optional)"><button class="sec">Log mailed</button></form>{% endif %}</tr>{% endfor %}</table></div>{% endif %}
+
+{% if pending_ext %}<div class="msg warning">Owner requested more time{% if pending_ext.extension_days %} ({{ pending_ext.extension_days }} days){% endif %}: “{{ pending_ext.message }}”. Grant it below or reply.</div>{% endif %}
+
+{% if v.status == S.NOTICE_SENT or v.status == S.PENDING_BOARD %}<div class="card"><h2>Grant extension</h2>
+<form method="post" action="{% url 'violation_action' v.pk 'extension' %}">{% csrf_token %}<div class="row">{% for f in extension_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Extend &amp; notify owner</button></form></div>{% endif %}
+
+{% if v.status == S.PENDING_BOARD %}<div class="card"><h2>Board vote</h2>
+<form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<div class="row">{% for f in board_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>{% endif %}
+
+{% if v.status == S.HEARING_NEEDED or v.status == S.HEARING_SCHEDULED %}<div class="card"><h2>{% if v.status == S.HEARING_NEEDED %}Schedule fining-committee hearing{% else %}Reschedule hearing{% endif %}</h2>
+<p class="mut">Needs at least 14 days' notice to the owner before the hearing. The hearing notice is emailed automatically; print and mail it too.</p>
+<form method="post" action="{% url 'violation_action' v.pk 'hearing' %}">{% csrf_token %}<div class="row">{% for f in hearing_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Schedule &amp; send notice</button></form></div>{% endif %}
+
+{% if v.status == S.HEARING_SCHEDULED %}<div class="card"><h2>Committee decision</h2>
+<p class="mut">After the hearing. The committee (3+ owners who are not board members or their relatives) must approve the fine by majority vote.</p>
+<form method="post" action="{% url 'violation_action' v.pk 'committee' %}">{% csrf_token %}<div class="row">{% for f in committee_form %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record decision</button></form></div>{% endif %}
+
+<div class="card"><h2>Conversation</h2>
+{% for r in v.responses.all %}<p><b>{% if r.from_resident %}Owner{% else %}Staff{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span>{% if r.extension_requested %} <span class="pill">extension request{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">No messages yet.</p>{% endfor %}
+<form method="post" action="{% url 'violation_action' v.pk 'reply' %}">{% csrf_token %}{{ reply_form.message }}<button class="sec" style="margin-top:6px">Reply (shows on owner's page)</button></form></div>
+
+{% if v.is_open %}<div class="card"><h2>Close</h2><div class="row">
+{% if v.status != S.DRAFT %}<form method="post" action="{% url 'violation_action' v.pk 'cure' %}">{% csrf_token %}<input name="note" placeholder="Note (e.g. verified on site)"><button style="margin-top:6px">Mark cured</button></form>{% endif %}
+<form method="post" action="{% url 'violation_action' v.pk 'dismiss' %}">{% csrf_token %}<input name="note" placeholder="Reason"><button class="bad" style="margin-top:6px">Dismiss</button></form></div></div>{% endif %}
+
+<div class="card"><h2>Timeline</h2><ul class="tl">{% for e in v.events.all %}<li><span class="mut">{{ e.created_at|date:"M j, Y g:i A" }}</span> — {{ e.text }}{% if e.user %} <span class="mut">({{ e.user.username }})</span>{% endif %}</li>{% endfor %}</ul></div>
+{% endblock %}
