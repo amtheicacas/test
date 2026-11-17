@@ -18,6 +18,9 @@ class Owner(models.Model):
     phone = models.CharField(max_length=50, blank=True)
     mailing_address = models.TextField(blank=True, help_text="If different from the property address.")
     notes = models.TextField(blank=True)
+    tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant.")
+    tenant_email = models.EmailField(blank=True)
+    tenant_phone = models.CharField(max_length=50, blank=True)
     external_id = models.CharField(max_length=100, unique=True, null=True, blank=True,
                                    help_text="Account/homeowner ID in Vantaca (set by sync).")
     last_synced_at = models.DateTimeField(null=True, blank=True)
@@ -32,12 +35,16 @@ class Owner(models.Model):
     def mail_block(self):
         return f"{self.name}\n{self.mailing_address.strip() or self.property_address}"
 
+    @property
+    def tenant_mail_block(self):
+        return f"{self.tenant_name}\n{self.property_address}"
+
 
 class ViolationType(models.Model):
     name = models.CharField(max_length=200)
     reference = models.CharField(max_length=200, blank=True,
                                  help_text="Governing document cite, e.g. 'Declaration Art. VII §3(b)'.")
-    default_cure_days = models.PositiveIntegerField(default=14)
+    default_cure_days = models.PositiveIntegerField(default=15)
     default_fine = models.DecimalField(max_digits=8, decimal_places=2, default=100)
 
     class Meta:
@@ -54,32 +61,42 @@ class Violation(models.Model):
         PENDING_BOARD = "pending_board", "Awaiting board vote"
         HEARING_NEEDED = "hearing_needed", "Board approved — schedule hearing"
         HEARING_SCHEDULED = "hearing_scheduled", "Committee hearing scheduled"
-        FINE_APPROVED = "fine_approved", "Fine approved by committee"
-        FINE_REJECTED = "fine_rejected", "Fine rejected by committee"
+        FINE_APPROVED = "fine_approved", "Imposed by committee — awaiting payment / cure"
+        FINE_REJECTED = "fine_rejected", "Rejected by committee"
+        REFERRED_LEGAL = "referred_legal", "Referred to attorney"
+        CLOSED = "closed", "Closed (cured and paid)"
         CURED = "cured", "Cured"
         DISMISSED = "dismissed", "Dismissed"
 
     OPEN = [Status.DRAFT, Status.NOTICE_SENT, Status.PENDING_BOARD, Status.HEARING_NEEDED,
-            Status.HEARING_SCHEDULED]
+            Status.HEARING_SCHEDULED, Status.FINE_APPROVED]
 
     owner = models.ForeignKey(Owner, on_delete=models.PROTECT, related_name="violations")
     vtype = models.ForeignKey(ViolationType, on_delete=models.PROTECT, verbose_name="violation type")
     observed_on = models.DateField(default=date.today)
     description = models.TextField(help_text="What was observed.")
     cure_required = models.TextField(help_text="What the owner must do to cure.")
-    cure_days = models.PositiveIntegerField(default=14, help_text="Days allowed to cure from the notice date.")
+    cure_days = models.PositiveIntegerField(default=15, help_text="Days allowed to cure from the notice date.")
     cure_deadline = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     token = models.CharField(max_length=64, unique=True, editable=False, default=secrets.token_urlsafe)
 
-    # Board stage
+    safety_issue = models.BooleanField(default=False, help_text="Threatens health/safety — Board may act before the cure deadline.")
+    # Board stage: the vote only PROPOSES a fine and/or suspension
     board_meeting_date = models.DateField(null=True, blank=True)
+    proposed_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    proposed_suspension = models.CharField(max_length=300, blank=True, help_text="e.g. 'Pool and clubhouse use for 30 days'.")
     # Committee stage
     hearing_date = models.DateTimeField(null=True, blank=True)
     hearing_location = models.CharField(max_length=250, blank=True)
     committee_votes_for = models.PositiveSmallIntegerField(null=True, blank=True)
     committee_votes_against = models.PositiveSmallIntegerField(null=True, blank=True)
-    fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text="Imposed amount (set when committee approves).")
+    suspension = models.CharField(max_length=300, blank=True)
+    fine_due_on = models.DateField(null=True, blank=True)
+    fine_paid_on = models.DateField(null=True, blank=True)
+    cured_on = models.DateField(null=True, blank=True)
+    legal_referred_on = models.DateField(null=True, blank=True)
 
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -126,7 +143,8 @@ class Notice(models.Model):
         VIOLATION = "violation", "Notice of violation"
         EXTENSION = "extension", "Extension granted"
         HEARING = "hearing", "Notice of committee hearing"
-        FINE = "fine", "Notice of fine"
+        SECOND = "second", "Second notice of violation"
+        FINE = "fine", "Notice of imposition of fine / suspension"
 
     violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="notices")
     kind = models.CharField(max_length=20, choices=Kind.choices)
@@ -135,6 +153,9 @@ class Notice(models.Model):
     emailed_to = models.EmailField(blank=True)
     mailed_on = models.DateField(null=True, blank=True)
     tracking_number = models.CharField(max_length=100, blank=True)
+    method = models.CharField(max_length=20, blank=True, choices=[("first_class", "First-class mail"),
+        ("certified", "Certified, return receipt"), ("hand", "Hand delivered")])
+    return_receipt_on = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -148,6 +169,8 @@ class Response(models.Model):
     message = models.TextField()
     extension_requested = models.BooleanField(default=False)
     extension_days = models.PositiveIntegerField(null=True, blank=True)
+    cure_reported = models.BooleanField(default=False, help_text="Owner says it is fixed; needs reinspection.")
+    attorney_notice = models.BooleanField(default=False, help_text="Owner will bring an attorney to the hearing.")
     handled = models.BooleanField(default=False, help_text="Staff has dealt with this request.")
     created_at = models.DateTimeField(auto_now_add=True)
 

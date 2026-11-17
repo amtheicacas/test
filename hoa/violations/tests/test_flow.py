@@ -69,36 +69,92 @@ def test_no_email_is_mail_only(violation, user):
     assert mail.outbox == [] and n.emailed_at is None
 
 
-def test_full_path_to_approved_fine(violation, user):
+def _to_board(violation, user):
     services.issue_first_notice(violation, user, today=date.today() - timedelta(days=20))
     assert services.advance_expired() == 1
     violation.refresh_from_db()
     assert violation.status == S.PENDING_BOARD
-    services.board_decide(violation, "proceed", date.today(), user)
-    # 14-day rule
-    with pytest.raises(services.WorkflowError):
+
+
+def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
+    _to_board(violation, user)
+    with pytest.raises(services.WorkflowError):  # board must name a fine and/or suspension
+        services.board_decide(violation, "proceed", date.today(), user)
+    with pytest.raises(services.WorkflowError):  # over the $1,000 total cap
+        services.board_decide(violation, "proceed", date.today(), user, fine=1500)
+    services.board_decide(violation, "proceed", date.today(), user, fine=250)
+    violation.refresh_from_db()
+    assert violation.status == S.HEARING_NEEDED and violation.proposed_fine == 250
+    with pytest.raises(services.WorkflowError):  # 14-day rule
         services.schedule_hearing(violation, timezone.now() + timedelta(days=5), user=user)
-    services.schedule_hearing(violation, timezone.now() + timedelta(days=15), "Clubhouse", user)
-    assert violation.notices.filter(kind=Notice.Kind.HEARING).exists()
-    # hearing hasn't happened yet
-    with pytest.raises(services.WorkflowError):
-        services.committee_decide(violation, 3, 0, 100, user)
+    n = services.schedule_hearing(violation, timezone.now() + timedelta(days=15), "Zoom", user)
+    assert n.kind == Notice.Kind.HEARING
+    assert services.render_notice_pdf(n).startswith(b"%PDF")
+    with pytest.raises(services.WorkflowError):  # hearing hasn't happened yet
+        services.committee_decide(violation, 3, 0, user)
     Violation.objects.filter(pk=violation.pk).update(hearing_date=timezone.now() - timedelta(hours=1))
     violation.refresh_from_db()
     with pytest.raises(services.WorkflowError):  # fewer than 3 members voting
-        services.committee_decide(violation, 2, 0, 100, user)
-    services.committee_decide(violation, 2, 1, 100, user)
+        services.committee_decide(violation, 2, 0, user)
+    services.committee_decide(violation, 2, 1, user, today=date(2026, 5, 1))
     violation.refresh_from_db()
-    assert violation.status == S.FINE_APPROVED and violation.fine_amount == 100
+    assert violation.status == S.FINE_APPROVED and violation.fine_amount == 250
+    assert violation.fine_due_on == date(2026, 5, 6)  # due 5 days after the letter
     assert violation.notices.filter(kind=Notice.Kind.FINE).exists()
+    services.mark_cured(violation, user)
+    violation.refresh_from_db()
+    assert violation.status == S.FINE_APPROVED  # still unpaid
+    services.record_payment(violation, date.today(), user)
+    violation.refresh_from_db()
+    assert violation.status == S.CLOSED
+
+
+def test_suspension_only_and_legal_referral(violation, user):
+    _to_board(violation, user)
+    services.board_decide(violation, "proceed", date.today(), user, suspension="Pool for 30 days")
+    Violation.objects.filter(pk=violation.pk).update(status=S.HEARING_SCHEDULED,
+                                                     hearing_date=timezone.now() - timedelta(days=1))
+    violation.refresh_from_db()
+    services.committee_decide(violation, 3, 0, user)
+    violation.refresh_from_db()
+    assert violation.fine_amount is None and violation.suspension == "Pool for 30 days"
+    with pytest.raises(services.WorkflowError):
+        services.record_payment(violation, date.today(), user)
+    services.refer_to_attorney(violation, user)
+    violation.refresh_from_db()
+    assert violation.status == S.REFERRED_LEGAL
 
 
 def test_committee_can_reject(violation, user):
     violation.status, violation.hearing_date = S.HEARING_SCHEDULED, timezone.now() - timedelta(days=1)
+    violation.proposed_fine = 100
     violation.save()
-    services.committee_decide(violation, 1, 2, 100, user)
+    services.committee_decide(violation, 1, 2, user)
     violation.refresh_from_db()
     assert violation.status == S.FINE_REJECTED and violation.fine_amount is None
+
+
+def test_safety_referral_skips_cure_wait(violation, user):
+    services.issue_first_notice(violation, user)
+    services.refer_urgent(violation, user, "exposed wiring")
+    violation.refresh_from_db()
+    assert violation.status == S.PENDING_BOARD and violation.safety_issue
+
+
+def test_tenant_gets_notice_too(violation, user):
+    violation.owner.tenant_name, violation.owner.tenant_email = "Tina Tenant", "tina@example.com"
+    violation.owner.save()
+    n = services.issue_first_notice(violation, user)
+    assert set(mail.outbox[0].to) == {"pat@example.com", "tina@example.com"}
+    assert services.render_notice_pdf(n, "tenant").startswith(b"%PDF")
+
+
+def test_second_notice_resets_deadline(violation, user):
+    services.issue_first_notice(violation, user)
+    new = date.today() + timedelta(days=15)
+    services.grant_extension(violation, new, user, second_notice=True)
+    violation.refresh_from_db()
+    assert violation.cure_deadline == new and violation.notices.filter(kind=Notice.Kind.SECOND).exists()
 
 
 def test_extension_resets_clock(violation, user):
@@ -113,20 +169,17 @@ def test_extension_resets_clock(violation, user):
         services.grant_extension(violation, date.today() - timedelta(days=1), user)
 
 
-def test_fine_warnings(violation):
-    assert services.fine_warnings(violation, 100) == []
-    assert services.fine_warnings(violation, 500)
-
-
 def test_resident_response_flow(client, violation, user):
     services.issue_first_notice(violation, user)
     url = f"/r/{violation.token}/"
     assert client.get(url).status_code == 200
     r = client.post(url, {"message": "Working on it", "request_extension": "on", "extension_days": 10,
-                          "photos": png()})
+                          "cure_reported": "on", "photos": png()})
     assert r.status_code == 302
     resp = violation.responses.get()
-    assert resp.extension_requested and resp.extension_days == 10 and resp.from_resident
+    assert resp.extension_requested and resp.extension_days == 10 and resp.from_resident and resp.cure_reported
+    client.force_login(violation.created_by)
+    assert client.get('/').status_code == 200  # dashboard lists reinspect + awaiting-reply
     assert violation.photos.filter(from_resident=True).count() == 1
     assert client.get("/r/not-a-token/").status_code == 404
 

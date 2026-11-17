@@ -81,13 +81,18 @@ if not DEBUG:
     SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True
 
 # ---- HOA configuration --------------------------------------------------
-HOA_NAME = env("HOA_NAME", "Your Community Association, Inc.")
-HOA_MAILING_ADDRESS = env("HOA_MAILING_ADDRESS", "c/o Management, Sarasota, FL")
+HOA_NAME = env("HOA_NAME", "Heron Landing Homeowners’ Association, Inc.")
+HOA_MAILING_ADDRESS = env("HOA_MAILING_ADDRESS", "c/o Sunstate Management, Sarasota, FL")
+MANAGER_NAME = env("MANAGER_NAME", "Erick Jacobsen")
+MANAGER_EMAIL = env("MANAGER_EMAIL", "Erick@sunstatemanagement.com")
+OFFICE_PHONE = env("OFFICE_PHONE", "941-870-4920")
 SITE_URL = env("SITE_URL", "http://localhost:8000").rstrip("/")
-# Fla. Stat. 720.305(2): fine <= $100 per violation, <= $1,000 aggregate for a
-# continuing violation, unless the governing documents set a different amount.
-FINE_MAX_PER_VIOLATION = int(env("FINE_MAX_PER_VIOLATION", "100"))
+# Fining Resolution / Fla. Stat. 720.305(2): up to $100 per day for a continuing violation, up to $1,000 total.
+FINE_MAX_PER_DAY = int(env("FINE_MAX_PER_DAY", "100"))
 FINE_AGGREGATE_CAP = int(env("FINE_AGGREGATE_CAP", "1000"))
+FINE_PAYMENT_DAYS = int(env("FINE_PAYMENT_DAYS", "5"))        # fine due this many days after the imposition letter
+ATTORNEY_NOTICE_DAYS = int(env("ATTORNEY_NOTICE_DAYS", "7"))  # owner must tell us this many days before the hearing
+REPLY_TARGET_HOURS = int(env("REPLY_TARGET_HOURS", "48"))     # procedure promises a reply within 48-72 hours
 # Fla. Stat. 720.305(2)(b): at least 14 days' notice before the committee hearing.
 HEARING_NOTICE_DAYS = int(env("HEARING_NOTICE_DAYS", "14"))
 

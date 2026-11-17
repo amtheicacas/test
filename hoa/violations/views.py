@@ -2,7 +2,11 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db.models import Count, Q
+from datetime import timedelta
+
+from django.conf import settings
+from django.db.models import Count, Exists, OuterRef, Q
+from django.utils import timezone
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
@@ -49,6 +53,17 @@ def _run(request, fn, *a, ok=None, **kw):
 
 
 # ---------- staff ----------
+def _awaiting_reply():
+    """Owner messages with no staff reply since; the procedure promises a response within 48-72 hours."""
+    later_staff = Response.objects.filter(violation=OuterRef("violation"), from_resident=False,
+                                          created_at__gt=OuterRef("created_at"))
+    qs = (Response.objects.filter(from_resident=True, violation__status__in=Violation.OPEN)
+          .annotate(answered=Exists(later_staff)).filter(answered=False)
+          .select_related("violation__owner").order_by("created_at"))
+    cutoff = timezone.now() - timedelta(hours=settings.REPLY_TARGET_HOURS)
+    return [(r, r.created_at < cutoff) for r in qs]
+
+
 @login_required
 def dashboard(request):
     services.advance_expired()
@@ -61,6 +76,11 @@ def dashboard(request):
         "board_queue": Violation.objects.filter(status=S.PENDING_BOARD).count(),
         "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED).count(),
         "unmailed": Notice.objects.filter(mailed_on__isnull=True).count(),
+        "reinspect": Response.objects.filter(cure_reported=True, handled=False,
+                                             violation__status__in=Violation.OPEN).select_related("violation__owner"),
+        "awaiting_reply": _awaiting_reply(),
+        "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
+        "today": date.today(),
     }
     return render(request, "violations/dashboard.html", ctx)
 
@@ -100,6 +120,7 @@ def violation_detail(request, pk):
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(),
         "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
         "hearing_form": forms.HearingForm(), "committee_form": forms.CommitteeForm(),
+        "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
         "pending_ext": v.responses.filter(extension_requested=True, handled=False).first(),
     }
     return render(request, "violations/detail.html", ctx)
@@ -130,7 +151,8 @@ def violation_action(request, pk, action):
         f = forms.ExtensionForm(P)
         if f.is_valid():
             _run(request, services.grant_extension, v, f.cleaned_data["new_deadline"], u,
-                 f.cleaned_data["reason"], ok="Extension granted and notice sent.")
+                 f.cleaned_data["reason"], second_notice=f.cleaned_data["second_notice"],
+                 ok="New deadline set and notice sent.")
     elif action == "board":
         f = forms.BoardForm(P)
         if f.is_valid():
@@ -143,7 +165,8 @@ def violation_action(request, pk, action):
                          ok="Board granted more time.")
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
-                     ok="Board decision recorded.")
+                     fine=d["proposed_fine"], suspension=d["proposed_suspension"],
+                     ok="Board decision recorded. Schedule the committee hearing next.")
         return redirect(request.POST.get("next") or v)
     elif action == "hearing":
         f = forms.HearingForm(P)
@@ -156,12 +179,16 @@ def violation_action(request, pk, action):
         f = forms.CommitteeForm(P)
         if f.is_valid():
             d = f.cleaned_data
-            amt = d["fine_amount"] or 0
-            if d["votes_for"] > d["votes_against"]:
-                for w in services.fine_warnings(v, amt):
-                    messages.warning(request, w)
-            _run(request, services.committee_decide, v, d["votes_for"], d["votes_against"], amt, u, d["note"],
+            _run(request, services.committee_decide, v, d["votes_for"], d["votes_against"], u, d["note"],
                  ok="Committee decision recorded.")
+    elif action == "urgent":
+        _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
+    elif action == "payment":
+        f = forms.PaymentForm(P)
+        if f.is_valid():
+            _run(request, services.record_payment, v, f.cleaned_data["paid_on"], u, ok="Payment recorded.")
+    elif action == "legal":
+        _run(request, services.refer_to_attorney, v, u, P.get("note", ""), ok="Referred to the attorney.")
     return redirect(v)
 
 
@@ -171,7 +198,9 @@ def notice_mailed(request, pk):
     notice = get_object_or_404(Notice, pk=pk)
     f = forms.MailedForm(request.POST)
     if f.is_valid():
-        services.mark_mailed(notice, f.cleaned_data["mailed_on"], f.cleaned_data["tracking_number"], request.user)
+        d = f.cleaned_data
+        services.mark_mailed(notice, d["mailed_on"], d["tracking_number"], request.user, d["method"],
+                             d["return_receipt_on"])
         messages.success(request, "Mailing logged.")
     return redirect(notice.violation)
 
@@ -179,7 +208,8 @@ def notice_mailed(request, pk):
 @login_required
 def notice_pdf(request, pk):
     notice = get_object_or_404(Notice, pk=pk)
-    return HttpResponse(render_notice_pdf(notice), content_type="application/pdf",
+    to = "tenant" if request.GET.get("to") == "tenant" else "owner"
+    return HttpResponse(render_notice_pdf(notice, to), content_type="application/pdf",
                         headers={"Content-Disposition": f'inline; filename="case-{notice.violation_id}-{notice.kind}.pdf"'})
 
 
@@ -209,7 +239,8 @@ def resident(request, token):
             messages.error(request, "This case is closed.")
         else:
             services.add_response(v, d["message"], from_resident=True, extension_requested=d["request_extension"],
-                                  extension_days=d["extension_days"] if d["request_extension"] else None)
+                                  extension_days=d["extension_days"] if d["request_extension"] else None,
+                                  cure_reported=d["cure_reported"], attorney_notice=d["attorney_notice"])
             n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
             if n:
                 services.log(v, f"Owner uploaded {n} photo(s)")

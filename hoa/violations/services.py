@@ -1,9 +1,11 @@
 """All workflow transitions live here so views, the CLI job and tests share one set of rules.
 
-Process (per Fla. Stat. 720.305(2), adjust to your governing documents):
-  draft -> notice sent (cure period) -> [cured | extension | expires]
-  expires -> awaiting board vote -> [dismiss | extend | proceed]
-  proceed -> schedule committee hearing (>= 14 days' notice) -> committee confirms or rejects the fine
+Follows the Heron Landing "Violation and Fining Procedure" (rev. Oct 2026) and flowchart:
+  1 violation noted -> 2 Notice of Violation (usually 15 days) -> 3 owner fixes / justifies delay
+    (optional 2nd notice with new deadline) -> 4 Board votes to PROPOSE a fine and/or suspension
+  -> 5 Notice of Hearing (certified + regular mail + email, >= 14 days ahead, includes the NOV)
+  -> 6 Compliance Committee hearing -> 7 majority approves (imposed, due in 5 days) or rejects
+  -> 8 closed when cured and paid, else referred to the attorney.
 """
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -32,21 +34,23 @@ def _require(v, *allowed):
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
 
 
-def send_notice(v, kind, user=None, base_deadline=None):
-    """Create a notice, email it (if the owner has an email) with the PDF attached. Mailing is logged separately."""
+def send_notice(v, kind, user=None):
+    """Create a notice and email it with the PDF to the owner (and tenant, if any). Mailing is logged separately."""
     notice = Notice.objects.create(violation=v, kind=kind)
-    if v.owner.email:
+    recipients = [e for e in (v.owner.email, v.owner.tenant_email) if e]
+    if recipients:
         pdf = render_notice_pdf(notice)
         subject = f"{notice.get_kind_display()} — {v.owner.property_address} (Case #{v.pk})"
         body = (f"Dear {v.owner.name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "
-                f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or upload photos "
-                f"of the cure here:\n{v.resident_url()}\n\n{settings.HOA_NAME}")
-        msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, [v.owner.email])
+                f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos "
+                f"of the cure here:\n{v.resident_url()}\n\nQuestions? {settings.MANAGER_NAME}, "
+                f"{settings.MANAGER_EMAIL}, {settings.OFFICE_PHONE}\n\n{settings.HOA_NAME}")
+        msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, recipients)
         msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
         msg.send()
-        notice.emailed_at, notice.emailed_to = timezone.now(), v.owner.email
+        notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(recipients)
         notice.save()
-        log(v, f"{notice.get_kind_display()} emailed to {v.owner.email}", user)
+        log(v, f"{notice.get_kind_display()} emailed to {notice.emailed_to}", user)
     else:
         log(v, f"{notice.get_kind_display()} created (no email on file — mail only)", user)
     return notice
@@ -61,23 +65,57 @@ def issue_first_notice(v, user=None, today=None):
     v.cure_deadline = today + timedelta(days=v.cure_days)
     v.status = S.NOTICE_SENT
     v.save()
-    log(v, f"Notice issued; cure deadline {v.cure_deadline:%b %d, %Y}", user)
+    log(v, f"Notice of Violation issued; cure deadline {v.cure_deadline:%b %d, %Y}", user)
     return send_notice(v, Notice.Kind.VIOLATION, user)
 
 
-def mark_mailed(notice, mailed_on, tracking="", user=None):
+def mark_mailed(notice, mailed_on, tracking="", user=None, method="", return_receipt_on=None):
     notice.mailed_on, notice.tracking_number = mailed_on, tracking
+    notice.method, notice.return_receipt_on = method, return_receipt_on
     notice.save()
-    log(notice.violation, f"{notice.get_kind_display()} mailed {mailed_on:%b %d, %Y}"
-        + (f" (tracking {tracking})" if tracking else ""), user)
+    log(notice.violation, f"{notice.get_kind_display()} {notice.get_method_display().lower() or 'mailed'} "
+        f"{mailed_on:%b %d, %Y}" + (f" (tracking {tracking})" if tracking else "")
+        + (f"; return receipt {return_receipt_on:%b %d}" if return_receipt_on else ""), user)
+
+
+def _close_if_done(v, user=None):
+    """Case closes once the violation is corrected and any fine is paid."""
+    if v.status == S.FINE_APPROVED and v.cured_on and (not v.fine_amount or v.fine_paid_on):
+        v.status = S.CLOSED
+        log(v, "Case closed — corrected and fine paid", user)
 
 
 @transaction.atomic
-def mark_cured(v, user=None, note=""):
+def mark_cured(v, user=None, note="", today=None):
     _require(v, *Violation.OPEN)
-    v.status = S.CURED
+    v.cured_on = today or date.today()
+    if v.status == S.FINE_APPROVED:
+        log(v, "Violation corrected" + (f": {note}" if note else ""), user)
+        _close_if_done(v, user)
+    else:
+        v.status = S.CURED
+        log(v, "Marked cured — case closed, no fine" + (f": {note}" if note else ""), user)
+    v.responses.filter(cure_reported=True, handled=False).update(handled=True)
     v.save()
-    log(v, "Marked cured" + (f": {note}" if note else ""), user)
+
+
+@transaction.atomic
+def record_payment(v, paid_on, user=None):
+    _require(v, S.FINE_APPROVED)
+    if not v.fine_amount:
+        raise WorkflowError("There is no fine to pay (suspension only).")
+    v.fine_paid_on = paid_on
+    log(v, f"Fine of ${v.fine_amount:,.2f} paid {paid_on:%b %d, %Y}", user)
+    _close_if_done(v, user)
+    v.save()
+
+
+@transaction.atomic
+def refer_to_attorney(v, user=None, note=""):
+    _require(v, S.FINE_APPROVED)
+    v.status, v.legal_referred_on = S.REFERRED_LEGAL, date.today()
+    v.save()
+    log(v, "Referred to the Association's attorney" + (f": {note}" if note else ""), user)
 
 
 @transaction.atomic
@@ -85,11 +123,12 @@ def dismiss(v, user=None, note=""):
     _require(v, *Violation.OPEN)
     v.status = S.DISMISSED
     v.save()
-    log(v, "Dismissed" + (f": {note}" if note else ""), user)
+    log(v, "Dismissed (no violation / withdrawn)" + (f": {note}" if note else ""), user)
 
 
 @transaction.atomic
-def grant_extension(v, new_deadline, user=None, reason="", notify=True):
+def grant_extension(v, new_deadline, user=None, reason="", notify=True, second_notice=False):
+    """New deadline. As a 'second notice' it re-sends the full Notice of Violation (optional step in the process)."""
     _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
     if new_deadline <= date.today():
         raise WorkflowError("New deadline must be in the future.")
@@ -98,16 +137,25 @@ def grant_extension(v, new_deadline, user=None, reason="", notify=True):
     v.board_meeting_date = None
     v.save()
     v.responses.filter(extension_requested=True, handled=False).update(handled=True)
-    log(v, f"Cure deadline extended {old:%b %d} → {new_deadline:%b %d, %Y}" + (f" ({reason})" if reason else ""), user)
+    log(v, f"Cure deadline {'reset' if second_notice else 'extended'} {old:%b %d} → {new_deadline:%b %d, %Y}"
+        + (f" ({reason})" if reason else ""), user)
     if notify:
-        send_notice(v, Notice.Kind.EXTENSION, user)
+        send_notice(v, Notice.Kind.SECOND if second_notice else Notice.Kind.EXTENSION, user)
 
 
-def add_response(v, message, *, from_resident, user=None, extension_requested=False, extension_days=None):
+def add_response(v, message, *, from_resident, user=None, extension_requested=False, extension_days=None,
+                 cure_reported=False, attorney_notice=False):
     r = Response.objects.create(violation=v, message=message, from_resident=from_resident, author=user,
-                                extension_requested=extension_requested, extension_days=extension_days)
+                                extension_requested=extension_requested, extension_days=extension_days,
+                                cure_reported=cure_reported, attorney_notice=attorney_notice)
     who = "Owner" if from_resident else "Staff"
-    log(v, f"{who} " + ("requested an extension" if extension_requested else "replied"), user)
+    what = ("reported the violation fixed (needs reinspection)" if cure_reported
+            else "requested an extension" if extension_requested else "replied")
+    log(v, f"{who} {what}", user)
+    if attorney_notice:
+        late = v.hearing_date and (v.hearing_date - timezone.now()) < timedelta(days=settings.ATTORNEY_NOTICE_DAYS)
+        log(v, "Owner will bring an attorney to the hearing"
+            + (f" — NOTE: less than {settings.ATTORNEY_NOTICE_DAYS} days' notice" if late else ""), user)
     return r
 
 
@@ -125,13 +173,42 @@ def advance_expired(today=None):
 
 
 @transaction.atomic
-def board_decide(v, decision, meeting_date, user=None, note=""):
-    """decision: 'proceed' | 'dismiss' | 'extend' (extend handled via grant_extension)."""
+def refer_urgent(v, user=None, note=""):
+    """Serious safety situation: Board may act before the cure deadline (hearing rules still apply)."""
+    _require(v, S.NOTICE_SENT)
+    v.safety_issue, v.status = True, S.PENDING_BOARD
+    v.save()
+    log(v, "Referred to board early — safety situation" + (f": {note}" if note else ""), user)
+
+
+def fine_problems(v, amount):
+    amount = Decimal(amount or 0)
+    problems = []
+    if amount < 0:
+        problems.append("Fine can't be negative.")
+    total = v.fines_total_for_owner_same_type() + amount
+    if total > settings.FINE_AGGREGATE_CAP:
+        problems.append(f"Fine exceeds the ${settings.FINE_AGGREGATE_CAP:,} total cap (up to "
+                        f"${settings.FINE_MAX_PER_DAY}/day for a continuing violation).")
+    return problems
+
+
+@transaction.atomic
+def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspension=""):
+    """Board vote at a meeting. 'proceed' only PROPOSES a fine and/or suspension; nothing is owed until the committee approves."""
     _require(v, S.PENDING_BOARD)
     v.board_meeting_date = meeting_date
     if decision == "proceed":
-        v.status = S.HEARING_NEEDED
-        log(v, f"Board voted {meeting_date:%b %d, %Y} to proceed toward a fine" + (f": {note}" if note else ""), user)
+        fine = Decimal(fine) if fine not in (None, "") else None
+        suspension = (suspension or "").strip()
+        if not fine and not suspension:
+            raise WorkflowError("Enter the proposed fine amount and/or suspension the Board voted on.")
+        problems = fine_problems(v, fine)
+        if problems:
+            raise WorkflowError(" ".join(problems))
+        v.proposed_fine, v.proposed_suspension, v.status = fine, suspension, S.HEARING_NEEDED
+        what = " and ".join(x for x in [f"fine ${fine:,.2f}" if fine else "", f"suspension ({suspension})" if suspension else ""] if x)
+        log(v, f"Board voted {meeting_date:%b %d, %Y} to propose: {what}" + (f". {note}" if note else ""), user)
     elif decision == "dismiss":
         v.status = S.DISMISSED
         log(v, f"Board voted {meeting_date:%b %d, %Y} to dismiss" + (f": {note}" if note else ""), user)
@@ -152,36 +229,29 @@ def schedule_hearing(v, hearing_dt, location="", user=None, today=None):
                             f"(earliest {min_day:%b %d, %Y}).")
     v.hearing_date, v.hearing_location, v.status = hearing_dt, location, S.HEARING_SCHEDULED
     v.save()
-    log(v, f"Committee hearing set for {timezone.localtime(hearing_dt):%b %d, %Y %I:%M %p}", user)
+    log(v, f"Compliance Committee hearing set for {timezone.localtime(hearing_dt):%b %d, %Y %I:%M %p}", user)
     return send_notice(v, Notice.Kind.HEARING, user)
 
 
-def fine_warnings(v, amount):
-    w = []
-    amount = Decimal(amount)
-    if amount > settings.FINE_MAX_PER_VIOLATION:
-        w.append(f"Exceeds ${settings.FINE_MAX_PER_VIOLATION} per-violation limit (Fla. Stat. 720.305) "
-                 "— allowed only if your governing documents provide otherwise.")
-    if v.fines_total_for_owner_same_type() + amount > settings.FINE_AGGREGATE_CAP:
-        w.append(f"Aggregate fines for this owner/violation type would exceed ${settings.FINE_AGGREGATE_CAP}.")
-    return w
-
-
 @transaction.atomic
-def committee_decide(v, votes_for, votes_against, amount, user=None, note=""):
-    """Committee (3+ owners who are not board members/relatives) must approve by majority to levy a fine."""
+def committee_decide(v, votes_for, votes_against, user=None, note="", today=None):
+    """Committee (3+ owners, none board/officer/employee/relative) confirms or rejects the Board's proposal.
+    Majority approval makes it final; the Board does not vote again."""
     _require(v, S.HEARING_SCHEDULED)
     if v.hearing_date and v.hearing_date > timezone.now():
         raise WorkflowError("The hearing date has not occurred yet.")
     if votes_for + votes_against < 3:
-        raise WorkflowError("A fining committee must have at least 3 members voting.")
+        raise WorkflowError("The Compliance Committee must have at least 3 members voting.")
     v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
     if votes_for > votes_against:
-        v.status, v.fine_amount = S.FINE_APPROVED, Decimal(amount)
-        log(v, f"Committee approved fine of ${Decimal(amount):,.2f} ({votes_for}-{votes_against})"
-            + (f": {note}" if note else ""), user)
+        today = today or date.today()
+        v.status = S.FINE_APPROVED
+        v.fine_amount, v.suspension = v.proposed_fine, v.proposed_suspension
+        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS) if v.fine_amount else None
         v.save()
+        log(v, f"Committee approved ({votes_for}-{votes_against})" + (f": {note}" if note else ""), user)
         return send_notice(v, Notice.Kind.FINE, user)
     v.status = S.FINE_REJECTED
-    log(v, f"Committee rejected the fine ({votes_for}-{votes_against})" + (f": {note}" if note else ""), user)
     v.save()
+    log(v, f"Committee rejected the proposal ({votes_for}-{votes_against}) — nothing imposed"
+        + (f": {note}" if note else ""), user)

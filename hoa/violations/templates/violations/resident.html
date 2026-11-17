@@ -3,13 +3,17 @@
 <div class="card"><p><b>{{ v.vtype }}</b>{% if v.vtype.reference %} ({{ v.vtype.reference }}){% endif %} — observed {{ v.observed_on|date:"F j, Y" }}</p>
 <p>{{ v.description }}</p><p><b>What is needed to cure:</b> {{ v.cure_required }}</p>
 {% if v.status == "notice_sent" %}<p><b>Cure by: {{ v.cure_deadline|date:"F j, Y" }}</b></p>{% else %}<p><span class="pill">{{ v.get_status_display }}</span></p>{% endif %}
-{% if v.hearing_date and v.status == "hearing_scheduled" %}<p><b>Committee hearing: {{ v.hearing_date|date:"l, F j, Y g:i A" }}</b> {{ v.hearing_location }}. You may attend and present evidence.</p>{% endif %}
+{% if v.hearing_date and v.status == "hearing_scheduled" %}<p><b>Compliance Committee hearing: {{ v.hearing_date|date:"l, F j, Y g:i A" }}</b> {{ v.hearing_location }}.<br>The Board proposed {% if v.proposed_fine %}a fine of ${{ v.proposed_fine }}{% endif %} {% if v.proposed_suspension %}a suspension ({{ v.proposed_suspension }}){% endif %}; nothing is owed unless a majority of the Committee approves it. You may attend, speak and give evidence.</p>{% endif %}
+{% if v.status == "fine_approved" %}<p>{% if v.fine_amount %}<b>Fine imposed: ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"F j, Y" }}.</b>{% endif %} {% if v.suspension %}Suspension: {{ v.suspension }}.{% endif %}</p>{% endif %}
 <div class="photos">{% for p in v.photos.all %}<img src="{% url 'resident_photo' v.token p.pk %}" alt="">{% endfor %}</div></div>
 <div class="card"><h2>Messages</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}You{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j" }}</span><br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None yet.</p>{% endfor %}</div>
 {% if v.is_open %}<form class="card" method="post" enctype="multipart/form-data"><h2>Respond</h2>{% csrf_token %}{{ form.non_field_errors }}
 {{ form.message.label_tag }}{{ form.message }}{{ form.message.errors }}
+<label><input type="checkbox" name="cure_reported" {% if form.cure_reported.value %}checked{% endif %}> {{ form.cure_reported.label }}</label>
 <label><input type="checkbox" name="request_extension" {% if form.request_extension.value %}checked{% endif %}> {{ form.request_extension.label }}</label>
 {{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}
+{% if v.status == "hearing_scheduled" %}<label><input type="checkbox" name="attorney_notice"> {{ form.attorney_notice.label }} (please tell us at least 7 days before)</label>{% endif %}
 <label>Photos showing the work or cure (optional)</label><input type="file" name="photos" accept="image/*" multiple>
-<button style="margin-top:10px">Send to the association</button></form>{% endif %}
+<button style="margin-top:10px">Send to the association</button>
+<p class="mut">We aim to reply within 48–72 hours, and we reinspect before a case is closed. You can also call {{ MANAGER_PHONE }} or email {{ MANAGER_EMAIL }}.</p></form>{% endif %}
 {% endblock %}
