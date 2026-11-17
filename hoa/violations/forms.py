@@ -106,6 +106,9 @@ class MeetingForm(forms.Form):
     starts_at = forms.DateTimeField(widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
                                     input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"], label="Meeting date and time")
     zoom_link = forms.URLField(required=False, label="Zoom link", assume_scheme="https")
+    zoom_meeting_id = forms.CharField(required=False, label="Zoom meeting ID")
+    zoom_passcode = forms.CharField(required=False, label="Zoom passcode")
+    zoom_dial_in = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}), label="Zoom one-tap / dial-in lines (paste from the invitation)")
     location = forms.CharField(required=False, label="In-person location (optional)")
 
 
@@ -141,3 +144,8 @@ class ResidentForm(forms.Form):
         if d.get("request_extension") and not d.get("extension_days"):
             self.add_error("extension_days", "Tell us how many more days you need.")
         return d
+
+
+class ImposeForm(forms.Form):
+    method = forms.ChoiceField(choices=[("api", "Post through the Vantaca API"), ("manual", "I posted it in Vantaca by hand")], initial="manual")
+    reference = forms.CharField(required=False, label="Vantaca transaction / reference # (optional)")

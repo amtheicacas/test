@@ -207,9 +207,12 @@ def test_letter_follows_the_courtesy_notice_format(settings):
     assert "Sunstate" not in txt
 
 
-def test_letter_includes_photo_timestamp(settings):
+def test_letter_photo_has_generated_stamp_above_and_taken_caption_below(settings):
+    import re
     from violations.pdf import render_notice_pdf
-    assert "10/27/26 10:15 AM" in _text(render_notice_pdf(make_nov(settings)))
+    t = _text(render_notice_pdf(make_nov(settings)))
+    assert re.search(r"\b\d{1,2}/\d{1,2}/\d{2} \d{1,2}:\d{2} [AP]M\b", t)  # when the letter was generated
+    assert "Tuesday - October 27, 2026 - 10:15 AM" in t  # when the photo was taken
 
 
 def test_hearing_notice_still_attaches_the_violation_notice(settings):

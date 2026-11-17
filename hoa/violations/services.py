@@ -16,7 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Event, Notice, Reminder, Response, Violation
-from . import mailing
+from . import ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
 
@@ -36,28 +36,52 @@ def _require(v, *allowed):
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
 
 
+def recipient_groups(v):
+    """[(who, emails, name)]: the owner(s) and, for a rented home, the tenant. Each gets their own email and letter."""
+    o = v.owner
+    groups = []
+    owner_emails = [e for e in (o.email, o.co_owner_email) if e]
+    if owner_emails:
+        groups.append(("owner", owner_emails, o.name))
+    if o.tenant_name and o.tenant_email:
+        groups.append(("tenant", [o.tenant_email], o.tenant_name))
+    return groups
+
+
+def _signature():
+    contact = ", ".join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)
+    return (f"\n\nQuestions? {contact}" if contact else "") + f"\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}"
+
+
 def send_notice(v, kind, user=None):
-    """Create a notice and email it with the PDF to the owner (and tenant, if any). Mailing is logged separately."""
+    """Create a notice, print/mail it (if a provider is on), and email each recipient (owner, and tenant if rented) their own
+    copy with the PDF attached. A failure to email or mail is recorded on the notice and never stops the case."""
     notice = Notice.objects.create(violation=v, kind=kind)
     mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
-    recipients = [e for e in (v.owner.email, v.owner.tenant_email) if e]
-    if recipients:
-        pdf = render_notice_pdf(notice)
-        subject = f"{notice.get_kind_display()} — {v.owner.property_address} (Case #{v.pk})"
-        body = (f"Dear {v.owner.name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "
-                f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos "
-                f"of the cure here:\n{v.resident_url()}\n\n"
-                + (f"Questions? {', '.join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)}\n\n"
-                   if (settings.HOA_CONTACT_EMAIL or settings.HOA_PHONE) else "")
-                + f"On behalf of the Board of Directors\n{settings.HOA_NAME}")
-        msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, recipients)
-        msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
-        msg.send()
-        notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(recipients)
-        notice.save()
+    sent_to, errors = [], []
+    for who, emails, name in recipient_groups(v):
+        try:
+            pdf = render_notice_pdf(notice, who)
+            subject = f"{notice.get_kind_display()} - {v.owner.property_address} (Case #{v.pk})"
+            body = (f"Dear {name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "
+                    f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos of the cure here:\n"
+                    f"{v.resident_url()}{_signature()}")
+            msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, emails)
+            msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
+            msg.send()
+            sent_to += emails
+        except Exception as e:  # SMTP down, bad address...
+            errors.append(f"{who}: {e}"[:150])
+    if sent_to:
+        notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(sent_to)
+    notice.email_error = "; ".join(errors)[:300]
+    notice.save()
+    if sent_to:
         log(v, f"{notice.get_kind_display()} emailed to {notice.emailed_to}", user)
-    else:
-        log(v, f"{notice.get_kind_display()} created (no email on file — mail only)", user)
+    if errors:
+        log(v, f"{notice.get_kind_display()}: EMAIL FAILED ({notice.email_error})", user)
+    if not sent_to and not errors:
+        log(v, f"{notice.get_kind_display()} created (no email on file - mail only)", user)
     return notice
 
 
@@ -94,7 +118,7 @@ def _close_if_done(v, user=None):
 def mark_cured(v, user=None, note="", today=None):
     _require(v, *Violation.OPEN)
     v.cured_on = today or date.today()
-    if v.status == S.FINE_APPROVED:
+    if v.status in (S.FINE_APPROVED, S.LEDGER_PENDING):
         log(v, "Violation corrected" + (f": {note}" if note else ""), user)
         _close_if_done(v, user)
     else:
@@ -117,7 +141,7 @@ def record_payment(v, paid_on, user=None):
 
 @transaction.atomic
 def refer_to_attorney(v, user=None, note=""):
-    _require(v, *[st for st in Violation.OPEN if st != S.DRAFT])
+    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.LEDGER_PENDING)])
     v.status, v.legal_referred_on = S.REFERRED_LEGAL, date.today()
     v.save()
     log(v, "Referred to the Association's attorney" + (f": {note}" if note else ""), user)
@@ -153,14 +177,15 @@ def dismiss(v, user=None, note=""):
 
 
 def _email_owner(v, subject, body):
-    """Plain email to the owner (and tenant). Returns the recipients."""
-    to = [e for e in (v.owner.email, v.owner.tenant_email) if e]
-    if to:
-        sign = (f"\n\n{', '.join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)}\n"
-                if (settings.HOA_CONTACT_EMAIL or settings.HOA_PHONE) else "\n\n")
-        EmailMessage(subject, f"Dear {v.owner.name},\n\n{body}\n\nView your case or reply: {v.resident_url()}"
-                     f"{sign}On behalf of the Board of Directors\n{settings.HOA_NAME}",
-                     settings.DEFAULT_FROM_EMAIL, to).send()
+    """Plain email to the owner(s) and tenant, each addressed by name. Returns the recipients."""
+    to = []
+    for who, emails, name in recipient_groups(v):
+        try:
+            EmailMessage(subject, f"Dear {name},\n\n{body}\n\nView your case or reply: {v.resident_url()}{_signature()}",
+                         settings.DEFAULT_FROM_EMAIL, emails).send()
+            to += emails
+        except Exception as e:
+            log(v, f"Email '{subject[:40]}' failed for {who}: {e}"[:300])
     return to
 
 
@@ -230,7 +255,7 @@ def send_cure_reminders(today=None):
         mark = lambda sent_at: [Reminder.objects.get_or_create(violation=v, deadline=v.cure_deadline, days_before=d,
                                                                 defaults={"sent_at": sent_at if d == todo[0] else None})
                                 for d in todo]  # the rest are recorded as skipped so they never fire later
-        if v.responses.filter(cure_reported=True, handled=False).exists() or not (v.owner.email or v.owner.tenant_email):
+        if v.responses.filter(cure_reported=True, handled=False).exists() or not recipient_groups(v):
             mark(None)
             continue
         when = "today" if left == 0 else "tomorrow" if left == 1 else f"in {left} days"
@@ -339,12 +364,13 @@ def short_notice(meeting, today=None):
     return timezone.localtime(meeting.starts_at).date() < today + timedelta(days=settings.HEARING_NOTICE_RECOMMENDED_DAYS)
 
 
-def create_meeting(starts_at, zoom_link="", location="", user=None):
+def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in=""):
     if isinstance(starts_at, datetime) and timezone.is_naive(starts_at):
         starts_at = timezone.make_aware(starts_at)
     if not (zoom_link or location):
         raise WorkflowError("Add a Zoom link and/or a location for the meeting.")
-    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location)
+    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location,
+                                           zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
 
 
 @transaction.atomic
@@ -387,16 +413,45 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
         raise WorkflowError("The Compliance Committee must have at least 3 members voting.")
     v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
     if votes_for > votes_against:
-        today = today or date.today()
-        v.status = S.FINE_APPROVED
+        v.status = S.LEDGER_PENDING
         v.fine_amount, v.suspension = v.proposed_fine, v.proposed_suspension
         v.suspension_days = v.proposed_suspension_days
-        v.suspension_effective_on = today if v.suspension else None
-        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS) if v.fine_amount else None
         v.save()
-        log(v, f"Committee approved ({votes_for}-{votes_against})" + (f": {note}" if note else ""), user)
-        return send_notice(v, Notice.Kind.FINE, user)
+        log(v, f"Committee approved ({votes_for}-{votes_against})" + (f": {note}" if note else "")
+            + ". Saved. Awaiting Board/manager approval to post to the ledger and send the imposition letter.", user)
+        return None
     v.status = S.FINE_REJECTED
     v.save()
     log(v, f"Committee rejected the proposal ({votes_for}-{votes_against}) — nothing imposed"
         + (f": {note}" if note else ""), user)
+
+
+def finalize_imposition(v, user=None, method="manual", reference="", today=None):
+    """Board member / manager approves the Committee's decision: post the fine to the owner's ledger (Vantaca API, or record that
+    it was posted by hand), then send the Notice of Imposition to the owner (and tenant). The fine is due FINE_PAYMENT_DAYS days
+    after the letter date. The Committee's approval is what imposes the fine (no new Board vote); this step is the administrative
+    review and posting. Safe to retry: a fine already posted is never posted twice."""
+    _require(v, S.LEDGER_PENDING)
+    today = today or date.today()
+    if v.fine_amount and not v.ledger_posted_on:
+        if method == "api":
+            try:
+                reference = ledger.post_fine(v, today)
+            except ledger.LedgerError as e:
+                raise WorkflowError(str(e))
+            how = "posted to the Vantaca ledger"
+        else:
+            how = "recorded as posted in Vantaca by hand"
+        v.ledger_posted_on, v.ledger_reference = today, (reference or "").strip()[:120]
+        v.save(update_fields=["ledger_posted_on", "ledger_reference"])  # committed now, so a later hiccup can't cause a double post
+        log(v, f"Fine of ${v.fine_amount:,.2f} {how}" + (f" (ref {v.ledger_reference})" if v.ledger_reference else ""), user)
+    with transaction.atomic():
+        v.status = S.FINE_APPROVED
+        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS) if v.fine_amount else None
+        v.suspension_effective_on = today if v.suspension else None
+        v.save()
+        log(v, "Imposition approved" + (f"; fine due {v.fine_due_on:%b %d, %Y}" if v.fine_due_on else "") + ". Notice of Imposition sent.", user)
+    notice = send_notice(v, Notice.Kind.FINE, user)
+    _close_if_done(v, user)
+    v.save()
+    return notice

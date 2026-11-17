@@ -27,6 +27,7 @@ class Owner(models.Model):
     mail_zip = models.CharField(max_length=10, blank=True)
     lat = models.FloatField(null=True, blank=True)
     lng = models.FloatField(null=True, blank=True)
+    co_owner_email = models.EmailField(blank=True, help_text="A second owner on the deed. Gets notices and can have their own login.")
     tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant.")
     tenant_email = models.EmailField(blank=True)
     tenant_phone = models.CharField(max_length=50, blank=True)
@@ -88,6 +89,9 @@ class CommitteeMeeting(models.Model):
     """A Compliance Committee meeting (homeowner hearing). Aged cases are batched onto one meeting."""
     starts_at = models.DateTimeField()
     zoom_link = models.URLField(blank=True)
+    zoom_meeting_id = models.CharField(max_length=40, blank=True)
+    zoom_passcode = models.CharField(max_length=40, blank=True)
+    zoom_dial_in = models.TextField(blank=True, help_text="'One tap mobile' lines from the Zoom invitation, one per line.")
     location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -116,6 +120,7 @@ class Violation(models.Model):
         HEARING_NEEDED = "hearing_needed", "Board approved — schedule hearing"
         HEARING_SCHEDULED = "hearing_scheduled", "Sent to Compliance Committee"
         ON_HOLD = "on_hold", "On hold"
+        LEDGER_PENDING = "ledger_pending", "Committee approved — awaiting approval to post to ledger"
         FINE_APPROVED = "fine_approved", "Imposed by committee — awaiting payment / cure"
         FINE_REJECTED = "fine_rejected", "Rejected by committee"
         REFERRED_LEGAL = "referred_legal", "Referred to attorney"
@@ -124,8 +129,8 @@ class Violation(models.Model):
         DISMISSED = "dismissed", "Dismissed"
 
     OPEN = [Status.DRAFT, Status.NOTICE_SENT, Status.PENDING_BOARD, Status.HEARING_NEEDED,
-            Status.HEARING_SCHEDULED, Status.FINE_APPROVED,
-            Status.ON_HOLD]
+            Status.HEARING_SCHEDULED, Status.LEDGER_PENDING,
+            Status.FINE_APPROVED, Status.ON_HOLD]
 
     owner = models.ForeignKey(Owner, on_delete=models.PROTECT, related_name="violations")
     vtype = models.ForeignKey(ViolationType, on_delete=models.PROTECT, verbose_name="violation type")
@@ -162,6 +167,8 @@ class Violation(models.Model):
     suspension_effective_on = models.DateField(null=True, blank=True)
     fine_due_on = models.DateField(null=True, blank=True)
     fine_paid_on = models.DateField(null=True, blank=True)
+    ledger_posted_on = models.DateField(null=True, blank=True, help_text="When the fine was posted to the owner's ledger.")
+    ledger_reference = models.CharField(max_length=120, blank=True, help_text="Vantaca transaction / reference number.")
     cured_on = models.DateField(null=True, blank=True)
     legal_referred_on = models.DateField(null=True, blank=True)
 
@@ -191,7 +198,7 @@ class Violation(models.Model):
         St = self.Status
         st = self.held_from if self.status == St.ON_HOLD and self.held_from else self.status
         return {St.DRAFT: -1, St.NOTICE_SENT: 1, St.PENDING_BOARD: 2, St.HEARING_NEEDED: 2, St.HEARING_SCHEDULED: 3,
-                St.FINE_APPROVED: 4, St.REFERRED_LEGAL: 4}.get(st, 5)
+                St.LEDGER_PENDING: 4, St.FINE_APPROVED: 4, St.REFERRED_LEGAL: 4}.get(st, 5)
 
     def stage_steps(self):
         """[(label, 'done'|'current'|'todo')] for the progress tracker shown to owners and staff."""
@@ -268,6 +275,7 @@ class Notice(models.Model):
     provider = models.CharField(max_length=20, blank=True, help_text="Print/mail provider that handled it.")
     provider_ids = models.CharField(max_length=500, blank=True)
     provider_note = models.CharField(max_length=300, blank=True)
+    email_error = models.CharField(max_length=300, blank=True, help_text="Set if the email could not be sent.")
 
     class Meta:
         ordering = ["created_at"]
@@ -324,7 +332,9 @@ class Profile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.HOMEOWNER)
     owner = models.ForeignKey(Owner, null=True, blank=True, on_delete=models.SET_NULL, related_name="profiles",
-                              help_text="Required for homeowner logins.")
+                              help_text="Required for homeowner logins. Everyone linked to the same owner record sees the same case data.")
+    relationship = models.CharField(max_length=10, default="owner", choices=[
+        ("owner", "Owner"), ("co_owner", "Co-owner"), ("tenant", "Tenant / renter"), ("other", "Other household member")])
 
     def __str__(self):
         return f"{self.user} ({self.role})"

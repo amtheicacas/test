@@ -102,7 +102,11 @@ def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
         services.committee_decide(violation, 2, 0, user)
     services.committee_decide(violation, 2, 1, user, today=date(2026, 5, 1))
     violation.refresh_from_db()
-    assert violation.status == S.FINE_APPROVED and violation.fine_amount == 250
+    assert violation.status == S.LEDGER_PENDING and violation.fine_amount == 250  # saved, awaiting Board/manager approval
+    assert not violation.notices.filter(kind=Notice.Kind.FINE).exists()  # no letter yet
+    services.finalize_imposition(violation, user, today=date(2026, 5, 1))
+    violation.refresh_from_db()
+    assert violation.status == S.FINE_APPROVED and violation.ledger_posted_on == date(2026, 5, 1)
     assert violation.fine_due_on == date(2026, 5, 6)  # due 5 days after the letter
     assert violation.notices.filter(kind=Notice.Kind.FINE).exists()
     services.mark_cured(violation, user)
@@ -121,6 +125,9 @@ def test_suspension_only_and_legal_referral(violation, user):
                                                      hearing_date=timezone.now() - timedelta(days=1))
     violation.refresh_from_db()
     services.committee_decide(violation, 3, 0, user)
+    violation.refresh_from_db()
+    assert violation.status == S.LEDGER_PENDING
+    services.finalize_imposition(violation, user)
     violation.refresh_from_db()
     assert violation.fine_amount is None and violation.suspension == "the pool and clubhouse" and violation.suspension_days == 30
     assert violation.suspension_effective_on == date.today()
@@ -151,7 +158,9 @@ def test_tenant_gets_notice_too(violation, user):
     violation.owner.tenant_name, violation.owner.tenant_email = "Tina Tenant", "tina@example.com"
     violation.owner.save()
     n = services.issue_first_notice(violation, user)
-    assert set(mail.outbox[0].to) == {"pat@example.com", "tina@example.com"}
+    assert sorted(m.to[0] for m in mail.outbox) == ["pat@example.com", "tina@example.com"]  # separate emails
+    by = {m.to[0]: m for m in mail.outbox}
+    assert by["pat@example.com"].body.startswith("Dear Pat Owner") and by["tina@example.com"].body.startswith("Dear Tina Tenant")
     assert services.render_notice_pdf(n, "tenant").startswith(b"%PDF")
 
 

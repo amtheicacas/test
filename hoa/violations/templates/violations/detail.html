@@ -8,6 +8,7 @@
 {% if v.safety_issue %}<p><span class="pill late">Safety situation</span></p>{% endif %}
 {% if v.proposed_fine or v.proposed_suspension %}<p><b>Board proposed ({{ v.board_meeting_date|date:"M j, Y" }}):</b> {% if v.proposed_fine %}fine ${{ v.proposed_fine }}{% endif %} {% if v.proposed_suspension %}suspension: {{ v.proposed_suspension }}{% endif %}</p>{% endif %}
 {% if v.hearing_date %}<p><b>Compliance Committee hearing:</b> {{ v.hearing_date|date:"l M j, Y g:i A" }} {{ v.hearing_location }}</p>{% endif %}
+{% if v.ledger_posted_on %}<p class="mut">Posted to ledger {{ v.ledger_posted_on|date:"M j, Y" }}{% if v.ledger_reference %} · ref {{ v.ledger_reference }}{% endif %}</p>{% endif %}
 {% if v.status == S.FINE_APPROVED or v.status == S.CLOSED or v.status == S.REFERRED_LEGAL %}<p><b>Imposed ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):</b> {% if v.fine_amount %}fine ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"M j, Y" }}{% if v.fine_paid_on %} — paid {{ v.fine_paid_on|date:"M j" }}{% endif %}{% endif %} {% if v.suspension %}suspension: {{ v.suspension }}{% endif %}{% if v.cured_on %} · corrected {{ v.cured_on|date:"M j" }}{% endif %}</p>{% endif %}
 {% if v.owner.tenant_name %}<p class="mut">Tenant: {{ v.owner.tenant_name }} {{ v.owner.tenant_email }} — notices go to both.</p>{% endif %}
 <div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div>
@@ -40,6 +41,18 @@
 <p class="mut">Pick an upcoming meeting (create one under <a href="{% url 'meetings' %}">Committee meetings</a>; you can also send every waiting case at once there). Needs at least 14 days' notice. The Notice of Hearing, with the Zoom link, proposed amount and a copy of the Notice of Violation, is emailed and sent for certified + regular mail.</p>
 <form method="post" action="{% url 'violation_action' v.pk 'assign' %}" class="row">{% csrf_token %}{{ assign_form.meeting }}<button>Send to committee</button></form></div>{% endif %}
 {% if v.status == S.HEARING_SCHEDULED %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
+
+{% if v.status == S.LEDGER_PENDING %}<div class="card" style="border-color:var(--warn)"><h2>Committee decision awaiting your approval</h2>
+<p>The Compliance Committee approved this ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):
+{% if v.fine_amount %}<b>fine ${{ v.fine_amount }}</b>{% endif %}{% if v.suspension %} <b>suspension of {{ v.suspension }} for {{ v.suspension_days }} days</b>{% endif %}.</p>
+<p class="mut">The Committee's approval imposes it: no new Board vote is needed. Approving {% if v.fine_amount %}posts the fine to the homeowner's ledger and {% endif %}sends the Notice of Imposition (email and certified mail) to the owner{% if v.owner.tenant_name %} and the tenant{% endif %}. {% if v.fine_amount %}The fine is due 5 days after the letter date.{% endif %}</p>
+{% if v.fine_amount and not v.ledger_posted_on %}
+{% if ledger_configured %}<form method="post" action="{% url 'violation_action' v.pk 'impose' %}">{% csrf_token %}<input type="hidden" name="method" value="api"><button>Approve, post to Vantaca ledger &amp; send letter</button></form>
+<details style="margin-top:8px"><summary>I already posted it in Vantaca by hand</summary>{% else %}<p class="mut">Automatic posting to Vantaca isn't set up yet. Post the fine to the owner's ledger in Vantaca, then record it here:</p><div>{% endif %}
+<form method="post" action="{% url 'violation_action' v.pk 'impose' %}">{% csrf_token %}<input type="hidden" name="method" value="manual"><label>Vantaca transaction / reference # (optional)</label><input name="reference"><button style="margin-top:8px">Approve (posted in Vantaca) &amp; send letter</button></form>
+{% if ledger_configured %}</details>{% else %}</div>{% endif %}
+{% else %}<form method="post" action="{% url 'violation_action' v.pk 'impose' %}">{% csrf_token %}<input type="hidden" name="method" value="manual"><button>Approve &amp; send Notice of Imposition</button></form>{% endif %}
+</div>{% endif %}
 
 {% if v.status == S.HEARING_SCHEDULED %}<div class="card"><h2>Committee decision</h2>
 <p class="mut">After the hearing. The committee (3+ owners who are not board members, officers, employees or their relatives) confirms or rejects the Board's proposal. A majority approval makes it final; a Notice of Imposition goes out and the fine is due in 5 days.</p>

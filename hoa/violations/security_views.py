@@ -13,7 +13,6 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from . import accounts
-from .models import Owner
 
 
 class CodeForm(forms.Form):
@@ -90,8 +89,6 @@ def get_access(request):
         email = form.cleaned_data["email"].strip().lower()
         ip = request.META.get("REMOTE_ADDR", "")
         if not (_throttled(f"access:email:{email}") or _throttled(f"access:ip:{ip}", limit=10)):
-            owner = Owner.objects.filter(email__iexact=email, active=True).first()
-            if owner:
-                accounts.send_access_link(owner, request)
+            accounts.send_access_link(email, request)  # works for owner, co-owner and tenant emails on file
         done = True
     return render(request, "violations/get_access.html", {"form": form, "done": done})

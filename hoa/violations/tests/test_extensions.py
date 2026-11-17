@@ -223,7 +223,8 @@ def test_no_reminders_when_on_hold_pending_board_no_email_or_owner_says_fixed():
 def test_tenant_is_included():
     case(deadline_in=3, owner={"tenant_name": "Tina", "tenant_email": "tina@example.com"})
     services.send_cure_reminders()
-    assert set(mail.outbox[0].to) == {"p@example.com", "tina@example.com"}
+    assert sorted(m.to[0] for m in mail.outbox) == ["p@example.com", "tina@example.com"]
+    assert {m.body.split("\n")[0] for m in mail.outbox} == {"Dear Pat,", "Dear Tina,"}
 
 
 def test_reminder_days_are_configurable(settings):

@@ -89,7 +89,7 @@ def test_hearing_notice_follows_exhibit_2():
     n.tracking_number = "9407 1000 0000"
     n.save()
     t = text(render_notice_pdf(n))
-    for must in ["CERTIFIED MAIL # 9407 1000 0000", "has not been corrected and/or has resumed",
+    for must in ["Hearing Panel Review", "SENT BY CERTIFIED MAIL RETURN RECEIPT and by regular U.S. Mail #9407 1000 0000", "has not been corrected and/or has resumed",
                  "the Board voted to levy a fine against you in the amount of $250.00",
                  "Pursuant to Section 720.305(2)(b), Florida Statutes, there will be a hearing before the Compliance Committee on",
                  "Clubhouse, 1 Heron Way (also on Zoom)", "to determine whether to confirm or reject the fine and/or suspension that the Board levied",
@@ -101,8 +101,39 @@ def test_hearing_notice_follows_exhibit_2():
     assert "also suspended" not in t and "jointly and severally" not in t
 
 
-def test_hearing_notice_without_certified_number_leaves_a_blank():
-    assert "CERTIFIED MAIL # ____" in text(render_notice_pdf(hearing_ready(case())))
+def test_hearing_notice_certified_line_follows_the_regular_copy_setting(settings):
+    t = text(render_notice_pdf(hearing_ready(case())))
+    assert "SENT BY CERTIFIED MAIL RETURN RECEIPT and by regular U.S. Mail" in t and "#" not in t.split("Dear")[0].split("Mail")[-1][:5]
+    settings.HEARING_REGULAR_COPY = False
+    t = text(render_notice_pdf(hearing_ready(case())))
+    assert "SENT BY CERTIFIED MAIL RETURN RECEIPT" in t and "regular U.S. Mail" not in t
+
+
+def test_hearing_notice_dates_zoom_block_and_signer(settings):
+    from violations.models import CommitteeMeeting
+    settings.HOA_SIGNER_NAME = "Adam Rouse"
+    v = case()
+    n = hearing_ready(v)
+    m = CommitteeMeeting.objects.create(starts_at=timezone.localtime().replace(hour=18, minute=0) + timedelta(days=21),
+                                        zoom_link="https://zoom.us/j/95827221705", zoom_meeting_id="958 2722 1705",
+                                        zoom_passcode="197632", zoom_dial_in="+13052241968,,95827221705# US\n+13017158592,,95827221705# US (Washington DC)")
+    v.committee_meeting, v.hearing_date = m, m.starts_at
+    v.save()
+    t = text(render_notice_pdf(n))
+    assert "has not been corrected and/or has resumed. Accordingly, during its meeting on 11/10/2026," in t  # MM/DD/YYYY like your notice
+    assert "at 6:00 p.m. by Zoom (information below)" in t
+    for must in ["Join Zoom Meeting", "https://zoom.us/j/95827221705", "Meeting ID: 958 2722 1705", "Passcode: 197632",
+                 "One tap mobile", "+13017158592,,95827221705# US (Washington DC)", "Adam Rouse On Behalf of the Board of Directors"]:
+        assert must in t, must
+    m.location = "Clubhouse, 1 Heron Way"
+    m.save()
+    v.refresh_from_db()
+    assert "Clubhouse, 1 Heron Way and by Zoom (information below)" in text(render_notice_pdf(n))
+    m.zoom_link = ""
+    m.save()
+    v.refresh_from_db()
+    t = text(render_notice_pdf(n))
+    assert "at Clubhouse, 1 Heron Way" in t and "Join Zoom Meeting" not in t
 
 
 def test_hearing_notice_with_suspension_and_rented_home():

@@ -130,6 +130,20 @@ def sync_csv(fileobj_or_text, **kw):
     return sync_rows(csv.DictReader(io.StringIO(text)), **kw)
 
 
+def api_request(method, path, body=None):
+    """Authenticated JSON call to the Vantaca API (HTTP Basic auth). Returns the parsed reply."""
+    if not (settings.VANTACA_BASE_URL and settings.VANTACA_USER):
+        raise RuntimeError("Vantaca API is not configured (VANTACA_BASE_URL / VANTACA_USER / VANTACA_PASSWORD).")
+    url = settings.VANTACA_BASE_URL.rstrip("/") + "/" + path.lstrip("/")
+    token = base64.b64encode(f"{settings.VANTACA_USER}:{settings.VANTACA_PASSWORD}".encode()).decode()
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Basic {token}", "Accept": "application/json", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        raw = resp.read()
+    return json.loads(raw) if raw else {}
+
+
 def fetch_owners_from_api():
     if not (settings.VANTACA_BASE_URL and settings.VANTACA_OWNERS_PATH and settings.VANTACA_USER):
         raise RuntimeError("Set VANTACA_BASE_URL, VANTACA_OWNERS_PATH, VANTACA_USER and VANTACA_PASSWORD.")

@@ -12,14 +12,14 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from . import accounts, forms, services, standards_search
+from . import accounts, forms, ledger, services, standards_search
 from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
 MAX_UPLOAD = 10 * 1024 * 1024
 STAFF = ("manager", "board")
-COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL)
+COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL)
 
 
 def role_required(*roles):
@@ -136,6 +136,7 @@ def home(request):
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
+        "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
         "today": date.today(),
     }
     return render(request, "violations/dashboard.html", ctx)
@@ -221,6 +222,7 @@ def violation_detail(request, pk):
         "hold_form": forms.HoldForm(),
         "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
         "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
+        "impose_form": forms.ImposeForm(), "ledger_configured": ledger.configured(),
     }
     return render(request, "violations/detail.html", ctx)
 
@@ -304,6 +306,13 @@ def violation_action(request, pk, action):
             messages.error(request, "Choose an upcoming committee meeting (create one under Meetings).")
     elif action == "committee":
         _committee_vote(request, v, forms.CommitteeForm(P))
+    elif action == "impose":
+        f = forms.ImposeForm(P)
+        if f.is_valid():
+            n = _run(request, services.finalize_imposition, v, u, f.cleaned_data["method"], f.cleaned_data["reference"])
+            if n is not None:
+                messages.success(request, "Approved. " + ("Fine posted to the ledger. " if v.fine_amount else "")
+                                 + "The Notice of Imposition was sent to the owner" + (" and tenant" if v.owner.tenant_name else "") + ".")
     elif action == "urgent":
         _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
     elif action == "payment":
@@ -351,7 +360,8 @@ def notice_pdf(request, pk):
 def board_queue(request):
     services.advance_expired()
     vs = Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype")
-    return render(request, "violations/board.html", {"violations": vs, "board_form": forms.BoardForm(),
+    return render(request, "violations/board.html", {"ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
+                                                      "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
                                                       "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED)})
 
@@ -363,6 +373,7 @@ def meetings(request):
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
         m = _run(request, services.create_meeting, d["starts_at"], d["zoom_link"], d["location"], request.user,
+                 zoom_meeting_id=d["zoom_meeting_id"], zoom_passcode=d["zoom_passcode"], zoom_dial_in=d["zoom_dial_in"],
                  ok="Meeting created.")
         if m:
             return redirect("meetings")

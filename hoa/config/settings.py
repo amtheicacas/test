@@ -155,3 +155,14 @@ HEARING_REGULAR_COPY = env("HEARING_REGULAR_COPY", "1") == "1"   # optional extr
 HOA_CONTACT_NAME = env("HOA_CONTACT_NAME", "the Association")    # "contact ___ at phone or email" in the Notice of Hearing
 HOA_PAYMENT_PAYABLE_TO = env("HOA_PAYMENT_PAYABLE_TO", "Heron Landing Homeowners Association, Inc.")
 HOA_PAYMENT_ADDRESS = env("HOA_PAYMENT_ADDRESS", "")             # "c/o ..." where fines are mailed
+
+MAX_LOGINS_PER_HOUSEHOLD = int(env("MAX_LOGINS_PER_HOUSEHOLD", "6"))
+HOA_SIGNER_NAME = env("HOA_SIGNER_NAME", "")   # printed above "On Behalf of the Board of Directors" (e.g. the President)
+
+# ---- Posting fines to the owner's ledger in Vantaca (optional; otherwise staff post by hand and record it) ----
+VANTACA_LEDGER_POST_PATH = env("VANTACA_LEDGER_POST_PATH", "")   # the Vantaca endpoint that posts a charge to an owner account
+VANTACA_FINE_CHARGE_CODE = env("VANTACA_FINE_CHARGE_CODE", "")   # the charge / GL code Vantaca uses for violation fines
+# JSON body template. Placeholders: $account_id $amount $date $description $reference $charge_code
+VANTACA_LEDGER_BODY = env("VANTACA_LEDGER_BODY", '{"accountId": "$account_id", "amount": $amount, "chargeCode": "$charge_code", '
+                          '"date": "$date", "description": "$description", "reference": "$reference"}')
+VANTACA_LEDGER_REF_KEY = env("VANTACA_LEDGER_REF_KEY", "id")     # key in Vantaca's reply holding the transaction id

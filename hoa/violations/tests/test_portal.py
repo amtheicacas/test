@@ -112,7 +112,7 @@ def test_committee_can_vote_after_meeting(client):
     login(client, "committee")
     client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0})
     v.refresh_from_db()
-    assert v.status == S.FINE_APPROVED and v.fine_amount == 100
+    assert v.status == S.LEDGER_PENDING and v.fine_amount == 100  # awaits Board/manager approval before the letter
 
 
 @pytest.mark.parametrize("role", ["manager", "board"])
