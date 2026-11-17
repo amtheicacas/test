@@ -216,6 +216,7 @@ def sync_rows(rows, invite=False, deactivate_missing=False, force=False):
                             Refuses if that would deactivate more than 20% of owners (a bad/partial feed) unless force."""
     result = {"created": 0, "updated": 0, "skipped": 0, "invited": 0, "deactivated": 0, "logins_updated": 0}
     seen = set()
+    rows, _ = infer_lots(list(rows))
     for r in rows:
         status, owner = upsert_owner(r)
         result[status] += 1
@@ -279,8 +280,45 @@ def sync_api(**kw):
     return sync_rows(fetch_owners_from_api(), **kw)
 
 
+def infer_lots(rows):
+    """If the homes are numbered 1..N, exactly ONE row has a blank Lot No, and exactly ONE number from 1..N is unused, that blank
+    gets the unused number. Anything less certain is left alone. Returns (rows, notes) where notes is [(row_number, message)]."""
+    rows = list(rows)
+    if not rows or not any(_has_column(r, "lot_no") for r in rows):
+        return rows, []
+    lots = [_pick(r, "lot_no") for r in rows]
+    blanks = [i for i, v in enumerate(lots) if not v]
+    if not blanks or (len(rows) - len(blanks)) / len(rows) < 0.8:  # only when the Lot column is clearly in use (most rows filled)
+        return rows, []
+    notes = []
+    nums = [int(v) for v in lots if v.isdigit()]
+    unused = sorted(set(range(1, len(rows) + 1)) - set(nums))
+    ok = len(nums) == len(set(nums)) and all(v.isdigit() for v in lots if v)
+    if len(blanks) == 1 and len(unused) == 1 and ok:
+        i, n = blanks[0], unused[0]
+        lot_aliases = {_norm(a) for a in FIELD_ALIASES["lot_no"]}
+        key = next((k for k in rows[i] if _norm(k) in lot_aliases), FIELD_ALIASES["lot_no"][0])
+        filled = [dict(r) for r in rows]
+        filled[i][key] = str(n)
+        notes.append((i + 1, f"Lot no. was blank. Set to {n}, the only number missing from lots 1-{len(rows)}."))
+
+        def ends_with_lot(r):  # Vantaca's other addresses end with '#<their lot>'
+            lot, addr = _pick(r, "lot_no"), _pick(r, "address1") or _pick(r, "property_address")
+            return bool(lot) and addr.rstrip().endswith("#" + lot)
+        others = [r for j, r in enumerate(filled) if j != i]
+        street = _pick(filled[i], "address1") or _pick(filled[i], "property_address")
+        if others and sum(map(ends_with_lot, others)) / len(others) > 0.9 and not street.rstrip().endswith(f"#{n}"):
+            notes.append((i + 1, f"Other homes' addresses end with their lot number, but this one has no '#{n}'. The address was left as it "
+                                 f"is ('{street}'): check it in Vantaca."))
+        return filled, notes
+    why = ("more than one Lot No. is blank" if len(blanks) > 1 else "there is more than one unused number" if len(unused) != 1 else
+           "the Lot Nos. aren't a clean 1-%d list" % len(rows))
+    return rows, [(i + 1, f"Lot no. is blank and couldn't be worked out automatically ({why}).") for i in blanks]
+
+
 def check_rows(rows):
     """Problems worth fixing before importing: [(row_number, message)]. Row 1 is the first data row."""
+    rows, lot_notes = infer_lots(rows)
     from django.core.validators import validate_email
     from django.core.exceptions import ValidationError
     problems, seen = [], {}
@@ -302,7 +340,7 @@ def check_rows(rows):
         if not d["zip_code"]:
             problems.append((i, "No ZIP code (needed for mailing and the map)."))
         problems += [(i, n) for n in d["_notes"]]
-    return problems
+    return sorted(problems + lot_notes, key=lambda x: x[0])
 
 
 class UploadError(ValueError):

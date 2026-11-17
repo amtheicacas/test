@@ -177,3 +177,7 @@ MAP_TILE_ATTRIBUTION = env("MAP_TILE_ATTRIBUTION", "© OpenStreetMap contributor
 # (MapTiler, Stadia Maps, Mapbox...) rather than OpenStreetMap's free servers, whose policy is for light use.
 MAP_TILE_FALLBACK_URL = env("MAP_TILE_FALLBACK_URL", "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png")
 MAP_TILE_FALLBACK_ATTRIBUTION = env("MAP_TILE_FALLBACK_ATTRIBUTION", "© OpenStreetMap contributors © CARTO")
+# Satellite imagery for the map's Satellite view (Esri World Imagery; free for light use with attribution).
+# For a production site use a provider with a key (MapTiler, Mapbox, Stadia...) and set these.
+MAP_SATELLITE_URL = env("MAP_SATELLITE_URL", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}")
+MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Maxar, Earthstar Geographics and the GIS User Community")

@@ -1,11 +1,21 @@
 {% extends "violations/base.html" %}{% load static %}{% block title %}Map{% endblock %}{% block content %}
 <h1>Neighborhood map</h1>
 <p class="mut"><span style="color:#d92d20">●</span> board / committee / fine / legal &nbsp; <span style="color:#f79009">●</span> cure period or on hold &nbsp; <span style="color:#12b76a">●</span> resolved &nbsp; <span style="color:#98a2b3">●</span> no violations (in this view). Hover a home for details; click for cases.
-{% if missing %} {{ missing }} home(s) are not on the map yet.{% endif %}</p>
-<div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address or owner…" style="max-width:340px">
+{% if missing %} {{ missing }} home(s) are not on the street / satellite maps yet.{% endif %}</p>
+<div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address, owner or lot…" style="max-width:340px">
 {% if ROLE == "manager" and missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
 
 <div class="card" id="filters">
+  <div class="row" style="margin-bottom:10px;align-items:center">
+    <div style="flex:0 0 auto"><b>View</b>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 10px"><input type="radio" name="view" value="plan"> Site plan (a box per house)</label>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="radio" name="view" value="street"> Street map</label>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="radio" name="view" value="satellite"> Satellite</label></div>
+    <div style="flex:0 0 auto"><b>Labels</b>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 10px"><input type="checkbox" id="lbl-address"> Address</label>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="checkbox" id="lbl-lot"> Lot no.</label>
+      <span class="mut" id="lbl-hint" style="margin-left:10px"></span></div>
+  </div>
   <div class="row" style="align-items:flex-start">
     <div style="flex:2 1 420px"><b>Stage</b> <span class="mut">(tick any)</span> <a href="#" id="stages-all">all</a> · <a href="#" id="stages-none">none</a>
       <div id="stage-boxes" style="display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:6px">
@@ -18,9 +28,22 @@
   <p class="mut" id="summary" style="margin:8px 0 0"></p>
 </div>
 
+<style>
+#plan{background:#fff}
+.hbox{min-width:18px;height:14px;border:2px solid #fff;border-radius:3px;box-shadow:0 0 0 1px #5f6368;box-sizing:border-box;
+  font:700 11px/10px system-ui,sans-serif;color:#fff;text-align:center;overflow:hidden;white-space:nowrap}
+.hbox.plan{width:30px;height:20px;line-height:16px;font-size:12px}
+.hbox.gray{color:#1d2430}
+.home-label{background:transparent;border:0;box-shadow:none;font:600 11px/1.1 system-ui,sans-serif;color:#0b0b0c;white-space:nowrap;
+  text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff,0 0 3px #fff;pointer-events:none}
+.dark-labels .home-label{color:#fff;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000,0 0 3px #000}
+</style>
 {{ tiles|json_script:"tile-config" }}
+{{ plan|json_script:"plan-config" }}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<div id="map" style="height:68vh;border-radius:10px;border:1px solid var(--line)"></div>
+<div id="plan" style="height:72vh;border-radius:10px;border:1px solid var(--line)"></div>
+<div id="map" style="height:68vh;border-radius:10px;border:1px solid var(--line);display:none"></div>
+<p class="mut" id="plan-note" style="font-size:.8rem;margin:6px 2px">Site plan: an artist's rendering of the community for orientation only. Not to scale.</p>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="{% static 'violations/mapfilter.js' %}"></script>
 <script>
@@ -29,44 +52,119 @@ function esc(s){var d=document.createElement("div");d.textContent=s;return d.inn
 var $=function(id){return document.getElementById(id)};
 function filters(){return {stages:[].slice.call(document.querySelectorAll(".stage:checked")).map(function(x){return x.value}),
   days:parseInt($("days").value,10),nowMs:Date.now(),showEmpty:$("show-empty").checked};}
+function remember(k,v){try{if(v===undefined)return localStorage.getItem("hoa-map-"+k);localStorage.setItem("hoa-map-"+k,v);}catch(e){return null;}}
 
-if(typeof L==="undefined"){$("map").innerHTML="<p style='padding:16px' class='mut'>The map library could not be loaded (check your internet connection). Homes are listed below.</p>";
+if(typeof L==="undefined"){$("plan").style.display="none";$("plan-note").style.display="none";$("map").style.display="block";
+ $("map").innerHTML="<p style='padding:16px' class='mut'>The map library could not be loaded (check your internet connection). Homes are listed below.</p>";
  fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){$("map").insertAdjacentHTML("beforeend","<ul style='padding:0 16px 16px'>"+d.homes.map(function(h){return "<li>"+esc(h.address)+" — "+h.color+" ("+h.open+" open, "+h.resolved+" resolved)</li>"}).join("")+"</ul>");});}
 else{
-var map=L.map("map");
-var TILES=JSON.parse($("tile-config").textContent);
-var base=L.tileLayer(TILES.url,{maxZoom:19,attribution:TILES.attr,referrerPolicy:"origin"}).addTo(map);
-var tileErrors=0,switched=false;  // if the main tiles keep failing (blocked, offline provider), switch to the backup provider
-base.on("tileerror",function(){tileErrors++;if(tileErrors>=4&&!switched&&TILES.fallback_url){switched=true;map.removeLayer(base);
- L.tileLayer(TILES.fallback_url,{maxZoom:19,subdomains:"abcd",attribution:TILES.fallback_attr,referrerPolicy:"origin"}).addTo(map);}});
-var HOMES=[];
+var TILES=JSON.parse($("tile-config").textContent), PLAN=JSON.parse($("plan-config").textContent);
+var HOMES=[],curView=null,tileLayers={},tileErrors=0,switched=false,planFitted=false,geoFitted=false;
 
-function render(){
-  var f=filters(),shown=0,cases=0;
-  HOMES.forEach(function(x){
-    var v=MapFilter.homeView(x.h,f);
-    if(!v.visible){if(map.hasLayer(x.m))map.removeLayer(x.m);return;}
-    if(!map.hasLayer(x.m))x.m.addTo(map);
-    shown++;cases+=v.cases.length;
-    x.m.setStyle({fillColor:COLORS[v.color]});
-    x.m.setTooltipContent("<b>"+esc(x.h.address)+"</b><br>"+esc(x.h.owner)+(x.h.rented?" <i>(rented)</i>":"")+"<br>"+v.cases.length+" case"+(v.cases.length==1?"":"s")+" in this view");
-    x.m.setPopupContent("<b>"+esc(x.h.address)+"</b><br>"+(v.cases.length?v.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)+" <span class='mut'>("+c.date+")</span>"}).join("<br>"):"No violations in this view")+(v.hidden?"<br><span class='mut'>"+v.hidden+" other case"+(v.hidden==1?"":"s")+" hidden by the filters</span>":""));
+// ---------- two maps: the site plan (image + a box per lot) and the real map (street / satellite) ----------
+var PW=PLAN.width,PH=PLAN.height,PB=[[0,0],[PH,PW]];
+var planMap=L.map("plan",{crs:L.CRS.Simple,minZoom:-2,maxZoom:3,zoomSnap:.25,attributionControl:false,maxBounds:[[-PH*.1,-PW*.1],[PH*1.1,PW*1.1]]});
+L.imageOverlay("{% static 'violations/site-plan.png' %}",PB).addTo(planMap);
+var geoMap=L.map("map",{maxZoom:22});
+var BOARDS={
+  plan:{map:planMap,box:true,labelMinZoom:-.25,items:[],labels:L.layerGroup().addTo(planMap),
+        toPoint:function(h){var p=PLAN.lots[String(parseInt(h.lot,10))];return p?[PH-p[1]*PH,p[0]*PW]:null;}},
+  geo:{map:geoMap,box:false,labelMinZoom:17,items:[],labels:L.layerGroup().addTo(geoMap),toPoint:function(h){return [h.lat,h.lng];}}
+};
+
+function tilesFor(view){
+  if(tileLayers[view])return tileLayers[view];
+  if(view==="street"){
+    var t=L.tileLayer(TILES.url,{maxZoom:22,maxNativeZoom:19,attribution:TILES.attr,referrerPolicy:"origin"});
+    t.on("tileerror",function(){tileErrors++;if(tileErrors>=4&&!switched&&TILES.fallback_url){switched=true;geoMap.removeLayer(tileLayers.street);
+      tileLayers.street=L.tileLayer(TILES.fallback_url,{maxZoom:22,maxNativeZoom:19,subdomains:"abcd",attribution:TILES.fallback_attr,referrerPolicy:"origin"});if(curView==="street")tileLayers.street.addTo(geoMap);}});
+    return tileLayers.street=t;
+  }
+  return tileLayers.satellite=L.tileLayer(TILES.sat_url,{maxZoom:22,maxNativeZoom:19,attribution:TILES.sat_attr,referrerPolicy:"origin"});
+}
+
+function makeMarker(h,p,box){
+  var m=box?L.marker(p,{icon:L.divIcon({className:"",html:'<div class="hbox plan"></div>',iconSize:[30,20],iconAnchor:[15,10]})})
+           :L.circleMarker(p,{radius:8,color:"#fff",weight:1.5,fillColor:COLORS[h.color],fillOpacity:.95});
+  m.bindTooltip("");m.bindPopup("");return m;
+}
+function paint(B,x,color){
+  if(B.box){var el=x.m.getElement();if(!el||!el.firstChild)return;var b=el.firstChild;
+    b.style.background=COLORS[color];b.classList.toggle("gray",color==="gray");b.textContent=$("lbl-lot").checked?String(parseInt(x.h.lot,10)):"";}
+  else x.m.setStyle({fillColor:COLORS[color]});
+}
+
+function updateLabels(B){
+  B.labels.clearLayers();
+  var o={address:$("lbl-address").checked,lot:B.box?false:$("lbl-lot").checked};   // on the site plan the lot number is inside each box
+  if(B!==BOARDS[curView==="plan"?"plan":"geo"])return;
+  if(!o.address&&!o.lot){$("lbl-hint").textContent="";return;}
+  if(B.map.getZoom()<B.labelMinZoom){$("lbl-hint").textContent="Zoom in to see labels.";return;}
+  $("lbl-hint").textContent="";
+  B.items.forEach(function(x){
+    if(!B.map.hasLayer(x.m))return;
+    var t=MapFilter.labelText(x.h,o);if(!t)return;
+    L.marker(x.p,{interactive:false,keyboard:false,icon:L.divIcon({className:"home-label",html:esc(t),iconSize:null,iconAnchor:[B.box?-20:-12,6]})}).addTo(B.labels);
   });
-  $("summary").textContent=shown+" home"+(shown==1?"":"s")+" shown, "+cases+" case"+(cases==1?"":"s")+" match.";
-  var counts=MapFilter.stageCounts(HOMES.map(function(x){return x.h}),f.days,f.nowMs);
+}
+
+function renderBoard(B){
+  var f=filters(),shown=0,cases=0;
+  B.items.forEach(function(x){
+    var v=MapFilter.homeView(x.h,f);
+    if(!v.visible){if(B.map.hasLayer(x.m))B.map.removeLayer(x.m);return;}
+    if(!B.map.hasLayer(x.m))x.m.addTo(B.map);
+    shown++;cases+=v.cases.length;
+    paint(B,x,v.color);
+    var lot=x.h.lot?" (Lot "+esc(x.h.lot)+")":"";
+    x.m.setTooltipContent("<b>"+esc(x.h.address)+"</b>"+lot+"<br>"+esc(x.h.owner)+(x.h.rented?" <i>(rented)</i>":"")+"<br>"+v.cases.length+" case"+(v.cases.length==1?"":"s")+" in this view");
+    x.m.setPopupContent("<b>"+esc(x.h.address)+"</b>"+lot+"<br>"+(v.cases.length?v.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)+" <span class='mut'>("+c.date+")</span>"}).join("<br>"):"No violations in this view")+(v.hidden?"<br><span class='mut'>"+v.hidden+" other case"+(v.hidden==1?"":"s")+" hidden by the filters</span>":""));
+  });
+  B.shown=shown;B.cases=cases;
+  updateLabels(B);
+}
+function render(){
+  renderBoard(BOARDS.plan);renderBoard(BOARDS.geo);
+  var B=curView==="plan"?BOARDS.plan:BOARDS.geo;
+  var off=HOMES.length-B.items.length;
+  $("summary").textContent=B.shown+" home"+(B.shown==1?"":"s")+" shown, "+B.cases+" case"+(B.cases==1?"":"s")+" match."
+    +(off>0?" "+off+" home"+(off==1?" has":"s have")+(curView==="plan"?" no lot number on the plan":" no map location yet")+" and "+(off==1?"isn't":"aren't")+" shown in this view.":"");
+  var counts=MapFilter.stageCounts(HOMES,filters().days,Date.now());
   [].forEach.call(document.querySelectorAll("[data-count]"),function(el){el.textContent="("+(counts[el.getAttribute("data-count")]||0)+")";});
 }
 
-fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){var pts=[];
- d.homes.forEach(function(h){pts.push([h.lat,h.lng]);
-  var m=L.circleMarker([h.lat,h.lng],{radius:8,color:"#fff",weight:1.5,fillColor:COLORS[h.color],fillOpacity:.95}).addTo(map);
-  m.bindTooltip("");m.bindPopup("");HOMES.push({h:h,m:m});});
+function setView(view){
+  [].forEach.call(document.querySelectorAll("input[name=view]"),function(r){r.checked=(r.value===view);});
+  var plan=(view==="plan");
+  $("plan").style.display=plan?"block":"none";$("plan-note").style.display=plan?"block":"none";$("map").style.display=plan?"none":"block";
+  document.body.classList.toggle("dark-labels",view==="satellite");
+  if(!plan){
+    Object.keys(tileLayers).forEach(function(k){if(geoMap.hasLayer(tileLayers[k]))geoMap.removeLayer(tileLayers[k]);});
+    tilesFor(view).addTo(geoMap);
+  }
+  curView=view;remember("view",view);
+  var m=plan?planMap:geoMap;m.invalidateSize();
+  if(plan&&!planFitted){planFitted=true;planMap.fitBounds(PB);}
+  if(!plan&&!geoFitted&&BOARDS.geo.items.length){geoFitted=true;geoMap.fitBounds(BOARDS.geo.items.map(function(x){return x.p}),{padding:[30,30]});}
+  else if(!plan&&!geoFitted){geoMap.setView([27.34,-82.53],13);}
+  render();
+}
+
+fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){
+ HOMES=d.homes;
+ ["plan","geo"].forEach(function(k){var B=BOARDS[k];HOMES.forEach(function(h){var p=B.toPoint(h);if(p)B.items.push({h:h,p:p,m:makeMarker(h,p,B.box)});});});
+ $("lbl-address").checked=remember("lbl-address")==="1";
+ var lot=remember("lbl-lot");$("lbl-lot").checked=(lot===null||lot==="1");   // lot numbers on by default: it reads like the plat
  document.querySelectorAll(".stage,#days,#show-empty").forEach(function(el){el.addEventListener("change",render);});
+ document.querySelectorAll("#lbl-address,#lbl-lot").forEach(function(el){el.addEventListener("change",function(){remember(el.id,el.checked?"1":"0");render();});});
+ document.querySelectorAll("input[name=view]").forEach(function(r){r.addEventListener("change",function(){setView(r.value);});});
+ planMap.on("zoomend",function(){updateLabels(BOARDS.plan);});geoMap.on("zoomend",function(){updateLabels(BOARDS.geo);});
  $("stages-all").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=true});render();};
  $("stages-none").onclick=function(e){e.preventDefault();document.querySelectorAll(".stage").forEach(function(c){c.checked=false});render();};
- $("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;
-  var hit=HOMES.find(function(x){return map.hasLayer(x.m)&&(x.h.address+" "+x.h.owner).toLowerCase().indexOf(q)>=0});if(hit){map.setView([hit.h.lat,hit.h.lng],19);hit.m.openPopup();}});
- render();
- if(pts.length)map.fitBounds(pts,{padding:[30,30]});else map.setView([27.34,-82.53],13);});
+ $("msearch").addEventListener("input",function(){var q=this.value.toLowerCase().trim();if(!q)return;var B=curView==="plan"?BOARDS.plan:BOARDS.geo;
+  var hit=B.items.find(function(x){return B.map.hasLayer(x.m)&&(x.h.address+" "+x.h.owner+" lot "+x.h.lot).toLowerCase().indexOf(q)>=0});
+  if(hit){B.map.setView(hit.p,B.box?1.5:20);hit.m.openPopup();}});
+ var saved=remember("view");setView(["plan","street","satellite"].indexOf(saved)>=0?saved:"plan");
+});
 }
 </script>{% endblock %}

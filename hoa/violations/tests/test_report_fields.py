@@ -366,3 +366,73 @@ def test_pieces_win_and_a_disagreement_with_the_full_address_is_flagged():
 def test_full_address_alone_still_works_when_there_are_no_pieces():
     load(row(Address="6632 Dovekey Drive #13 Sarasota, FL 34241"))
     assert Owner.objects.get().property_address == "6632 Dovekey Drive #13"
+
+
+# ---------- one missing lot number ----------
+def lot_rows(blank_at=None, lots=None, n=10, strip_unit=True):
+    rows = []
+    for i in range(1, n + 1):
+        lot = (lots or {}).get(i, str(i))
+        r = row(**{"Homeowner ID": f"H{i}", "Account Number": f"A-{i}", "Address": f"{7200 + 4 * i} Egret Blvd #{i} Sarasota, FL 34241", "Street No": str(7200 + 4 * i),
+                   "Address 1": f"Egret Blvd #{i}", "Lot No": lot})
+        rows.append(r)
+    if blank_at:
+        rows[blank_at - 1]["Lot No"] = ""
+        if strip_unit:
+            rows[blank_at - 1]["Address 1"] = "Egret Blvd"
+            rows[blank_at - 1]["Address"] = f"{7200 + 4 * blank_at} Egret Blvd Sarasota, FL 34241"
+    return rows
+
+
+def test_the_one_blank_lot_gets_the_one_missing_number():
+    rows = lot_rows(blank_at=4)
+    filled, notes = vantaca.infer_lots(rows)
+    assert filled[3]["Lot No"] == "4" and rows[3]["Lot No"] == ""  # the input isn't modified
+    assert notes[0] == (4, "Lot no. was blank. Set to 4, the only number missing from lots 1-10.")
+    vantaca.sync_rows(rows)
+    assert Owner.objects.get(external_id="H4").lot_no == "4"
+    assert Owner.objects.exclude(lot_no="").count() == 10
+
+
+def test_the_address_without_its_unit_is_flagged_not_changed():
+    problems = vantaca.check_rows(lot_rows(blank_at=4))
+    text = " ".join(m for _, m in problems)
+    assert "Set to 4" in text and "this one has no '#4'" in text
+    vantaca.sync_rows(lot_rows(blank_at=4))
+    assert Owner.objects.get(external_id="H4").property_address == "7216 Egret Blvd"  # left as Vantaca has it
+
+
+def test_a_blank_lot_is_left_alone_when_it_is_not_clear_which_number_it_is():
+    two_blank = lot_rows(blank_at=4)
+    two_blank[6]["Lot No"] = ""
+    for rows, why in [(two_blank, "more than one Lot No. is blank"),
+                      (lot_rows(blank_at=4, lots={5: "12"}), "more than one unused number"),   # 4 and 5 are unused
+                      (lot_rows(blank_at=4, lots={6: "3"}), "more than one unused number")]:  # a duplicate 3 leaves 4 and 6
+        filled, notes = vantaca.infer_lots(rows)
+        assert filled == rows and any(why in m for _, m in notes), why
+    vantaca.sync_rows(two_blank)
+    assert Owner.objects.filter(lot_no="").count() == 2
+
+
+def test_no_lot_column_or_no_blank_means_nothing_to_do():
+    assert vantaca.infer_lots([{"Homeowner ID": "1", "Homeowner(s)": "A", "Address": "1 A St"}])[1] == []
+    rows = lot_rows()
+    assert vantaca.infer_lots(rows) == (rows, [])
+
+
+def test_the_preview_shows_the_lot_fix(client):
+    from django.contrib.auth import get_user_model
+    from violations.models import Profile
+    u = get_user_model().objects.create_user("m", password="pw-for-tests-123")
+    Profile.objects.create(user=u, role="manager")
+    client.force_login(u)
+    import csv as _csv
+    buf = io.StringIO()
+    rows = lot_rows(blank_at=4)
+    w = _csv.DictWriter(buf, fieldnames=list(rows[0]))
+    w.writeheader()
+    w.writerows(rows)
+    r = client.post("/import/", {"action": "upload", "file": SimpleUploadedFile("o.csv", buf.getvalue().encode())})
+    post = {f"map_{i}": cur for i, h, _e, cur in r.context["columns"]}
+    page = client.post("/import/", {"action": "map", **post}).content.decode()
+    assert "Set to 4, the only number missing from lots 1-10" in page

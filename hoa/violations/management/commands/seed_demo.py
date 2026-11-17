@@ -29,9 +29,10 @@ class Command(BaseCommand):
         homes = [("Pat Owner", "12 Heron Way", 27.3400, -82.5300), ("Sam Lee", "14 Heron Way", 27.3402, -82.5294),
                  ("Ana Ruiz", "16 Heron Way", 27.3404, -82.5288), ("Kim Park", "18 Heron Way", 27.3406, -82.5282),
                  ("Lou Gray", "20 Heron Way", 27.3408, -82.5276), ("Joe Bell", "22 Heron Way", 27.3410, -82.5270)]
+        lots = [13, 36, 52, 71, 88, 30]  # real lot numbers from the site plan, so the demo homes appear on it
         owners = [Owner.objects.get_or_create(property_address=ad, defaults=dict(
-            name=n, email=f"{n.split()[0].lower()}@example.com", zip_code="34240", lat=la, lng=lo))[0]
-            for n, ad, la, lo in homes]
+            name=n, email=f"{n.split()[0].lower()}@example.com", zip_code="34240", lat=la, lng=lo, lot_no=str(lots[i])))[0]
+            for i, (n, ad, la, lo) in enumerate(homes)]
         from django.core.management import call_command
         call_command("load_standards", verbosity=0)  # the real Community Standards list
         shed = ViolationType.objects.get(code="3.55")      # temporary structure

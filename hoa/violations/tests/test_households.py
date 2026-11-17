@@ -509,3 +509,61 @@ console.log(JSON.stringify(out));
     assert o["hidden"] == 2 and o["emptyShown"] is True and o["emptyHidden"] is False and o["emptyGray"] == "gray"
     assert o["homeWithCasesNotMatching"] is False
     assert o["counts"] == {"cure": 1, "resolved": 1}  # the 200-day committee case and the 100-day cure case fall outside 90 days
+
+
+def test_map_has_view_and_label_toggles_and_satellite_imagery(client, settings):
+    manager(client)
+    page = client.get("/map/").content.decode()
+    for must in ['name="view" value="plan"', 'name="view" value="street"', 'name="view" value="satellite"', "Site plan (a box per house)", "Satellite",
+                 'id="lbl-address"', 'id="lbl-lot"', "Lot no.", "World_Imagery", "sat_url"]:
+        assert must in page, must
+    settings.MAP_SATELLITE_URL = "https://sat.example/{z}/{x}/{y}.jpg"
+    assert "sat.example" in client.get("/map/").content.decode()
+
+
+def test_map_api_includes_the_lot_number(client):
+    manager(client)
+    Owner.objects.create(name="A", property_address="6632 Dovekey Drive #13", lot_no="13", lat=27.3, lng=-82.5)
+    assert client.get("/api/map/").json()["homes"][0]["lot"] == "13"
+
+
+def test_label_text_in_javascript():
+    import json
+    import pathlib
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    js = pathlib.Path(__file__).resolve().parents[1] / "static" / "violations" / "mapfilter.js"
+    script = r"""
+const F = require(process.argv[1]);
+const h = {address: "6632 Dovekey Drive #13", lot: "13"};
+const out = [F.labelText(h,{address:true,lot:true}), F.labelText(h,{address:true,lot:false}), F.labelText(h,{address:false,lot:true}),
+  F.labelText(h,{address:false,lot:false}), F.labelText({address:"1 A St", lot:""},{address:true,lot:true}), F.labelText({address:"1 A St", lot:""},{address:false,lot:true})];
+console.log(JSON.stringify(out));
+"""
+    r = subprocess.run([node, "-e", script, str(js)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == ["Lot 13 · 6632 Dovekey Drive #13", "6632 Dovekey Drive #13", "Lot 13", "", "1 A St", ""]
+
+
+# ---------- the site plan view ----------
+def test_site_plan_assets_cover_all_95_lots():
+    import json
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1] / "static" / "violations"
+    data = json.loads((base / "site-plan-lots.json").read_text())
+    assert (base / "site-plan.png").stat().st_size > 50_000 and data["width"] > 1000 and data["height"] > 1000
+    assert sorted(map(int, data["lots"])) == list(range(1, 96))
+    assert all(0 < x < 1 and 0 < y < 1 for x, y in data["lots"].values())
+    # spot checks against the plat: lot 1 is at the top (north), lot 57 at the bottom (Clark Rd), lot 21 at the far west
+    L = data["lots"]
+    assert L["1"][1] < L["50"][1] < L["57"][1] and L["21"][0] == min(x for x, _ in L.values())
+
+
+def test_map_page_carries_the_site_plan(client):
+    manager(client)
+    page = client.get("/map/").content.decode()
+    assert 'id="plan-config"' in page and "site-plan.png" in page and 'id="plan"' in page and "artist&#x27;s rendering" in page.replace("'", "&#x27;")
+    assert '"57"' in page  # the lot positions are embedded for the page's script

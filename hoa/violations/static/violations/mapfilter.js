@@ -43,7 +43,15 @@
     return counts;
   }
 
-  var api = { homeView: homeView, stageCounts: stageCounts, colorOf: colorOf };
+  /* Text beside a home when the Address and/or Lot no. toggles are on ("" when neither is, or the data is missing). */
+  function labelText(home, o) {
+    var parts = [];
+    if (o.lot && home.lot) parts.push("Lot " + home.lot);
+    if (o.address && home.address) parts.push(home.address);
+    return parts.join(" · ");
+  }
+
+  var api = { homeView: homeView, stageCounts: stageCounts, colorOf: colorOf, labelText: labelText };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.MapFilter = api;
 })(typeof window !== "undefined" ? window : this);

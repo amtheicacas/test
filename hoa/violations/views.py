@@ -557,7 +557,7 @@ def map_data():
             color = "green"
         else:
             color = "gray"
-        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lat": o.lat, "lng": o.lng, "rented": o.has_tenant,
+        out.append({"id": o.pk, "address": o.property_address, "owner": o.name, "lot": o.lot_no, "lat": o.lat, "lng": o.lng, "rented": o.has_tenant,
                     "color": color, "open": len(active), "resolved": len(vs) - len(active),
                     "cases": [{"id": v.pk, "type": v.vtype.name, "status": v.get_status_display(), "url": v.get_absolute_url(),
                                "resolved": v.status in RESOLVED, "stage": STAGE_OF[v.status], "date": _issued_on(v).isoformat()}
@@ -573,7 +573,7 @@ def _spread(homes):
         groups.setdefault((round(h["lat"], 5), round(h["lng"], 5)), []).append(h)
     for hs in groups.values():
         if len(hs) > 1:
-            r = 0.00003 * (1 + len(hs) / 6)
+            r = 0.00006 * (1 + len(hs) / 6)  # about 7-10 m: units in one building separate once you zoom in
             for i, h in enumerate(sorted(hs, key=lambda x: x["address"])):
                 a = 2 * math.pi * i / len(hs)
                 h["lat"] += r * math.sin(a)
@@ -581,13 +581,22 @@ def _spread(homes):
     return homes
 
 
+def _site_plan():
+    """Where each lot number sits on the site-plan image (see tools/build_site_plan.py); {} if the file is missing."""
+    import json
+    from pathlib import Path
+    f = Path(__file__).resolve().parent / "static" / "violations" / "site-plan-lots.json"
+    return json.loads(f.read_text()) if f.exists() else {"width": 1, "height": 1, "lots": {}}
+
+
 @staff_only
 def map_page(request):
     return render(request, "violations/map.html", {
         "missing": Owner.objects.filter(lat__isnull=True, active=True).count(),
-        "stages": MAP_STAGES, "ranges": [30, 60, 90, 180],
+        "stages": MAP_STAGES, "ranges": [30, 60, 90, 180], "plan": _site_plan(),
         "tiles": {"url": settings.MAP_TILE_URL, "attr": settings.MAP_TILE_ATTRIBUTION,
-                  "fallback_url": settings.MAP_TILE_FALLBACK_URL, "fallback_attr": settings.MAP_TILE_FALLBACK_ATTRIBUTION}})
+                  "fallback_url": settings.MAP_TILE_FALLBACK_URL, "fallback_attr": settings.MAP_TILE_FALLBACK_ATTRIBUTION,
+                  "sat_url": settings.MAP_SATELLITE_URL, "sat_attr": settings.MAP_SATELLITE_ATTRIBUTION}})
 
 
 @staff_only
