@@ -6,7 +6,8 @@
 @media(prefers-color-scheme:dark){:root{--bg:#0e0e0f;--card:#19191a;--ink:#f2f2f3;--mut:#a3a5a9;--line:#2e2f31;--acc:#d1d2d4;--acc-ink:#0b0b0c;--bad:#ff8a80;--ok:#5fd39a;--warn:#f5b45a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
 a{color:var(--ink);text-underline-offset:2px}header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
-header .brand{margin-right:auto;display:flex;align-items:center;gap:10px;text-decoration:none}header .brand img{height:38px;border-radius:4px;display:block}header .brand span{font-weight:700;letter-spacing:.02em}main{max-width:980px;margin:0 auto;padding:16px}
+a.nav{display:inline-flex;flex-direction:column;align-items:center;line-height:1.2;text-decoration:none}a.nav span{text-decoration:underline;text-underline-offset:3px}a.nav small{font-size:.74rem;color:var(--mut);font-weight:600}a.nav small.hot{color:var(--warn)}
+header .brand{margin-right:auto;display:flex;align-items:center;gap:10px;text-decoration:none}header .brand img{height:38px;border-radius:4px;display:block}header .brand span{font-weight:700;letter-spacing:.02em}main{max-width:980px;margin:0 auto;padding:16px}main.wide{max-width:none;padding:10px 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px}
 h1{font-size:1.4rem;margin:.2em 0 .6em}h2{font-size:1.05rem;margin:0 0 .5em}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -29,9 +30,15 @@ details summary{cursor:pointer;text-decoration:underline}
 </style></head><body>
 <header><a class="brand" href="/"><img src="{% static 'violations/heron-landing-logo.png' %}" alt="Heron Landing"><span class="brandname">{{ HOA_NAME }}</span></a>
 {% if user.is_authenticated %}
-{% if ROLE == "manager" or ROLE == "board" %}<a href="{% url 'dashboard' %}">Dashboard</a><a href="{% url 'violation_list' %}?status=open">Violations</a><a href="{% url 'board_queue' %}">Board queue</a><a href="{% url 'meetings' %}">Committee meetings</a><a href="{% url 'map' %}">Map</a><a href="{% url 'violation_create' %}">+ New</a>
+{% if ROLE == "manager" or ROLE == "board" %}
+<a class="nav" href="{% url 'dashboard' %}" title="Items waiting on you"><span>Dashboard</span><small class="{% if NAV.attention %}hot{% endif %}">{{ NAV.attention }} to do</small></a>
+<a class="nav" href="{% url 'violation_list' %}?status=open" title="{{ NAV.open }} open of {{ NAV.total }} violations in all"><span>Violations</span><small>{{ NAV.open }} open</small></a>
+<a class="nav" href="{% url 'board_queue' %}" title="{{ NAV.board_tip }}"><span>Board queue</span><small class="{% if NAV.board %}hot{% endif %}">{{ NAV.board }}</small></a>
+<a class="nav" href="{% url 'meetings' %}" title="Upcoming Compliance Committee meetings"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
+<a class="nav" href="{% url 'map' %}" title="Active homes"><span>Map</span><small>{{ NAV.homes }} homes</small></a>
+<a class="nav" href="{% url 'violation_create' %}"><span>+ New</span><small>&nbsp;</small></a>
 <form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form>{% if ROLE == "manager" %}<a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'admin:index' %}">Admin</a>{% endif %}
-{% elif ROLE == "committee" %}<a href="{% url 'committee_home' %}">Committee meetings</a>
-{% elif ROLE == "homeowner" %}<a href="{% url 'my_violations' %}">My violations</a><a href="{% url 'my_household' %}">Household</a><a href="{% url 'security_setup' %}">Two-step login</a>{% endif %}
+{% elif ROLE == "committee" %}<a class="nav" href="{% url 'committee_home' %}"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
+{% elif ROLE == "homeowner" %}<a class="nav" href="{% url 'my_violations' %}"><span>My violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{% url 'my_household' %}">Household</a><a href="{% url 'security_setup' %}">Two-step login</a>{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
-<main>{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>
+<main class="{% block mainclass %}{% endblock %}">{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>

@@ -142,7 +142,8 @@ class ViolationType(models.Model):
     default_cure_days = models.PositiveIntegerField(default=15)
     default_fine = models.DecimalField(max_digits=8, decimal_places=2, default=100)
     # Filled from the Community Standards (load_standards); blank for hand-made types
-    code = models.CharField(max_length=30, unique=True, null=True, blank=True, help_text="e.g. 3.22-timing")
+    source = models.CharField(max_length=30, default="Community Standards", help_text="Which document the rule comes from: Community Standards or Declaration.")
+    code = models.CharField(max_length=30, unique=True, null=True, blank=True, help_text="e.g. 3.22-timing, or D-5.4 for the Declaration")
     section = models.CharField(max_length=10, blank=True, help_text="Community Standards section, e.g. 3.22")
     standards_title = models.CharField(max_length=200, blank=True)
     category = models.CharField(max_length=60, blank=True)

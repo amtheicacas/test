@@ -40,7 +40,7 @@
     if (!items.length) { box.innerHTML = '<p class="mut">No matches. Try different words, or choose a category.</p>'; return; }
     box.innerHTML = items.map(function (c) {
       return '<div class="card" style="margin:0 0 6px;cursor:pointer" data-id="' + c.id + '">' +
-        '<b>§' + esc(c.section) + ' ' + esc(c.title) + '</b> <span class="pill">' + esc(c.category) + '</span>' +
+        '<b>' + esc(c.label) + ' ' + esc(c.title) + '</b> <span class="pill">' + esc(c.category) + '</span>' +
         (c.reason ? '<br><span class="mut">AI: ' + esc(c.reason) + '</span>' : '') +
         '<br><span class="mut">' + esc((c.observed || "").slice(0, 120)) + '</span></div>';
     }).join("");

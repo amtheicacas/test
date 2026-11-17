@@ -340,6 +340,9 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
             raise WorkflowError("A suspension needs a number of days (the Board sets a reasonable period).")
         if suspension_days and not suspension:
             raise WorkflowError("Say which Common Areas or facilities the suspension applies to.")
+        if suspension_days and suspension_days > settings.SUSPENSION_MAX_DAYS:
+            raise WorkflowError(f"The Declaration (section 8.1(A)(i)) limits a suspension for an infraction to {settings.SUSPENSION_MAX_DAYS} days. "
+                                "It can be renewed for successive periods if the infraction is not corrected.")
         problems = fine_problems(v, fine) if fine else []
         if problems:
             raise WorkflowError(" ".join(problems))
@@ -455,3 +458,26 @@ def finalize_imposition(v, user=None, method="manual", reference="", today=None)
     _close_if_done(v, user)
     v.save()
     return notice
+
+
+def owner_history(v, today=None):
+    """What else this owner/home has on record, for the staff view of a violation: how many times the same violation has come up,
+    their other open violations, past ones, fines imposed, and whether this is a repeat within 3 months of a cure."""
+    today = today or date.today()
+    others = list(v.owner.violations.exclude(pk=v.pk).exclude(status=S.DRAFT).select_related("vtype").order_by("-created_at"))
+    open_states = set(Violation.OPEN) - {S.DRAFT}
+    same_type = [o for o in others if o.vtype_id == v.vtype_id]
+    same_section = [o for o in others if v.vtype.section and o.vtype.section == v.vtype.section and o.vtype.source == v.vtype.source
+                    and o.vtype_id != v.vtype_id]
+    open_others = [o for o in others if o.status in open_states]
+    past = [o for o in others if o.status not in open_states]
+    imposed = [o for o in others if o.fine_amount and o.status in (S.FINE_APPROVED, S.CLOSED, S.REFERRED_LEGAL)]
+    this_issued = (v.notices.filter(kind=Notice.Kind.VIOLATION).values_list("created_at", flat=True).first() or v.created_at).date()
+    repeat_of = next((o for o in same_type if o.cured_on and 0 <= (this_issued - o.cured_on).days <= 90), None)
+    return {
+        "others": others, "same_type": same_type, "same_section": same_section, "open_others": open_others, "past": past,
+        "total": len(others) + 1, "fines_total": sum(o.fine_amount for o in imposed),
+        "last_12_months": sum(1 for o in others if o.created_at.date() >= today - timedelta(days=365)) + 1,
+        "occurrence": len(same_type) + 1,           # this is the 1st, 2nd, 3rd... time for this violation type
+        "repeat_of": repeat_of,
+    }

@@ -19,13 +19,20 @@ def _tok(s):
 
 
 def serialize(vt):
-    return {"id": vt.pk, "code": vt.code, "section": vt.section, "title": vt.name, "category": vt.category,
+    label = f"Decl. \u00a7{vt.section}" if vt.source == "Declaration" else f"\u00a7{vt.section}"
+    return {"id": vt.pk, "code": vt.code, "section": vt.section, "label": label, "source": vt.source, "title": vt.name, "category": vt.category,
             "cure_days": vt.default_cure_days, "observed": vt.observed_template, "cure": vt.cure_template,
             "rule": vt.rule_text, "reference": vt.reference}
 
 
 def local_search(query, limit=8):
     """Rank standards-based violation types for a free-text description. Title and keywords count most."""
+    m = re.fullmatch(r"\s*(?:decl(?:aration)?\.?\s*)?\u00a7?\s*(\d+(?:\.\d+)+)\s*", query or "", flags=re.I)
+    if m:  # a bare section number ("5.4", "3.22", "Decl. 5.4"): list what lives at that number, in either document
+        hits = list(ViolationType.objects.filter(section=m.group(1)).exclude(code__isnull=True).order_by("source", "code"))
+        if re.match(r"\s*decl", query, flags=re.I):
+            hits.sort(key=lambda t: t.source != "Declaration")
+        return hits[:limit]
     q = _tok(query)
     if not q:
         return []
@@ -52,6 +59,8 @@ def local_search(query, limit=8):
             score += 8
         if vt.section and vt.section in query:
             score += 20  # "3.22" typed directly
+        if vt.source == "Declaration" and re.search(r"\b(ccr|cc&r|declaration|decl)\b", query.lower()):
+            score += 3
         if score:
             ranked.append((score, vt))
     ranked.sort(key=lambda x: (-x[0], x[1].section, x[1].code))
@@ -79,7 +88,7 @@ def ai_search(query):
         return None
     import anthropic
     types = list(ViolationType.objects.exclude(code__isnull=True))
-    catalog = "\n".join(f"{t.code} | {t.name} | {t.category} | {t.keywords[:90]}" for t in types)
+    catalog = "\n".join(f"{t.code} | {t.name} | {t.category} | {t.source} | {t.keywords[:90]}" for t in types)
     try:
         client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
         resp = client.messages.create(

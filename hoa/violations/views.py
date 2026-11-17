@@ -223,6 +223,7 @@ def violation_detail(request, pk):
         "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
         "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
         "impose_form": forms.ImposeForm(), "ledger_configured": ledger.configured(),
+        "history": services.owner_history(v),
     }
     return render(request, "violations/detail.html", ctx)
 
@@ -362,6 +363,7 @@ def board_queue(request):
     vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype"))
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
         v.bform = forms.BoardForm(initial={"proposed_fine": v.vtype.default_fine})
+        v.history = services.owner_history(v)
     return render(request, "violations/board.html", {"ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),

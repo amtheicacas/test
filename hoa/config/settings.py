@@ -181,3 +181,8 @@ MAP_TILE_FALLBACK_ATTRIBUTION = env("MAP_TILE_FALLBACK_ATTRIBUTION", "© OpenStr
 # For a production site use a provider with a key (MapTiler, Mapbox, Stadia...) and set these.
 MAP_SATELLITE_URL = env("MAP_SATELLITE_URL", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}")
 MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Maxar, Earthstar Geographics and the GIS User Community")
+
+# Declaration 8.1(A)(i): a suspension of recreational-facility use may not exceed 60 days for an infraction (and may be renewed for successive
+# 60-day periods while the infraction is uncorrected). Fines of $1,000 or more may be secured by a lien; smaller fines may not.
+SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
+FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))

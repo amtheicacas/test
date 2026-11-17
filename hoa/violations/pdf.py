@@ -3,6 +3,7 @@
 Layout of a Notice of Violation (matches the Association's current letter): HOA letterhead, date and recipient on the
 left with the violation photo and its timestamp on the right, RE: line, VIOLATION and COVENANTS blocks quoting the rule,
 a Board of Directors sign-off, then a one-page Correction Response Form."""
+import re
 from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -145,7 +146,10 @@ def _respond_line(v):
 
 def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     """The Notice of Violation page(s) without the response form."""
-    ref = f"{v.vtype.section} {v.vtype.standards_title}".strip() if v.vtype.section else (v.vtype.reference or "")
+    if v.vtype.section and v.vtype.source == "Declaration":
+        ref = f"Declaration \u00a7{v.vtype.section} {v.vtype.standards_title}".strip()
+    else:
+        ref = f"{v.vtype.section} {v.vtype.standards_title}".strip() if v.vtype.section else (v.vtype.reference or "")
     left = [_p(f"{dated:%B %d, %Y}"), Spacer(1, 6), _p(mail_block)]
     top = Table([[left, _photo(v, stamp)]], colWidths=[4.1 * inch, 2.4 * inch])
     top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -171,8 +175,8 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                            ("BOTTOMPADDING", (0, 0), (-1, -1), 1), ("TOPPADDING", (0, 0), (-1, -1), 1)]))
     s.append(t)
-    if v.vtype.rule_text:
-        s.append(_p(v.vtype.rule_text, RULE))
+    if v.vtype.rule_text:   # the COVENANTS line already names the section, so don't repeat "Section 5.4 Signs." at the start of the quote
+        s.append(_p(re.sub(r"^Section [\d.]+ [^.]+\.\s*", "", v.vtype.rule_text), RULE))
     s += [_p(f"Observed on {v.observed_on:%B %d, %Y}: {v.description}", RULE),
           _p(f"Required cure: {v.cure_required} Please correct this by {cure_by}.", RULE),
           _p("We appreciate your prompt attention to this matter. We find in most cases homeowners respond to this notice "

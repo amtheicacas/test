@@ -1,4 +1,4 @@
-{% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
+{% extends "violations/base.html" %}{% load hoa_tags %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
 <h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
 <div class="card">{% include "violations/_steps.html" %}
 <p><b>{{ v.owner.display_name }}</b> · {{ v.owner.property_address }}{% if v.owner.lot_no %} (Lot {{ v.owner.lot_no }}){% endif %} · {{ v.owner.all_emails|join:", "|default:"no email (mail only)" }}</p>
@@ -15,6 +15,8 @@
 <div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div>
 {% if v.status != S.DRAFT %}<p class="mut">Owner link: <a href="{% url 'resident' v.token %}">{{ v.resident_url }}</a></p>{% endif %}
 </div>
+
+{% include "violations/_owner_history.html" %}
 
 {% if v.status == S.DRAFT %}<div class="card"><h2>Ready to send?</h2>
 <form method="post" action="{% url 'violation_action' v.pk 'add_photos' %}" enctype="multipart/form-data" class="row">{% csrf_token %}<input type="file" name="photos" accept="image/*" multiple><button class="sec">Add photos</button></form>
@@ -47,6 +49,7 @@
 <p>The Compliance Committee approved this ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):
 {% if v.fine_amount %}<b>fine ${{ v.fine_amount }}</b>{% endif %}{% if v.suspension %} <b>suspension of {{ v.suspension }} for {{ v.suspension_days }} days</b>{% endif %}.</p>
 <p class="mut">The Committee's approval imposes it: no new Board vote is needed. Approving {% if v.fine_amount %}posts the fine to the homeowner's ledger and {% endif %}sends the Notice of Imposition (email and certified mail) to the owner{% if v.owner.has_tenant %} and the tenant{% endif %}. {% if v.fine_amount %}The fine is due 5 days after the letter date.{% endif %}</p>
+{% if v.fine_amount %}<p class="mut">Lien: under Declaration §8.1(A)(i) a fine of $1,000 or more may be secured by a lien on the property; a fine under $1,000 may not become a lien.{% if v.fine_amount >= 1000 %} <b>This fine qualifies.</b>{% else %} This fine (${{ v.fine_amount }}) does not.{% endif %}</p>{% endif %}
 {% if v.fine_amount and not v.ledger_posted_on %}
 {% if ledger_configured %}<form method="post" action="{% url 'violation_action' v.pk 'impose' %}">{% csrf_token %}<input type="hidden" name="method" value="api"><button>Approve, post to Vantaca ledger &amp; send letter</button></form>
 <details style="margin-top:8px"><summary>I already posted it in Vantaca by hand</summary>{% else %}<p class="mut">Automatic posting to Vantaca isn't set up yet. Post the fine to the owner's ledger in Vantaca, then record it here:</p><div>{% endif %}

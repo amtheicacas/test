@@ -1,0 +1,19 @@
+{% load hoa_tags %}<div class="card" id="owner-history">
+<h2>Owner history <span class="mut" style="font-weight:400">· {{ v.owner.display_name }}, {{ v.owner.property_address }}</span></h2>
+{% if history.repeat_of %}<div class="msg warning" style="margin-bottom:10px"><b>Repeat violation.</b> This was cited again {{ history.repeat_of.cured_on|timesince }} after case <a href="{{ history.repeat_of.get_absolute_url }}">#{{ history.repeat_of.pk }}</a> was corrected ({{ history.repeat_of.cured_on|date:"M j, Y" }}).{% if v.vtype.section|slice:":4" == "4.02" %} Community Standards 4.02(i)(3) lets the Association proceed without a new cure period when the same landscaping violation recurs within three months of correction.{% endif %}</div>{% endif %}
+<div class="grid" style="margin-bottom:12px">
+  <div class="stat"><b>{{ history.occurrence }}{{ history.occurrence|ordinal_suffix }}</b><span class="mut">time for this violation type</span></div>
+  <div class="stat"><b>{{ history.total }}</b><span class="mut">violation{{ history.total|pluralize }} on record (incl. this)</span></div>
+  <div class="stat"><b>{{ history.open_others|length }}</b><span class="mut">other open now</span></div>
+  <div class="stat"><b>{{ history.last_12_months }}</b><span class="mut">in the last 12 months</span></div>
+  <div class="stat"><b>${{ history.fines_total|floatformat:"0g" }}</b><span class="mut">fines imposed before</span></div>
+</div>
+{% if history.same_type %}<h3 style="margin:8px 0 4px;font-size:.95rem">Same violation before ({{ history.same_type|length }})</h3>
+<table>{% for o in history.same_type %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.created_at|date:"M j, Y" }}<td><span class="pill">{{ o.get_status_display }}</span><td class="mut">{% if o.cured_on %}corrected {{ o.cured_on|date:"M j, Y" }}{% endif %}{% if o.fine_amount %} · fine ${{ o.fine_amount }}{% endif %}</tr>{% endfor %}</table>
+{% else %}<p class="mut" style="margin:4px 0">First time this owner has had this violation.</p>{% endif %}
+{% if history.same_section %}<p class="mut" style="margin:8px 0 2px">Related (same Community Standards section, {{ v.vtype.section }}): {% for o in history.same_section %}<a href="{{ o.get_absolute_url }}">#{{ o.pk }} {{ o.vtype.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% if history.open_others %}<h3 style="margin:12px 0 4px;font-size:.95rem">Other open violations ({{ history.open_others|length }})</h3>
+<table><tr><th>Case<th>Violation<th>Stage<th>Cure deadline</tr>{% for o in history.open_others %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.vtype.name }}<td><span class="pill">{{ o.get_status_display }}</span><td>{% if o.cure_deadline %}{{ o.cure_deadline|date:"M j, Y" }}{% if o.days_left is not None %} <span class="{% if o.days_left < 0 %}late{% else %}mut{% endif %}">({{ o.days_left }} days)</span>{% endif %}{% else %}—{% endif %}</tr>{% endfor %}</table>
+{% else %}<p class="mut" style="margin:10px 0 0">No other open violations for this owner.</p>{% endif %}
+{% if history.past %}<details style="margin-top:10px"><summary>Past violations ({{ history.past|length }})</summary><table>{% for o in history.past %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.vtype.name }}<td>{{ o.created_at|date:"M j, Y" }}<td><span class="pill">{{ o.get_status_display }}</span>{% if o.fine_amount %} <span class="mut">fine ${{ o.fine_amount }}</span>{% endif %}</tr>{% endfor %}</table></details>{% endif %}
+</div>

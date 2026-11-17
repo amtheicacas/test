@@ -17,12 +17,46 @@ N_LOTS = 95
 OUT = Path(__file__).resolve().parent.parent / "violations" / "static" / "violations"
 
 
+LOT_GREY = (227, 231, 222)  # the colour of an ordinary lot in the artwork
+
+
+def clean_plan(path):
+    """Takes the builder's marketing extras off the artwork: the yellow highlight on the model-home lots and the 'MODELS' / 'PRKG' captions.
+    The yellow lots become ordinary lots and the captions are erased. Coordinates are those of the 1625x1700 crop at 200 dpi."""
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    px, (w, h) = im.load(), im.size
+    bx0, by0, bx1, by1 = 822, 1272, 900, 1416                       # the three yellow lots (62, 63, 64) and their captions
+    caption_x1 = 851                                                 # captions sit left of the lot numbers, which are kept
+    caption = set()
+    for y in range(by0, by1):
+        for x in range(bx0, caption_x1):
+            r, g, b = px[x, y]
+            if (r + g + b) / 3 < 175 and not (r > 230 and b < 190):  # dark text (not the yellow fill)
+                for dy in (-2, -1, 0, 1, 2):                         # include the anti-aliased halo
+                    for dx in (-2, -1, 0, 1, 2):
+                        caption.add((x + dx, y + dy))
+    for y in range(by0, by1):
+        for x in range(bx0, bx1):
+            r, g, b = px[x, y]
+            if (r >= 225 and r - b > 20 and g > 200) or (x, y) in caption:   # yellow fill and its anti-aliased edge, or caption text
+                px[x, y] = LOT_GREY
+    for y in range(by0, by1):                                        # the lot numbers were tinted by the yellow behind them: make them neutral
+        for x in range(caption_x1, bx1):
+            r, g, b = px[x, y]
+            if r - b > 12 and (r + g + b) / 3 < 200:
+                v = int((r + g + b) / 3 * 0.8)
+                px[x, y] = (v, v, v)
+    im.save(path, optimize=True)
+
+
 def main(pdf):
     s = DPI / 72
     x0, y0, w, h = int(CROP["x0"] * s), int(CROP["y0"] * s), int((CROP["x1"] - CROP["x0"]) * s), int((CROP["y1"] - CROP["y0"]) * s)
     OUT.mkdir(parents=True, exist_ok=True)
     subprocess.run(["pdftoppm", "-r", str(DPI), "-x", str(x0), "-y", str(y0), "-W", str(w), "-H", str(h), "-png", "-singlefile",
                     pdf, str(OUT / "site-plan")], check=True)
+    clean_plan(str(OUT / "site-plan.png"))
     html = subprocess.run(["pdftotext", "-bbox", pdf, "-"], check=True, capture_output=True, text=True).stdout
     lots = {}
     for a, b, c, d, word in re.findall(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)</word>', html):
