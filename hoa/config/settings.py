@@ -22,6 +22,9 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "axes",
     "violations",
 ]
 MIDDLEWARE = [
@@ -30,8 +33,11 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
+    "violations.middleware.RequireTwoStep",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 ROOT_URLCONF = "config.urls"
 TEMPLATES = [{
@@ -48,9 +54,23 @@ TEMPLATES = [{
 WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+# ---- Sign-in security -----------------------------------------------------
+AUTHENTICATION_BACKENDS = ["axes.backends.AxesStandaloneBackend", "django.contrib.auth.backends.ModelBackend"]
+AXES_FAILURE_LIMIT = int(env("LOGIN_FAILURE_LIMIT", "5"))      # lock after 5 bad passwords...
+AXES_COOLOFF_TIME = 1                                          # ...for 1 hour
+AXES_LOCKOUT_PARAMETERS = [["ip_address", "username"]]
+AXES_RESET_ON_SUCCESS = True
+# Roles that MUST use an authenticator app (TOTP) after their password. Homeowners may opt in.
+MFA_REQUIRED_ROLES = tuple(r for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r)
+OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", "Heron Landing HOA")
+SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600
+PASSWORD_RESET_TIMEOUT = 3 * 24 * 3600                          # invitation / reset links last 3 days
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/New_York"
 USE_I18N = True
@@ -79,6 +99,8 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "violations@example.org")
 if not DEBUG:
     SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", "1") == "1"
     SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")   # behind Azure / a load balancer
+    SECURE_HSTS_SECONDS = 31536000
 
 # ---- HOA configuration --------------------------------------------------
 HOA_NAME = env("HOA_NAME", "Heron Landing Homeowners’ Association, Inc.")

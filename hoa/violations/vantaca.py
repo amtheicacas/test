@@ -17,6 +17,7 @@ import urllib.request
 from django.conf import settings
 from django.utils import timezone
 
+from . import accounts
 from .models import Owner
 
 # our field -> possible column / JSON keys (case-insensitive, spaces/underscores ignored)
@@ -58,10 +59,10 @@ def normalize(row):
 
 
 def upsert_owner(row):
-    """Returns 'created' | 'updated' | 'skipped'."""
+    """Returns ('created' | 'updated' | 'skipped', owner_or_None)."""
     d = normalize(row)
     if not d["name"] or not d["property_address"]:
-        return "skipped"
+        return "skipped", None
     owner = None
     if d["external_id"]:
         owner = Owner.objects.filter(external_id=d["external_id"]).first()
@@ -81,22 +82,52 @@ def upsert_owner(row):
     if d["external_id"]:
         owner.external_id = d["external_id"]
     owner.last_synced_at = timezone.now()
+    owner.active = True  # present in the feed, so currently an owner
     owner.save()
-    return "created" if created else "updated"
+    return ("created" if created else "updated"), owner
 
 
-def sync_rows(rows):
-    result = {"created": 0, "updated": 0, "skipped": 0}
+class SafetyStop(Exception):
+    pass
+
+
+def sync_rows(rows, invite=False, deactivate_missing=False, force=False):
+    """Upsert owners, then keep logins in step:
+    invite=True            email new owners a link to set up their login
+    deactivate_missing=True owners (with a Vantaca ID) absent from this FULL feed are marked inactive and lose access.
+                            Refuses if that would deactivate more than 20% of owners (a bad/partial feed) unless force."""
+    result = {"created": 0, "updated": 0, "skipped": 0, "invited": 0, "deactivated": 0, "logins_updated": 0}
+    seen = set()
     for r in rows:
-        result[upsert_owner(r)] += 1
+        status, owner = upsert_owner(r)
+        result[status] += 1
+        if owner:
+            seen.add(owner.pk)
+            if accounts.sync_account(owner) == "updated":
+                result["logins_updated"] += 1
+            if invite and accounts.invite_owner(owner):
+                result["invited"] += 1
+    if deactivate_missing:
+        missing = list(Owner.objects.filter(active=True, external_id__isnull=False).exclude(pk__in=seen))
+        total = Owner.objects.filter(active=True).count()
+        if not seen:
+            raise SafetyStop("The feed was empty; refusing to deactivate anyone.")
+        if total and len(missing) / total > 0.20 and not force:
+            raise SafetyStop(f"{len(missing)} of {total} owners are missing from the feed (over 20%); "
+                             "looks like a partial feed. Re-run with --force if that is correct.")
+        for o in missing:
+            o.active = False
+            o.save(update_fields=["active"])
+            accounts.sync_account(o)
+            result["deactivated"] += 1
     return result
 
 
-def sync_csv(fileobj_or_text):
+def sync_csv(fileobj_or_text, **kw):
     text = fileobj_or_text if isinstance(fileobj_or_text, str) else fileobj_or_text.read()
     if isinstance(text, bytes):
         text = text.decode("utf-8-sig")
-    return sync_rows(csv.DictReader(io.StringIO(text)))
+    return sync_rows(csv.DictReader(io.StringIO(text)), **kw)
 
 
 def fetch_owners_from_api():
@@ -112,5 +143,5 @@ def fetch_owners_from_api():
     return data
 
 
-def sync_api():
-    return sync_rows(fetch_owners_from_api())
+def sync_api(**kw):
+    return sync_rows(fetch_owners_from_api(), **kw)

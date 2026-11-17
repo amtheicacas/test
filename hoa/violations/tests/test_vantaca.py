@@ -13,7 +13,8 @@ CSV = "Account ID,Homeowner Name,Property Address,Email Address,Mailing Address\
 
 
 def test_csv_import_creates_and_skips():
-    assert vantaca.sync_csv(CSV) == {"created": 1, "updated": 0, "skipped": 1}
+    r = vantaca.sync_csv(CSV)
+    assert (r["created"], r["updated"], r["skipped"]) == (1, 0, 1)
     o = Owner.objects.get()
     assert (o.external_id, o.email, o.mailing_address) == ("A1", "pat@example.com", "PO Box 9")
 

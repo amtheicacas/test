@@ -30,6 +30,7 @@ class Owner(models.Model):
     tenant_name = models.CharField(max_length=200, blank=True, help_text="If the home is rented, notices also go to the tenant.")
     tenant_email = models.EmailField(blank=True)
     tenant_phone = models.CharField(max_length=50, blank=True)
+    active = models.BooleanField(default=True, help_text="Untick when the owner has left (the sync does this). Disables their login.")
     external_id = models.CharField(max_length=100, unique=True, null=True, blank=True,
                                    help_text="Account/homeowner ID in Vantaca (set by sync).")
     last_synced_at = models.DateTimeField(null=True, blank=True)

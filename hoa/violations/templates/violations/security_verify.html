@@ -1,0 +1,4 @@
+{% extends "violations/base.html" %}{% block title %}Verify{% endblock %}{% block content %}
+<div class="card" style="max-width:420px;margin:30px auto"><h1>Enter your code</h1><p class="mut">Open your authenticator app and enter the current 6-digit code.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{{ form.as_p }}<button>Verify</button></form>
+<p class="mut">Lost your phone? Ask the manager to reset your two-step login.</p></div>{% endblock %}

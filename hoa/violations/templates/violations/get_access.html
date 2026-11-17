@@ -1,0 +1,6 @@
+{% extends "violations/base.html" %}{% block title %}Get access{% endblock %}{% block content %}
+<div class="card" style="max-width:480px;margin:30px auto"><h1>Get access to your account</h1>
+{% if done %}<p>If that email address is on file with the association, we've sent a link to set your password. It's good for 3 days. Nothing arrived? Check spam, or ask the office to confirm which email we have for you.</p>
+<p><a href="{% url 'login' %}">Back to sign in</a></p>
+{% else %}<p class="mut">Use the email address the association (and its management company) has on file. We'll email you a secure link to set a password.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button>Email me a link</button></form>{% endif %}</div>{% endblock %}

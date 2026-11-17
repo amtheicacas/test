@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import security_views, views
 
 urlpatterns = [
     path("", views.home, name="dashboard"),
@@ -21,6 +21,9 @@ urlpatterns = [
     path("me/", views.my_violations, name="my_violations"),
     path("me/<int:pk>/", views.my_violation, name="my_violation"),
     path("me/<int:pk>/state/", views.my_violation_state, name="my_violation_state"),
+    path("security/setup/", security_views.security_setup, name="security_setup"),
+    path("security/verify/", security_views.security_verify, name="security_verify"),
+    path("accounts/get-access/", security_views.get_access, name="get_access"),
     path("map/", views.map_page, name="map"),
     path("api/map/", views.map_api, name="map_api"),
     path("r/<str:token>/", views.resident, name="resident"),

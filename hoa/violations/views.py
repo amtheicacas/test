@@ -406,10 +406,15 @@ def my_violation_state(request, pk):
 
 
 # ---------- resident via emailed private link (no login) ----------
+TOKEN_STAGES = (S.NOTICE_SENT, S.ON_HOLD)  # the emailed/mailed link only works during the cure period
+
+
 def resident(request, token):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), token=token)
     if v.status == S.DRAFT:
         raise Http404
+    if v.status not in TOKEN_STAGES:  # board/committee stage and beyond: require a real login
+        return render(request, "violations/resident_locked.html", {"v": v})
     form = forms.ResidentForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         _handle_owner_post(request, v, form)
@@ -418,7 +423,7 @@ def resident(request, token):
 
 
 def resident_photo(request, token, pk):
-    p = get_object_or_404(Photo, pk=pk, violation__token=token)
+    p = get_object_or_404(Photo, pk=pk, violation__token=token, violation__status__in=TOKEN_STAGES)
     return FileResponse(p.image.open("rb"))
 
 

@@ -32,6 +32,6 @@ details summary{cursor:pointer;color:var(--acc)}
 {% if ROLE == "manager" or ROLE == "board" %}<a href="{% url 'dashboard' %}">Dashboard</a><a href="{% url 'violation_list' %}?status=open">Violations</a><a href="{% url 'board_queue' %}">Board queue</a><a href="{% url 'meetings' %}">Committee meetings</a><a href="{% url 'map' %}">Map</a><a href="{% url 'violation_create' %}">+ New</a>
 <form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form>{% if ROLE == "manager" %}<a href="{% url 'admin:index' %}">Admin</a>{% endif %}
 {% elif ROLE == "committee" %}<a href="{% url 'committee_home' %}">Committee meetings</a>
-{% elif ROLE == "homeowner" %}<a href="{% url 'my_violations' %}">My violations</a>{% endif %}
+{% elif ROLE == "homeowner" %}<a href="{% url 'my_violations' %}">My violations</a><a href="{% url 'security_setup' %}">Two-step login</a>{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
 <main>{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>
