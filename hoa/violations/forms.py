@@ -148,6 +148,8 @@ class HoldForm(forms.Form):
 class CommitteeForm(forms.Form):
     votes_for = forms.IntegerField(min_value=0, label="Votes to approve fine")
     votes_against = forms.IntegerField(min_value=0, label="Votes against")
+    findings = forms.CharField(label="Findings of fact (quoted in the decision letter)", widget=forms.Textarea(attrs={"rows": 3}))
+    cure_by = forms.DateField(required=False, label="No fine if cured by (optional)", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
     note = forms.CharField(required=False)
 
 

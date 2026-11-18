@@ -107,7 +107,7 @@ def test_full_path_to_imposed_fine_paid_and_closed(violation, user):
     services.finalize_imposition(violation, user, today=date(2026, 5, 1))
     violation.refresh_from_db()
     assert violation.status == S.FINE_APPROVED and violation.ledger_posted_on == date(2026, 5, 1)
-    assert violation.fine_due_on == date(2026, 5, 6)  # due 5 days after the letter
+    assert violation.fine_due_on == date(2026, 6, 5)  # due 30 days after delivery (letter date + 30 + 5 days for mail)
     assert violation.notices.filter(kind=Notice.Kind.FINE).exists()
     services.mark_cured(violation, user)
     violation.refresh_from_db()

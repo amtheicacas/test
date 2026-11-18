@@ -152,35 +152,48 @@ def test_suspension_only_hearing_notice_drops_the_word_also():
     assert "The Association has suspended your Lot's right to use the pool for a period of fourteen (14) days" in t
 
 
-# ---------- Exhibit 3: Notice of Imposition ----------
-def test_notice_of_imposition_follows_exhibit_3(settings):
+# ---------- Letter 3: Notice of committee decision (written findings) ----------
+def _decided(v, votes=(3, 1), **kw):
+    v.committee_votes_for, v.committee_votes_against = votes
+    v.committee_findings = "The Committee reviewed the photos and heard from the owner. The violation existed on the date observed."
+    for k, val in kw.items():
+        setattr(v, k, val)
+    v.save()
+    return Notice.objects.create(violation=v, kind="fine")
+
+
+def test_letter_3_has_the_required_findings_layout(settings):
     settings.HOA_PAYMENT_ADDRESS = "c/o the Treasurer, PO Box 99, Sarasota, FL 34241"
     v = case()
     hearing_ready(v, fine=250, suspension="the pool", days=30)
-    v.status, v.fine_amount, v.suspension, v.suspension_days = S.FINE_APPROVED, 250, "the pool", 30
-    v.suspension_effective_on, v.fine_due_on = date(2026, 12, 8), date(2026, 12, 13)
-    v.save()
-    n = Notice.objects.create(violation=v, kind="fine")
+    n = _decided(v, status=S.FINE_APPROVED, fine_amount=250, suspension="the pool", suspension_days=30,
+                 fine_due_on=date(2027, 1, 20), committee_cure_by=date(2026, 12, 30))
     t = text(render_notice_pdf(n))
-    for must in ["CERTIFIED MAIL #", "Re: Notice of Violation dated", "Hearing held",
-                 "the Committee determined that the Board properly levied a fine against you in the amount of $250.00, as authorized by law",
-                 "The Committee also confirmed to suspend your right to use the pool for a period of thirty (30) days, effective December 08, 2026",
-                 "As such, the fine is now imposed against you.", "the suspension is imposed for a period of thirty (30) days",
+    for must in ["CERTIFIED MAIL #", "RE: Written Findings of Fining Committee \u2013 Hearing Held",
+                 "the Fining Committee held a hearing on the proposed fine and suspension described in the Association's notice dated",
+                 "Committee decision: The Committee CONFIRMED the proposed fine and suspension by a vote of 3\u20131.",
+                 "Findings: The Committee reviewed the photos", "How to cure:", "Fine: $250.00, due on or before January 20, 2027.",
+                 "Suspension: your Lot's right to use the pool is suspended for thirty (30) days",
+                 "If you cure the violation by December 30, 2026, no fine or suspension will be imposed.",
                  "applies to all Owners, tenants, occupants, guests, licensees, and invitees",
-                 "does not prohibit vehicular or pedestrian ingress and egress, including the right to park",
-                 "You must pay the fine no later than five (5) days from the date of this letter",
                  "c/o the Treasurer, PO Box 99", "Checks should be made payable to Heron Landing Homeowners Association, Inc.",
-                 "filing an action in a court of competent jurisdiction", "Thank you for your prompt attention"]:
+                 "Thank you for your prompt attention"]:
         assert must in t, must
 
 
-def test_imposition_for_suspension_only_has_no_payment_demand():
+def test_letter_3_for_a_rejected_proposal_imposes_nothing():
     v = case()
-    hearing_ready(v, fine=None, suspension="the pool", days=30)
-    v.status, v.suspension, v.suspension_days, v.suspension_effective_on = S.FINE_APPROVED, "the pool", 30, date(2026, 12, 8)
-    v.save()
-    t = text(render_notice_pdf(Notice.objects.create(violation=v, kind="fine")))
-    assert "You must pay the fine" not in t and "suspension is imposed" in t
+    hearing_ready(v, fine=250)
+    n = _decided(v, votes=(1, 2), status=S.FINE_REJECTED)
+    t = text(render_notice_pdf(n))
+    assert "The Committee REJECTED the proposed fine by a vote of 1\u20132." in t and "it will not be imposed" in t
+    assert "Fine: $" not in t
+
+
+def test_letter_1_and_2_re_lines():
+    v = case()
+    assert "RE: Notice of Violation-" in text(render_notice_pdf(v.notices.get()))
+    assert "RE: NOTICE OF PROPOSED FINE AND OPPORTUNITY FOR HEARING" in text(render_notice_pdf(hearing_ready(case())))
 
 
 # ---------- Board vote and suspension rules ----------

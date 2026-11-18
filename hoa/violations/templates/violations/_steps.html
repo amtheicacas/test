@@ -1,2 +1,2 @@
-<ol class="steps">{% for label,state in steps %}<li class="{{ state }}">{{ label }}</li>{% endfor %}</ol>
+<ol class="steps">{% for s in v.tracker %}<li class="{{ s.state }}"><span class="ic">{{ s.icon }}</span>{{ s.label }}{% if s.state == "skipped" %}<small>Bypassed</small>{% elif s.date %}<small>{{ s.note }} {{ s.date|date:"M j, Y" }}</small>{% elif s.state == "current" %}<small>In progress</small>{% endif %}</li>{% endfor %}</ol>
 {% if v.stage_flag %}<p><span class="pill flag">{{ v.stage_flag }}</span>{% if v.status == "on_hold" and v.hold_reason %} <span class="mut">{{ v.hold_reason }}</span>{% endif %}</p>{% endif %}

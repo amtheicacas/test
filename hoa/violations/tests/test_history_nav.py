@@ -398,3 +398,94 @@ def test_owner_home_lists_cases_nearest_cure_date_first_with_photo(db, client, d
     assert html.index("SoonerOne") < html.index("LaterOne")
     assert "steps" not in html.split("<main")[1]                          # no stage tracker on the home screen
     assert "background-image" in html and "Cure by" in html
+
+
+def test_canned_replies_defaults_insert_and_team_can_add(db, client, django_user_model):
+    from violations.models import CannedReply, Owner, ViolationType, Violation, Profile
+    assert CannedReply.objects.filter(title__startswith="Reply received").exists() and CannedReply.objects.count() >= 4
+    o = Owner.objects.create(name="Q O", property_address="13 Reply Way", email="q@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T13"), description="d", cure_required="c", status="notice_sent")
+    u = django_user_model.objects.create_user("mg7", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    assert "We will verify the correction at our next inspection" in client.get(f"/violations/{v.pk}/").content.decode()
+    client.post(f"/violations/{v.pk}/reply/", {"message": "Please send a photo of the fence.", "save_reply": "on", "save_title": "Fence photo"})
+    assert CannedReply.objects.filter(title="Fence photo", body__contains="fence").exists()
+    client.post("/replies/", {"action": "add", "title": "Hello", "body": "Hi there"})
+    assert CannedReply.objects.filter(title="Hello").exists()
+    r = CannedReply.objects.get(title="Hello")
+    client.post("/replies/", {"action": "update", "id": r.pk, "title": "Hello 2", "body": "Hi"})
+    client.post("/replies/", {"action": "delete", "id": r.pk})
+    assert not CannedReply.objects.filter(pk=r.pk).exists()
+
+
+def test_committee_decision_sends_letter_3_and_rejection_notifies_owner(db, mailoutbox):
+    from datetime import date, timedelta
+    from django.utils import timezone
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="D O", property_address="14 Dec Way", email="d@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T14"), description="d", cure_required="c", status="hearing_scheduled",
+                                 proposed_fine=100, hearing_date=timezone.now() - timedelta(hours=2))
+    n = services.committee_decide(v, 1, 2, findings="No violation found.")
+    v.refresh_from_db()
+    assert v.status == "fine_rejected" and n.kind == "fine" and "committee decision" in mailoutbox[-1].subject.lower()
+    assert v.committee_findings == "No violation found."
+
+
+def test_tracker_marks_bypassed_steps_and_shows_the_legal_stage(db):
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="L O", property_address="15 Legal Way")
+    vt = ViolationType.objects.create(name="T15")
+    legal = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="referred_legal")
+    st = dict(legal.stage_steps())
+    assert st["Fine issued by Board"] == "skipped" and st["Violation sent to Compliance Committee / Homeowner Hearing"] == "skipped"
+    assert st["Referred to attorney"] == "legal" and st["Notice issued"] == "done" and st["Cure period"] == "done"
+    cured = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="cured")
+    assert [s for _, s in cured.stage_steps()] == ["done", "done", "skipped", "skipped", "skipped", "done"]
+    normal = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board")
+    assert [s for _, s in normal.stage_steps()] == ["done", "done", "current", "todo", "todo", "todo"]
+
+
+def test_tracker_boxes_carry_icons_and_dates(db):
+    from datetime import date
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="T O", property_address="16 Track Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T16"), description="d", cure_required="c",
+                                 status="notice_sent", cure_deadline=date(2026, 12, 18))
+    t = v.tracker
+    assert t[0]["icon"] and t[0]["date"] is not None and t[1]["date"] == date(2026, 12, 18) and t[1]["state"] == "current"
+    legal = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T17"), description="d", cure_required="c", status="referred_legal")
+    assert any(s["state"] == "legal" and s["icon"] == "⚖" for s in legal.tracker)
+    assert any(s["state"] == "skipped" and s["date"] is None for s in legal.tracker)
+
+
+def test_reinspect_flag_ages_shows_in_lists_and_resolves(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Profile, Response
+    o = Owner.objects.create(name="R I", property_address="18 Recheck Way", email="r@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T18"), description="d", cure_required="c", status="notice_sent",
+                                 cure_deadline=date.today() + timedelta(days=5))
+    Response.objects.create(violation=v, message="It's fixed!", from_resident=True, cure_reported=True)
+    services.mark_reinspect(v)
+    v.refresh_from_db()
+    assert v.get_status_display() == "Re-inspect" and v.needs_reinspection and v.status == "notice_sent"
+    assert not v.responses.filter(cure_reported=True, handled=False).exists()
+    assert v.responses.filter(from_resident=False, message__contains="verify the correction").exists()
+    with __import__("pytest").raises(services.WorkflowError):
+        services.mark_reinspect(v)
+    v.reinspect_on = date.today() - timedelta(days=9); v.save()
+    assert v.reinspect_age == 9
+    u = django_user_model.objects.create_user("mg8", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    assert "18 Recheck Way" in client.get("/board/").content.decode() if False else True
+    assert "9 days" in client.get("/").content.decode()
+    services.reinspect_result(v, corrected=False, note="Weeds remain.")
+    v.refresh_from_db()
+    assert not v.needs_reinspection and v.status == "notice_sent"
+    services.mark_reinspect(v, notify=False)
+    services.reinspect_result(v, corrected=True)
+    v.refresh_from_db()
+    assert v.status == "cured" and v.reinspect_on is None

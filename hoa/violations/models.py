@@ -236,6 +236,7 @@ class Violation(models.Model):
     held_from = models.CharField(max_length=20, blank=True)
     hold_reason = models.CharField(max_length=300, blank=True)
     held_on = models.DateField(null=True, blank=True)
+    reinspect_on = models.DateField(null=True, blank=True, help_text="Set when staff mark the case for re-inspection (the owner says it is fixed); it keeps aging until verified.")
     hold_until = models.DateField(null=True, blank=True, help_text="The hold lifts itself on this date and the cure period starts over.")
     off_hold_on = models.DateField(null=True, blank=True, help_text="When the last hold ended (the cure period restarted that day).")
     # Committee stage
@@ -245,6 +246,8 @@ class Violation(models.Model):
     hearing_location = models.CharField(max_length=250, blank=True)
     committee_votes_for = models.PositiveSmallIntegerField(null=True, blank=True)
     committee_votes_against = models.PositiveSmallIntegerField(null=True, blank=True)
+    committee_findings = models.TextField(blank=True, help_text="Brief written findings of fact; quoted in the Notice of committee decision.")
+    committee_cure_by = models.DateField(null=True, blank=True, help_text="If the violation is cured by this date, no fine or suspension is imposed.")
     fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text="Imposed amount (set when committee approves).")
     suspension = models.CharField(max_length=300, blank=True)
     suspension_days = models.PositiveIntegerField(null=True, blank=True)
@@ -285,12 +288,77 @@ class Violation(models.Model):
                 St.LEDGER_PENDING: 4, St.FINE_APPROVED: 4, St.REFERRED_LEGAL: 4}.get(st, 5)
 
     def stage_steps(self):
-        """[(label, 'done'|'current'|'todo')] for the progress tracker shown to owners and staff."""
+        """[(label, 'done'|'current'|'todo'|'skipped'|'legal')] for the progress tracker shown to owners and staff.
+        'skipped' marks a step the case never went through (cured early, or sent straight to the attorney); a case referred to
+        legal also gets a 'Referred to attorney' step showing where it stands."""
+        St = self.Status
         cur = self.stage_index()
-        return [(label, "done" if i < cur or (cur == 5 and i == 5) else "current" if i == cur else "todo")
-                for i, label in enumerate(self.STEPS)]
+        legal = self.status == St.REFERRED_LEGAL
+        ended = self.status in (St.REFERRED_LEGAL, St.CURED, St.DISMISSED, St.FINE_REJECTED, St.CLOSED)
+        evidence = {
+            2: bool(self.board_votes_for is not None or self.board_meeting_date or self.proposed_fine or self.proposed_suspension),
+            3: bool(self.committee_votes_for is not None or self.committee_meeting_id),
+            4: bool(self.fine_due_on or self.ledger_posted_on or self.suspension or (self.fine_amount and self.status in (St.FINE_APPROVED, St.CLOSED))),
+        }
+        out = []
+        for i, label in enumerate(self.STEPS):
+            if legal and i == 5:
+                out.append(("Referred to attorney", "legal"))
+            if i == cur and not ended:
+                state = "current"
+            elif i < cur or (cur == 5 and i == 5 and not legal):
+                state = "skipped" if (ended and i in evidence and not evidence[i]) else "done"
+            elif ended and i in evidence and i >= 2 and not evidence[i]:
+                state = "skipped"
+            else:
+                state = "todo"
+            if legal and i < 5 and i >= 2 and not evidence[i]:
+                state = "skipped"
+            if legal and i == 4 and evidence[4]:
+                state = "done"
+            if self.status == St.FINE_REJECTED and i == 4:
+                state = "skipped"
+            out.append((label, state))
+        return out
+
+    ICONS = ["\u2709", "\u23f3", "\u2611", "\U0001f465", "$", "\u2714"]   # notice, cure period, board, committee, fine, closed
+
+    @property
+    def tracker(self):
+        """stage_steps() plus an icon and a date for each box: [{label, state, icon, date, note}]."""
+        steps = self.stage_steps()
+        first = next((n for n in self.notices.all() if n.kind == "violation"), None)
+        legal_ev = self.events.filter(text__icontains="attorney").order_by("-created_at").first()
+        dates = {
+            0: (first.created_at.date() if first else self.created_at.date(), "Issued"),
+            1: (self.cure_deadline, "Cure by"),
+            2: (self.board_meeting_date, "Voted"),
+            3: (self.hearing_date.date() if self.hearing_date else None, "Hearing"),
+            4: (self.ledger_posted_on or self.suspension_effective_on, "Imposed"),
+            5: (self.cured_on or self.fine_paid_on, "Closed"),
+        }
+        out, idx = [], 0
+        for label, state in steps:
+            if state == "legal":
+                out.append({"label": label, "state": state, "icon": "\u2696", "date": legal_ev.created_at.date() if legal_ev else None, "note": "Referred"})
+                continue
+            d, note = dates[idx]
+            icon = "\u21b7" if state == "skipped" else self.ICONS[idx]
+            out.append({"label": label, "state": state, "icon": icon, "date": d if state != "skipped" else None, "note": note})
+            idx += 1
+        return out
+
+    @property
+    def needs_reinspection(self):
+        return bool(self.reinspect_on and self.status in self.OPEN and self.status != self.Status.DRAFT)
+
+    @property
+    def reinspect_age(self):
+        return (date.today() - self.reinspect_on).days if self.reinspect_on else None
 
     def get_status_display(self):
+        if self.needs_reinspection:
+            return "Re-inspect"
         if self.status == self.Status.NOTICE_SENT and self.off_hold_on:
             return "Off hold: cure period restarted"
         return self._get_FIELD_display(self._meta.get_field("status"))
@@ -314,6 +382,12 @@ class Violation(models.Model):
     def pending_extension(self):
         """The owner's oldest unanswered request for more time, if any."""
         return self.responses.filter(extension_requested=True, handled=False).first()
+
+    @property
+    def decision_letter_due(self):
+        """The written-findings letter must go out within DECISION_LETTER_DAYS of the hearing."""
+        from datetime import timedelta
+        return (self.hearing_date.date() + timedelta(days=settings.DECISION_LETTER_DAYS)) if self.hearing_date else None
 
     @property
     def is_immediate(self):
@@ -361,7 +435,7 @@ class Notice(models.Model):
         EXTENSION = "extension", "Extension granted"
         HEARING = "hearing", "Notice of committee hearing"
         SECOND = "second", "Second notice of violation"
-        FINE = "fine", "Notice of imposition of fine / suspension"
+        FINE = "fine", "Notice of committee decision (written findings)"
 
     violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="notices")
     kind = models.CharField(max_length=20, choices=Kind.choices)
@@ -490,3 +564,17 @@ class ImportMapping(models.Model):
     signature = models.CharField(max_length=500, unique=True)
     mapping = models.JSONField(default=dict)
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class CannedReply(models.Model):
+    """A saved reply the board and manager can insert when answering an owner. Everyone on the board/management team shares them."""
+    title = models.CharField(max_length=80)
+    body = models.TextField()
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["title"]
+
+    def __str__(self):
+        return self.title

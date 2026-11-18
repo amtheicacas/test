@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
-from .models import CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from .models import CannedReply, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -111,6 +111,12 @@ def _awaiting_reply():
     return [(r, r.created_at < cutoff) for r in qs]
 
 
+def _verify_list():
+    """Cases marked for re-inspection, oldest first: to be verified before the next Board meeting."""
+    return list(Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).exclude(status=S.DRAFT)
+                .select_related("owner", "vtype").order_by("reinspect_on"))
+
+
 # ---------- landing / dashboard ----------
 def home(request):
     if not request.user.is_authenticated:
@@ -136,6 +142,7 @@ def home(request):
         "held_mail": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__gt=date.today()).count(),
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
+        "verify_list": _verify_list(),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
         "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
@@ -149,6 +156,7 @@ OVERDUE = [  # key, label, what makes it overdue
     ("board", "Waiting on a Board vote too long", "the cure period ended more than BOARD_REVIEW_TARGET_DAYS ago and the Board has not voted"),
     ("hearing", "Hearing date passed, no decision", "the Compliance Committee meeting has happened but no decision is recorded"),
     ("fine", "Fine past its payment due date", "imposed fine not paid by the due date"),
+    ("letter3", "Decision letter not sent in time", "the Committee decided but the written findings letter has not gone out within DECISION_LETTER_DAYS of the hearing"),
 ]
 
 
@@ -159,12 +167,14 @@ def overdue_qs(key, today=None):
                                         cure_deadline__lt=today - timedelta(days=settings.BOARD_REVIEW_TARGET_DAYS))
     if key == "hearing":
         return Violation.objects.filter(status=S.HEARING_SCHEDULED, hearing_date__lt=timezone.now())
+    if key == "letter3":
+        return Violation.objects.filter(status=S.LEDGER_PENDING, hearing_date__lt=timezone.now() - timedelta(days=settings.DECISION_LETTER_DAYS))
     if key == "fine":
         return Violation.objects.filter(status=S.FINE_APPROVED, fine_amount__gt=0, fine_paid_on__isnull=True, fine_due_on__lt=today)
     return Violation.objects.none()
 
 
-PIPELINE = [("Cure period", "notice_sent"), ("Board vote", "pending_board"), ("Schedule hearing", "hearing_needed"),
+PIPELINE = [("Re-inspect (verify)", "reinspect"), ("Cure period", "notice_sent"), ("Board vote", "pending_board"), ("Schedule hearing", "hearing_needed"),
             ("Committee / hearing", "hearing_scheduled"), ("Post to ledger", "ledger_pending"),
             ("Imposed", "fine_approved"), ("On hold", "on_hold")]
 
@@ -172,6 +182,7 @@ PIPELINE = [("Cure period", "notice_sent"), ("Board vote", "pending_board"), ("S
 def _dashboard_visuals(counts):
     """Numbers behind the dashboard graphics: pipeline, top rule types, 6-month trend, headline tiles."""
     today = date.today()
+    counts = {**counts, "reinspect": Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()}
     peak = max([counts.get(k, 0) for _, k in PIPELINE] + [1])
     pipeline = [{"label": l, "key": k, "n": counts.get(k, 0), "pct": round(100 * counts.get(k, 0) / peak)}
                 for l, k in PIPELINE]
@@ -198,7 +209,7 @@ def _dashboard_visuals(counts):
     cured_30 = Violation.objects.filter(cured_on__gte=today - timedelta(days=30)).count()
     total = Violation.objects.count()
     cured_all = sum(counts.get(k, 0) for k in ("cured", "closed"))
-    overdue = [{"key": k, "label": l, "hint": h.replace("BOARD_REVIEW_TARGET_DAYS", f"{settings.BOARD_REVIEW_TARGET_DAYS} days"), "n": overdue_qs(k, today).count()} for k, l, h in OVERDUE]
+    overdue = [{"key": k, "label": l, "hint": h.replace("BOARD_REVIEW_TARGET_DAYS", f"{settings.BOARD_REVIEW_TARGET_DAYS} days").replace("DECISION_LETTER_DAYS", f"{settings.DECISION_LETTER_DAYS} days"), "n": overdue_qs(k, today).count()} for k, l, h in OVERDUE]
     late_replies = sum(1 for _, late in _awaiting_reply() if late)
     overdue.append({"key": "replies", "label": "Owner messages unanswered past the reply target",
                     "hint": f"no staff reply within {settings.REPLY_TARGET_HOURS} hours", "n": late_replies})
@@ -226,7 +237,9 @@ def violation_list(request):
         qs = qs.filter(status=status)
     if vtype:
         qs = qs.filter(vtype_id=vtype)
-    if g.get("overdue") in ("board", "hearing", "fine"):
+    if g.get("reinspect"):
+        qs = qs.filter(reinspect_on__isnull=False, status__in=Violation.OPEN)
+    if g.get("overdue") in ("board", "hearing", "fine", "letter3"):
         qs = qs.filter(pk__in=overdue_qs(g["overdue"]).values("pk"))
     if q:
         qs = qs.filter(Q(owner__name__icontains=q) | Q(owner__property_address__icontains=q)
@@ -308,6 +321,27 @@ def recipient_summary(o):
 
 
 @staff_only
+def canned_replies(request):
+    """Saved replies the board and manager share. Anyone on the team can add, edit or delete one."""
+    if request.method == "POST":
+        P = request.POST
+        act, title, body = P.get("action"), (P.get("title") or "").strip()[:80], (P.get("body") or "").strip()
+        if act == "delete":
+            CannedReply.objects.filter(pk=P.get("id") or 0).delete()
+            messages.success(request, "Deleted.")
+        elif not title or not body:
+            messages.error(request, "A saved reply needs a title and the text.")
+        elif act == "update":
+            CannedReply.objects.filter(pk=P.get("id") or 0).update(title=title, body=body)
+            messages.success(request, "Saved.")
+        else:
+            CannedReply.objects.create(title=title, body=body, created_by=request.user)
+            messages.success(request, "Canned reply added. Everyone on the team can use it.")
+        return redirect("canned_replies")
+    return render(request, "violations/canned_replies.html", {"replies": CannedReply.objects.select_related("created_by")})
+
+
+@staff_only
 def owner_correspondence(request, pk):
     """Board / manager: every letter and email sent to this owner (and tenant) across all their cases, with mailing and tracking details."""
     o = get_object_or_404(Owner, pk=pk)
@@ -320,7 +354,7 @@ def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     ctx = {
         "v": v, "S": S, "steps": v.stage_steps(), "mail": services.correspondence(v, staff=True),
-        "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(),
+        "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(), "canned": CannedReply.objects.all(),
         "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
         "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
         "hold_form": forms.HoldForm(),
@@ -349,6 +383,11 @@ def violation_action(request, pk, action):
     elif action == "mail_now":
         n = get_object_or_404(Notice, pk=P.get("notice"), violation=v)
         _run(request, services.mail_now, n, u, ok="Mailed copy released.")
+    elif action == "reinspect":
+        _run(request, services.mark_reinspect, v, u, P.get("note", ""), bool(P.get("notify")), ok="Marked for re-inspection.")
+    elif action == "reinspect_result":
+        _run(request, services.reinspect_result, v, P.get("result") == "corrected", u, P.get("note", ""),
+             ok="Re-inspection recorded.")
     elif action == "cure":
         _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked corrected.")
     elif action == "dismiss":
@@ -366,6 +405,12 @@ def violation_action(request, pk, action):
         if f.is_valid():
             services.add_response(v, f.cleaned_data["message"], from_resident=False, user=u)
             messages.success(request, "Reply sent (the owner sees it in their portal).")
+            title = (P.get("save_title") or "").strip()
+            if P.get("save_reply") and title:
+                CannedReply.objects.create(title=title[:80], body=f.cleaned_data["message"], created_by=u)
+                messages.success(request, f'Saved as a canned reply: "{title[:80]}". The whole team can use it.')
+            elif P.get("save_reply"):
+                messages.warning(request, "Give the saved reply a short title to keep it.")
     elif action == "extension":
         f = forms.ExtensionForm(P)
         if f.is_valid():
@@ -441,9 +486,9 @@ def _committee_vote(request, v, f):
     if f.is_valid():
         d = f.cleaned_data
         _run(request, services.committee_decide, v, d["votes_for"], d["votes_against"], request.user, d["note"],
-             ok="Committee decision recorded.")
+             findings=d["findings"], cure_by=d["cure_by"], ok="Committee decision recorded.")
     else:
-        messages.error(request, "Enter the number of votes for and against.")
+        messages.error(request, "Enter the votes for and against and the findings of fact (they are quoted in the decision letter).")
 
 
 @staff_only
@@ -476,7 +521,7 @@ def board_queue(request):
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
         v.bform = forms.BoardForm(initial={"proposed_fine": v.vtype.default_fine})
         v.history = services.owner_history(v)
-    return render(request, "violations/board.html", {"ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
+    return render(request, "violations/board.html", {"verify_list": _verify_list(), "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
                                                       "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED)})

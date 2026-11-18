@@ -4,6 +4,7 @@ Layout of a Notice of Violation (matches the Association's current letter): HOA 
 left with the violation photo and its timestamp on the right, RE: line, VIOLATION and COVENANTS blocks quoting the rule,
 a Board of Directors sign-off, then a one-page Correction Response Form."""
 import re
+from datetime import timedelta
 from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -168,9 +169,9 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     else:
         cure_by = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"within {v.cure_days} days of receipt of this notice"
     s = letterhead() + [_p("FIRST CLASS MAIL", BOLD), top, Spacer(1, 8),
-        _p(f"RE: {v.owner.property_address} located at {settings.HOA_NAME} Violation of the Covenants and Restrictions. "
-           "All Governing Documents can be located and reviewed in the Homeowner Portal or at the Association's Website."),
+        _p(f"RE: {'Second Notice of Violation' if notice_kind == K.SECOND else 'Notice of Violation'}- {v.owner.property_address}", BOLD),
         _p(f"Dear {to_name}:"),
+        _p("All Governing Documents can be located and reviewed in the Homeowner Portal or at the Association's Website."),
         _p("Living in a planned community involves the consideration of all residents to abide by the deed restrictions. "
            "One reason for having such restrictions is to protect the rights of homeowners in the community, both yours "
            "and those of your neighbors. Another reason is to ensure all properties are attractively maintained to "
@@ -279,7 +280,7 @@ def _hearing_notice(notice, v, to_name, block, dated):
             else "the Board voted to suspend your Lot's right to use certain Common Areas and facilities")
     when = f"during its meeting on {v.board_meeting_date:%m/%d/%Y}, " if v.board_meeting_date else ""
     s = letterhead() + [top, Spacer(1, 6),
-        _p(f"RE: {v.owner.property_address} located at {settings.HOA_NAME}."), _p(f"Dear {to_name}:"),
+        _p("RE: NOTICE OF PROPOSED FINE AND OPPORTUNITY FOR HEARING", BOLD), _p(f"Dear {to_name}:"),
         _p(f"The violation described in the Association's Notice of Violation dated {nov_date}, copy attached, has not been "
            f"corrected and/or has resumed. Accordingly, {when}{vote}.")]
     if v.proposed_suspension:
@@ -313,6 +314,57 @@ def _hearing_notice(notice, v, to_name, block, dated):
     return s
 
 
+def _decision_letter(notice, v, to_name, block, dated):
+    """Letter 3: Notice of committee decision / Written Findings of Fining Committee (sent within DECISION_LETTER_DAYS of the hearing)."""
+    hd = timezone.localtime(v.hearing_date) if v.hearing_date else None
+    hdate = f"{hd:%B} {hd.day}, {hd.year}" if hd else "(hearing date)"
+    hn = v.notices.filter(kind=K.HEARING).first()
+    hn_date = f"{timezone.localtime(hn.created_at):%B} {timezone.localtime(hn.created_at).day}, {timezone.localtime(hn.created_at).year}" if hn else "(date)"
+    what = ("fine and suspension" if v.proposed_fine and v.proposed_suspension else "suspension" if v.proposed_suspension else "fine")
+    confirmed = (v.committee_votes_for or 0) > (v.committee_votes_against or 0)
+    word = "CONFIRMED" if confirmed else "REJECTED"
+    vote = f"{v.committee_votes_for}\u2013{v.committee_votes_against}" if v.committee_votes_for is not None else "(vote)"
+    s = letterhead() + [_p(f"CERTIFIED MAIL # {notice.tracking_number or '_______________'}", BOLD),
+                        _p(f"{dated:%B} {dated.day}, {dated.year}"), Spacer(1, 4), _p(block), Spacer(1, 8),
+                        _p(f"RE: Written Findings of Fining Committee \u2013 Hearing Held {hdate}", BOLD), _p(f"Dear {to_name}:")]
+    if v.owner.has_tenant:
+        s.append(_p(f"Copy also sent to {'the owner, ' + v.owner.display_name if to_name == v.owner.tenant_name else 'the tenant, ' + v.owner.tenant_name}. "
+                    "Owners are responsible for the actions of their tenants and guests.", SMALL))
+    s += [_p(f"On {hdate}, the Fining Committee held a hearing on the proposed {what} described in the Association's notice dated {hn_date}."),
+          Paragraph(f"<b>Committee decision:</b> The Committee <b>{word}</b> the proposed {what} by a vote of {vote}.", BODY),
+          Paragraph("<b>Findings:</b> " + escape(v.committee_findings or "(findings of fact)").replace("\n", "<br/>"), BODY)]
+    if confirmed:
+        items = [f"<b>How to cure:</b> {escape(v.cure_required)}"]
+        if v.fine_amount:
+            due = v.fine_due_on or (dated + timedelta(days=settings.FINE_PAYMENT_DAYS + settings.FINE_MAIL_BUFFER_DAYS))
+            items.append(f"<b>Fine:</b> ${v.fine_amount:,.2f}, due on or before {due:%B} {due.day}, {due.year}.")
+        if v.suspension:
+            n = v.suspension_days
+            items.append(f"<b>Suspension:</b> your Lot's right to use {escape(v.suspension)} is suspended for {num_words(n)} ({n}) days. "
+                         "The suspension ends sooner if the violation is cured.")
+        if v.committee_cure_by:
+            c = v.committee_cure_by
+            items.append(f"If you cure the violation by <b>{c:%B} {c.day}, {c.year}</b>, no fine or suspension will be imposed.")
+        s += [Paragraph("\u2022&nbsp;&nbsp;" + x, BODY) for x in items]
+        if v.suspension:
+            s.append(_p("The suspension applies to all Owners, tenants, occupants, guests, licensees, and invitees. It does not apply to the "
+                        "portion of the Common Areas used to provide access or utility services to the parcel, and does not prohibit vehicular "
+                        "or pedestrian ingress and egress, including the right to park."))
+        if v.fine_amount:
+            s.append(_p("You may remit payment of the fine to the Association" + (f", {settings.HOA_PAYMENT_ADDRESS}" if settings.HOA_PAYMENT_ADDRESS
+                        else (f", {hoa_address()}" if hoa_address() else "")) + f". Checks should be made payable to {settings.HOA_PAYMENT_PAYABLE_TO}."
+                        + (f" The fine has been posted to your homeowner account ledger on {v.ledger_posted_on:%B} {v.ledger_posted_on.day}, {v.ledger_posted_on.year}." if v.ledger_posted_on else "")))
+        s.append(_p("If you fail to pay the fine, or violate the Association's suspension order, the Association reserves all rights available under "
+                    "law to collect the fine and enforce the suspension, including (but not limited to) filing an action in a court of competent "
+                    "jurisdiction."))
+        if v.non_owner_occupied:
+            s.append(_p(OWNER_LIABILITY_HEARING))
+    else:
+        s.append(_p(f"Because the Committee rejected the proposed {what}, it will not be imposed."))
+    s.append(_p("Thank you for your prompt attention to this matter."))
+    return s + [_respond_line(v)] + _signoff()
+
+
 def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
     """recipient: 'owner' (the mailing address if there is one), 'owner_property' (the physical address), or 'tenant'."""
     v = notice.violation
@@ -327,6 +379,8 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
 
     if notice.kind == K.HEARING:
         s = _hearing_notice(notice, v, to_name, block, dated)
+    elif notice.kind == K.FINE:
+        s = _decision_letter(notice, v, to_name, block, dated)
     elif notice.kind in (K.VIOLATION, K.SECOND):
         s = _nov_body(v, notice.kind, to_name, block, dated, notice.created_at) + _response_form(v, to_name, block, dated)
     else:
@@ -338,46 +392,6 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
         if notice.kind == K.EXTENSION:
             s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to "
                         f"{v.cure_deadline:%B %d, %Y}."))
-        elif notice.kind == K.FINE:
-            s.insert(len(letterhead()), _p(f"CERTIFIED MAIL # {notice.tracking_number or '_______________'}", BOLD))
-            nov = v.notices.filter(kind=K.VIOLATION).first()
-            hd = timezone.localtime(v.hearing_date) if v.hearing_date else None
-            s.append(_p(f"Re: Notice of Violation dated {timezone.localtime(nov.created_at):%B %d, %Y}; Hearing held "
-                        f"{hd:%B %d, %Y}." if nov and hd else "Re: Compliance Committee hearing.", BOLD))
-            hdate = f"{hd:%B %d, %Y}" if hd else "(date)"
-            if v.fine_amount:
-                s.append(_p(f"During the Compliance Committee hearing on {hdate}, the Committee determined that the Board properly "
-                            f"levied a fine against you in the amount of ${v.fine_amount:,.2f}, as authorized by law."))
-            if v.suspension:
-                lead = ("The Committee also confirmed" if v.fine_amount
-                        else f"During the Compliance Committee hearing on {hdate}, the Committee confirmed")
-                s.append(_p(f"{lead} to suspend your right to use {v.suspension} for a period of {num_words(v.suspension_days)} "
-                            f"({v.suspension_days}) days, effective {v.suspension_effective_on:%B %d, %Y}."))
-            imposed = []
-            if v.fine_amount:
-                imposed.append("As such, the fine is now imposed against you.")
-            if v.suspension:
-                imposed.append(("Likewise, as" if v.fine_amount else "As such, as") + f" of the date of this letter, the suspension is imposed "
-                               f"for a period of {num_words(v.suspension_days)} ({v.suspension_days}) days. The suspension applies to all "
-                               "Owners, tenants, occupants, guests, licensees, and invitees. It does not apply to the portion of the Common "
-                               "Areas used to provide access or utility services to the parcel, and does not prohibit vehicular or pedestrian "
-                               "ingress and egress, including the right to park.")
-            s.append(_p(" ".join(imposed)))
-            if v.fine_amount:
-                s.append(_p(f"You must pay the fine no later than five ({settings.FINE_PAYMENT_DAYS}) days from the date of this letter "
-                            f"(by {v.fine_due_on:%B %d, %Y}).", BOLD))
-                if v.ledger_posted_on:
-                    s.append(_p(f"The fine of ${v.fine_amount:,.2f} has been posted to your homeowner account ledger on "
-                                f"{v.ledger_posted_on:%B %d, %Y}."))
-                s.append(_p("You may remit payment of the fine to the Association" + (f", {settings.HOA_PAYMENT_ADDRESS}" if settings.HOA_PAYMENT_ADDRESS
-                            else (f", {hoa_address()}" if hoa_address() else "")) + f". Checks should be made payable to {settings.HOA_PAYMENT_PAYABLE_TO}. "
-                            "If you fail to pay the fine, or violate the Association's suspension order, the Association reserves all rights "
-                            "available under law to collect the fine and enforce the suspension. These include (but are not limited to) filing "
-                            "an action in a court of competent jurisdiction to recover the fine and/or enforce the suspension."))
-            else:
-                s.append(_p("If you violate the Association's suspension order, the Association reserves all rights available under law to "
-                            "enforce the suspension, including filing an action in a court of competent jurisdiction."))
-            s.append(_p("Thank you for your prompt attention to this matter."))
         s += [_respond_line(v)] + _signoff()
     buf = BytesIO()
     SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.9 * inch, rightMargin=0.9 * inch, topMargin=0.55 * inch,

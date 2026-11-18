@@ -34,6 +34,10 @@
 {% if v.responses.all|length %}{% for r in v.responses.all %}{% if r.cure_reported and not r.handled %}<div class="msg warning">Owner reports this is fixed — reinspect, then mark corrected.</div>{% endif %}{% endfor %}{% endif %}
 {% include "violations/_extension_request.html" %}
 
+{% if v.needs_reinspection %}<div class="card" style="border-color:var(--warn)"><h2><span class="pill flag">Re-inspect</span> Waiting {{ v.reinspect_age }} day{{ v.reinspect_age|pluralize }} (marked {{ v.reinspect_on|date:"M j, Y" }})</h2>
+<p class="mut" style="margin-top:0">The owner reports this is corrected. It stays on the "verify before the Board meeting" list until you record the result of the re-inspection.</p>
+<form method="post" action="{% url 'violation_action' v.pk 'reinspect_result' %}" class="row" style="align-items:center">{% csrf_token %}<input name="note" placeholder="Note (optional; shown to the owner if not corrected)"><button name="result" value="corrected" style="flex:0 0 auto;min-width:0">Verified corrected</button><button name="result" value="not_corrected" class="bad" style="flex:0 0 auto;min-width:0">Still not corrected</button></form></div>
+{% elif v.status != S.DRAFT and v.is_open %}<div class="card"><form method="post" action="{% url 'violation_action' v.pk 'reinspect' %}" class="row" style="align-items:center">{% csrf_token %}<input name="note" placeholder="Note (optional)"><label style="font-weight:400;margin:0;flex:0 0 auto"><input type="checkbox" name="notify" checked> Reply: "we will verify at our next inspection"</label><button class="sec" style="flex:0 0 auto;min-width:0">Mark for re-inspection</button></form></div>{% endif %}
 {% if v.status == S.NOTICE_SENT %}<div class="card"><form method="post" action="{% url 'violation_action' v.pk 'urgent' %}" class="row">{% csrf_token %}<input name="note" placeholder="Safety situation — describe (Board may act before the deadline)"><button class="bad">Refer to Board now</button></form></div>{% endif %}
 
 {% if v.status == S.NOTICE_SENT or v.status == S.PENDING_BOARD %}<div class="card"><h2>Give more time (staff-initiated) / second notice</h2>
@@ -48,6 +52,7 @@
 {% if v.status == S.HEARING_SCHEDULED %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
 
 {% if v.status == S.LEDGER_PENDING %}<div class="card" style="border-color:var(--warn)"><h2>Committee decision awaiting your approval</h2>
+{% if v.decision_letter_due %}<p><b>The written findings letter (Letter 3) must go out by {{ v.decision_letter_due|date:"F j, Y" }}</b>, within {{ DECISION_LETTER_DAYS }} days of the hearing. Approving below sends it by email and certified mail. The fine is due 30 days after delivery.</p>{% endif %}
 <p>The Compliance Committee approved this ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):
 {% if v.fine_amount %}<b>fine ${{ v.fine_amount }}</b>{% endif %}{% if v.suspension %} <b>suspension of {{ v.suspension }} for {{ v.suspension_days }} days</b>{% endif %}.</p>
 <p class="mut">The Committee's approval imposes it: no new Board vote is needed. Approving {% if v.fine_amount %}posts the fine to the homeowner's ledger and {% endif %}sends the Notice of Imposition (email and certified mail) to the owner{% if v.owner.has_tenant %} and the tenant{% endif %}. {% if v.fine_amount %}The fine is due 5 days after the letter date.{% endif %}</p>
@@ -66,7 +71,12 @@
 
 <div class="card"><h2>Conversation</h2>
 {% for r in v.responses.all %}<p><b>{% if r.from_resident %}{{ r.author.get_full_name|default:"Owner" }}{% else %}Staff{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span>{% if r.cure_reported %} <span class="pill">says it's fixed</span>{% endif %}{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}{% if r.extension_requested %} <span class="pill">extension request{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">No messages yet.</p>{% endfor %}
-<form method="post" action="{% url 'violation_action' v.pk 'reply' %}">{% csrf_token %}{{ reply_form.message }}<button class="sec" style="margin-top:6px">Reply (shows on owner's page)</button></form></div>
+<form method="post" action="{% url 'violation_action' v.pk 'reply' %}">{% csrf_token %}
+<select id="canned" style="margin-bottom:6px"><option value="">Insert a saved reply&hellip;</option>{% for c in canned %}<option value="{{ c.pk }}" data-body="{{ c.body|escape }}">{{ c.title }}</option>{% endfor %}</select>
+{{ reply_form.message }}
+<div class="row" style="align-items:center;margin-top:6px"><label style="font-weight:400;margin:0;flex:0 0 auto"><input type="checkbox" name="save_reply"> Also save this as a canned reply</label><input name="save_title" placeholder="Short title for it (e.g. Photo requested)" style="flex:1 1 220px"></div>
+<button class="sec" style="margin-top:6px">Reply (shows on owner's page)</button></form>
+<script>(function(){var s=document.getElementById("canned");if(!s)return;s.addEventListener("change",function(){var o=s.options[s.selectedIndex];if(!o.value)return;var t=document.getElementById("id_message")||s.form.querySelector("textarea");t.value=o.getAttribute("data-body");t.focus();s.selectedIndex=0;});})();</script></div>
 
 {% if v.status == S.FINE_APPROVED %}<div class="card"><h2>After imposition</h2><div class="row">
 {% if v.fine_amount and not v.fine_paid_on %}<form method="post" action="{% url 'violation_action' v.pk 'payment' %}">{% csrf_token %}{{ payment_form.paid_on }}<button style="margin-top:6px">Record fine paid</button></form>{% endif %}

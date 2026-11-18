@@ -1,0 +1,11 @@
+{% extends "violations/base.html" %}{% block title %}Saved replies{% endblock %}{% block content %}
+<h1>Saved replies</h1>
+<p class="mut">Ready-made answers for owners. On any violation, pick one under <b>Insert a saved reply</b>, edit it if needed, then send. Everyone on the board and management team shares this list.</p>
+<form class="card" method="post"><h2>Add a saved reply</h2>{% csrf_token %}<input type="hidden" name="action" value="add">
+<label>Title</label><input name="title" maxlength="80" placeholder="Short name, e.g. Photo requested">
+<label>Reply text</label><textarea name="body" rows="3"></textarea><button style="margin-top:8px">Save</button></form>
+{% for r in replies %}<form class="card" method="post">{% csrf_token %}<input type="hidden" name="id" value="{{ r.pk }}">
+<label>Title</label><input name="title" maxlength="80" value="{{ r.title }}"><label>Reply text</label><textarea name="body" rows="3">{{ r.body }}</textarea>
+<div class="row" style="margin-top:8px;align-items:center"><span class="mut" style="flex:1 1 200px">{% if r.created_by %}Added by {{ r.created_by.get_full_name|default:r.created_by.username }}{% endif %}</span>
+<button name="action" value="update" style="flex:0 0 auto;min-width:0">Save changes</button><button name="action" value="delete" class="bad" style="flex:0 0 auto;min-width:0" onclick="return confirm('Delete this saved reply?')">Delete</button></div></form>
+{% empty %}<div class="card mut">No saved replies yet.</div>{% endfor %}{% endblock %}

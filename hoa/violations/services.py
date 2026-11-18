@@ -319,6 +319,39 @@ def send_hold_reminders(today=None):
 
 
 @transaction.atomic
+def mark_reinspect(v, user=None, note="", notify=True):
+    """The owner says it is fixed: flag the case 'Re-inspect'. The case keeps aging in its stage and stays on the verify list
+    (dashboard and Board queue) until someone verifies it or records that it is still not corrected."""
+    _require(v, *[st for st in Violation.OPEN if st != S.DRAFT])
+    if v.reinspect_on:
+        raise WorkflowError("This case is already marked for re-inspection.")
+    v.reinspect_on = date.today()
+    v.save()
+    v.responses.filter(cure_reported=True, handled=False).update(handled=True)
+    log(v, "Marked for re-inspection (owner reports it is corrected)" + (f": {note}" if note else ""), user)
+    if notify:
+        msg = "Thank you. Your reply has been received. We will verify the correction at our next inspection."
+        add_response(v, msg, from_resident=False, user=user)
+
+
+@transaction.atomic
+def reinspect_result(v, corrected, user=None, note=""):
+    """Record the result of the re-inspection: verified corrected (closes the case) or still not corrected (the case carries on)."""
+    if not v.reinspect_on:
+        raise WorkflowError("This case is not marked for re-inspection.")
+    if corrected:
+        mark_cured(v, user, note or "verified at re-inspection")
+        v.reinspect_on = None
+        v.save()
+        return
+    v.reinspect_on = None
+    v.save()
+    log(v, "Re-inspected: still not corrected" + (f" ({note})" if note else ""), user)
+    if note:
+        add_response(v, f"We re-inspected and the violation has not been corrected yet. {note}", from_resident=False, user=user)
+
+
+@transaction.atomic
 def dismiss(v, user=None, note=""):
     _require(v, *Violation.OPEN)
     v.status = S.DISMISSED
@@ -563,7 +596,7 @@ def assign_all_to_meeting(meeting, user=None, today=None):
 
 
 @transaction.atomic
-def committee_decide(v, votes_for, votes_against, user=None, note="", today=None):
+def committee_decide(v, votes_for, votes_against, user=None, note="", today=None, findings="", cure_by=None):
     """Committee (3+ owners, none board/officer/employee/relative) confirms or rejects the Board's proposal.
     Majority approval makes it final; the Board does not vote again."""
     _require(v, S.HEARING_SCHEDULED)
@@ -572,6 +605,7 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
     if votes_for + votes_against < 3:
         raise WorkflowError("The Compliance Committee must have at least 3 members voting.")
     v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
+    v.committee_findings, v.committee_cure_by = (findings or note or "").strip(), cure_by
     if votes_for > votes_against:
         v.status = S.LEDGER_PENDING
         v.fine_amount, v.suspension = v.proposed_fine, v.proposed_suspension
@@ -583,7 +617,8 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
     v.status = S.FINE_REJECTED
     v.save()
     log(v, f"Committee rejected the proposal ({votes_for}-{votes_against}) — nothing imposed"
-        + (f": {note}" if note else ""), user)
+        + (f": {note}" if note else "") + ". Notice of committee decision sent.", user)
+    return send_notice(v, Notice.Kind.FINE, user)
 
 
 def finalize_imposition(v, user=None, method="manual", reference="", today=None):
@@ -607,10 +642,10 @@ def finalize_imposition(v, user=None, method="manual", reference="", today=None)
         log(v, f"Fine of ${v.fine_amount:,.2f} {how}" + (f" (ref {v.ledger_reference})" if v.ledger_reference else ""), user)
     with transaction.atomic():
         v.status = S.FINE_APPROVED
-        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS) if v.fine_amount else None
+        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS + settings.FINE_MAIL_BUFFER_DAYS) if v.fine_amount else None
         v.suspension_effective_on = today if v.suspension else None
         v.save()
-        log(v, "Imposition approved" + (f"; fine due {v.fine_due_on:%b %d, %Y}" if v.fine_due_on else "") + ". Notice of Imposition sent.", user)
+        log(v, "Imposition approved" + (f"; fine due {v.fine_due_on:%b %d, %Y}" if v.fine_due_on else "") + ". Notice of committee decision (written findings) sent.", user)
     notice = send_notice(v, Notice.Kind.FINE, user)
     _close_if_done(v, user)
     v.save()

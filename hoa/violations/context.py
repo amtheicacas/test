@@ -22,7 +22,8 @@ def _staff_counts():
     return {"open": c["open"], "total": c["total"], "board": waiting_on_board,
             "board_tip": f"{c['board']} awaiting a Board vote, {c['hearing']} waiting for a hearing, {c['ledger']} awaiting approval to post",
             "meetings": upcoming, "homes": Owner.objects.filter(active=True).count(),
-            "attention": waiting_on_board + asks}
+            "reinspect": Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count(),
+            "attention": waiting_on_board + asks + Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()}
 
 
 def hoa(request):

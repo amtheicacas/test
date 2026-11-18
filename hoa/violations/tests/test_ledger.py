@@ -80,10 +80,10 @@ def test_manual_posting_records_reference_sets_due_date_and_sends_the_letter_to_
     n = services.finalize_imposition(v, method="manual", reference="TX-5521", today=date(2026, 12, 1))
     v.refresh_from_db()
     assert v.status == S.FINE_APPROVED and v.ledger_posted_on == date(2026, 12, 1) and v.ledger_reference == "TX-5521"
-    assert v.fine_due_on == date(2026, 12, 6)
+    assert v.fine_due_on == date(2027, 1, 5)
     assert n.kind == Notice.Kind.FINE
     assert sorted(m.to[0] for m in mail.outbox) == ["p@example.com", "t@example.com"]
-    assert all("imposition" in m.subject.lower() for m in mail.outbox)
+    assert all("committee decision" in m.subject.lower() for m in mail.outbox)
     assert v.events.filter(text__contains="recorded as posted in Vantaca by hand").exists()
 
 
@@ -95,8 +95,8 @@ def test_letter_says_the_fine_was_posted_and_when_it_is_due():
     v = pending()
     n = services.finalize_imposition(v, reference="TX-1", today=date(2026, 12, 1))
     t = " ".join(subprocess.run(["pdftotext", "-", "-"], input=services.render_notice_pdf(n), capture_output=True).stdout.decode().split())
-    assert "has been posted to your homeowner account ledger on December 01, 2026" in t
-    assert "by December 06, 2026" in t and "c/o the Treasurer, PO Box 9" in t
+    assert "posted to your homeowner account ledger on December 1, 2026" in t
+    assert "due on or before January 5, 2027" in t and "c/o the Treasurer, PO Box 9" in t
 
 
 def test_suspension_only_skips_the_ledger_but_still_sends_the_letter():

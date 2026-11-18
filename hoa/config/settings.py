@@ -112,7 +112,9 @@ SITE_URL = env("SITE_URL", "http://localhost:8000").rstrip("/")
 # Fining Resolution / Fla. Stat. 720.305(2): up to $100 per day for a continuing violation, up to $1,000 total.
 FINE_MAX_PER_DAY = int(env("FINE_MAX_PER_DAY", "100"))
 FINE_AGGREGATE_CAP = int(env("FINE_AGGREGATE_CAP", "1000"))
-FINE_PAYMENT_DAYS = int(env("FINE_PAYMENT_DAYS", "5"))        # fine due this many days after the imposition letter
+FINE_PAYMENT_DAYS = int(env("FINE_PAYMENT_DAYS", "30"))       # fine due at least this many days after delivery of the decision letter...
+FINE_MAIL_BUFFER_DAYS = int(env("FINE_MAIL_BUFFER_DAYS", "5"))  # ...plus these days for mail to arrive
+DECISION_LETTER_DAYS = int(env("DECISION_LETTER_DAYS", "7"))    # the decision letter must go out within this many days of the hearing
 ATTORNEY_NOTICE_DAYS = int(env("ATTORNEY_NOTICE_DAYS", "7"))  # owner must tell us this many days before the hearing
 REPLY_TARGET_HOURS = int(env("REPLY_TARGET_HOURS", "48"))     # procedure promises a reply within 48-72 hours
 # Fla. Stat. 720.305(2)(b): at least 14 days' notice before the committee hearing.

@@ -99,7 +99,7 @@ def test_committee_sees_only_assigned_cases(client):
     assert client.get(f"/photos/{other.photos.first().pk}/").status_code == 403
     for url in ["/violations/", "/board/", "/map/", "/meetings/", f"/violations/{assigned.pk}/", "/api/map/"]:
         assert client.get(url).status_code == 403, url
-    client.post(f"/committee/cases/{assigned.pk}/vote/", {"votes_for": 3, "votes_against": 0})
+    client.post(f"/committee/cases/{assigned.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Photos and testimony confirm the violation."})
     assigned.refresh_from_db()
     assert assigned.status == S.HEARING_SCHEDULED  # hearing hasn't happened yet, so no vote
 
@@ -110,7 +110,7 @@ def test_committee_can_vote_after_meeting(client):
     v.committee_meeting, v.hearing_date = m, m.starts_at
     v.save()
     login(client, "committee")
-    client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0})
+    client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Photos and testimony confirm the violation."})
     v.refresh_from_db()
     assert v.status == S.LEDGER_PENDING and v.fine_amount == 100  # awaits Board/manager approval before the letter
 
