@@ -236,6 +236,8 @@ class Violation(models.Model):
     held_from = models.CharField(max_length=20, blank=True)
     hold_reason = models.CharField(max_length=300, blank=True)
     held_on = models.DateField(null=True, blank=True)
+    hold_until = models.DateField(null=True, blank=True, help_text="The hold lifts itself on this date and the cure period starts over.")
+    off_hold_on = models.DateField(null=True, blank=True, help_text="When the last hold ended (the cure period restarted that day).")
     # Committee stage
     committee_meeting = models.ForeignKey(CommitteeMeeting, null=True, blank=True, on_delete=models.SET_NULL,
                                           related_name="violations")
@@ -288,10 +290,17 @@ class Violation(models.Model):
         return [(label, "done" if i < cur or (cur == 5 and i == 5) else "current" if i == cur else "todo")
                 for i, label in enumerate(self.STEPS)]
 
+    def get_status_display(self):
+        if self.status == self.Status.NOTICE_SENT and self.off_hold_on:
+            return "Off hold: cure period restarted"
+        return self._get_FIELD_display(self._meta.get_field("status"))
+
     @property
     def stage_flag(self):
         if self.status == self.Status.ON_HOLD:
-            return "On hold"
+            return "On hold" + (f" until {self.hold_until:%b %-d, %Y}" if self.hold_until else "")
+        if self.status == self.Status.NOTICE_SENT and self.off_hold_on:
+            return "Off hold"
         if self.status == self.Status.REFERRED_LEGAL:
             return "Sent to legal"
         return ""

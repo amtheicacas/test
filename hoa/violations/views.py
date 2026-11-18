@@ -296,7 +296,7 @@ def recipient_summary(o):
     def lines(kind):
         return o.address_block(kind).split("\n", 1)[1].replace("\n", ", ")
     owner = {"name": o.display_name, "emails": list(o.all_emails), "mail": [lines(k) for k in o.owner_mail_kinds()]}
-    out = {"owner": owner, "tenant": None, "tenant_note": ""}
+    out = {"owner": owner, "address": o.property_address, "tenant": None, "tenant_note": ""}
     if o.has_tenant:
         out["tenant"] = {"name": o.tenant_name, "emails": list(o.tenant_emails), "mail": [lines("tenant")],
                          "lease": " to ".join(d.strftime("%b %-d, %Y") for d in (o.tenant_start, o.tenant_end) if d)}
@@ -333,6 +333,8 @@ def violation_action(request, pk, action):
         n = _save_photos(v, request.FILES.getlist("photos"))
         services.log(v, f"{n} photo(s) added", u)
         messages.success(request, f"{n} photo(s) added.")
+    elif action == "delete_photo":
+        _run(request, services.delete_photo, v, get_object_or_404(Photo, pk=P.get("photo"), violation=v), u, ok="Photo removed.")
     elif action == "send_notice":
         _run(request, services.issue_first_notice, v, u, timing=P.get("timing") or None,
              ok="Notice issued: emailed now; the mailed copy follows per the chosen timing.")
@@ -346,7 +348,9 @@ def violation_action(request, pk, action):
     elif action == "hold":
         f = forms.HoldForm(P)
         if f.is_valid():
-            _run(request, services.put_on_hold, v, f.cleaned_data["reason"], u, ok="Case put on hold.")
+            _run(request, services.put_on_hold, v, f.cleaned_data["reason"], f.cleaned_data["until"], u, ok="Case put on hold.")
+        else:
+            messages.error(request, " ".join(e for errs in f.errors.values() for e in errs))
     elif action == "resume":
         _run(request, services.resume, v, u, ok="Hold lifted.")
     elif action == "reply":

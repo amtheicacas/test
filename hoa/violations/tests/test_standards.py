@@ -259,3 +259,13 @@ def test_logo_is_in_app_and_letterhead(client, settings):
     if img:  # the logo and the violation photo are both embedded in page 1
         out = subprocess.run([img, "-list", "-f", "1", "-l", "1", "-"], input=pdf.render_notice_pdf(n), capture_output=True).stdout.decode()
         assert len([l for l in out.splitlines()[2:] if l.strip()]) >= 2
+
+
+def test_weeds_finds_the_beds_and_lawn_clauses(db):
+    from django.core.management import call_command
+    from violations import standards_search
+    call_command("load_standards")
+    top = [t.code for t in standards_search.local_search("weeds", limit=4)]
+    assert "4.02-a" in top[:2] and "4.05-w" in top[:2], top
+    assert [t.code for t in standards_search.local_search("weeds in planter")][0] == "4.02-a"
+    assert [t.code for t in standards_search.local_search("weeds in my lawn")][0] == "4.05-w"

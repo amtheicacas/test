@@ -24,7 +24,8 @@
   {% for f in form %}{% if f.name == "non_curable" %}<p style="margin-bottom:2px"><b>Immediate Issue</b> <span class="mut">(tick any that apply; the Board may act before a cure period would run out)</span></p>{% endif %}
   {% if f.name == "non_curable" or f.name == "safety_issue" or f.name == "board_emergency" %}<p style="margin:2px 0 2px 14px">{{ f }} <label for="{{ f.id_for_label }}" style="display:inline;font-weight:400">{{ f.label }}</label>{{ f.errors }}</p>
   {% else %}<p>{{ f.label_tag }} {{ f }}{% if f.help_text %}<br><span class="mut">{{ f.help_text }}</span>{% endif %}{{ f.errors }}</p>{% endif %}{% endfor %}
-  <label>Photo(s) of the violation</label><input type="file" name="photos" accept="image/*" multiple>
+  <label>Photo(s) of the violation</label><input type="file" name="photos" id="photos" accept="image/*" multiple>
+  <div id="thumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div>
   <p class="mut">Leave "Send the notice now" checked to send right away, or uncheck it to save a draft and review first. Anything in [square brackets] must be replaced with the specifics before it can be sent.</p>
   <button>Save</button>
 </form>
@@ -72,7 +73,6 @@
     oq.addEventListener("blur", function () { setTimeout(function () { olist.style.display = "none"; }, 120); });
     own.addEventListener("change", function () { if (own.value) { var o = opts.filter(function (x) { return x.v === own.value; })[0]; if (o) oq.value = o.t; } });
     // ---- who will get the notice: owner, and the tenant while the lease is active ----
-    var INFO = JSON.parse($("owner-info").textContent);
     var panel = document.createElement("div"); panel.id = "recips"; panel.className = "card"; panel.style.cssText = "display:none;margin:6px 0 10px;background:var(--bg)";
     own.parentNode.insertBefore(panel, own.nextSibling);
     function who(label, p) {
@@ -88,6 +88,7 @@
       panel.style.display = "block";
     }
     own.addEventListener("change", showRecips);
+    own.addEventListener("change", fillAddress);
     showRecips();
     if (own.value) own.dispatchEvent(new Event("change"));
   }
@@ -122,6 +123,14 @@
   cat.addEventListener("change", function () { q.value ? search(false) : browse(); });
   if ($("pai")) $("pai").addEventListener("click", function () { note.textContent = "Asking AI…"; search(true); });
 
+  // the owner's address is already known, so "[location]" / "[address]" fill themselves in
+  var INFO = JSON.parse($("owner-info").textContent);
+  function fillAddress() {
+    var o = $("id_owner"), i = o && INFO[o.value];
+    if (!i) return;
+    [desc, cure].forEach(function (el) { el.value = el.value.replace(/\[(location|address|property address)\]/gi, i.address); });
+    bracketCheck();
+  }
   function bracketCheck() {
     var n = ((desc.value + " " + cure.value).match(/\[[^\]]*\]/g) || []).length;
     var b = $("brackets");
@@ -134,6 +143,7 @@
     $("rulebox").style.display = "block";
     $("ruletitle").textContent = c.reference;
     $("ruletext").textContent = c.rule;
+    fillAddress();
     bracketCheck();
     desc.focus();
     $("rulebox").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -145,6 +155,25 @@
   sel.addEventListener("change", function () {
     var c = byId[sel.value];
     if (c && (!desc.value.trim() || confirm("Replace the current text with the drafted text for this rule?"))) apply(c);
+  });
+  // ---- photos: choose as many times as you like; each shows a thumbnail with an x to remove it before saving ----
+  var pin = $("photos"), thumbs = $("thumbs"), picked = [];
+  function syncPhotos() {
+    var dt = new DataTransfer(); picked.forEach(function (f) { dt.items.add(f); }); pin.files = dt.files;
+    thumbs.innerHTML = "";
+    picked.forEach(function (f, i) {
+      var d = document.createElement("div"); d.style.cssText = "position:relative";
+      var im = document.createElement("img"); im.src = URL.createObjectURL(f); im.alt = f.name; im.style.cssText = "height:96px;border-radius:8px;border:1px solid var(--line);display:block";
+      var x = document.createElement("button"); x.type = "button"; x.innerHTML = "&times;"; x.title = "Remove this photo"; x.setAttribute("aria-label", "Remove " + f.name);
+      x.style.cssText = "position:absolute;top:3px;right:3px;width:24px;height:24px;padding:0;border-radius:50%;line-height:1;font-size:17px;background:#111;color:#fff;border:2px solid #fff";
+      x.addEventListener("click", function () { picked.splice(i, 1); syncPhotos(); });
+      d.appendChild(im); d.appendChild(x); thumbs.appendChild(d);
+    });
+  }
+  if (pin) pin.addEventListener("change", function () {
+    var seen = {}; picked.forEach(function (f) { seen[f.name + f.size + f.lastModified] = 1; });
+    [].forEach.call(pin.files, function (f) { if (!seen[f.name + f.size + f.lastModified]) picked.push(f); });
+    syncPhotos();
   });
   var nc = $("id_non_curable");
   if (nc) { nc.addEventListener("change", function () { if (nc.checked) days.value = 0; days.readOnly = nc.checked; }); if (nc.checked) days.readOnly = true; }

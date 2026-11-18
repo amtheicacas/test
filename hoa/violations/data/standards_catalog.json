@@ -866,6 +866,30 @@
    "rule": "Roofs and/or exterior surfaces and/or pavement, including but not limited to sidewalks, driveways, houses, or lanais shall be pressure cleaned within thirty (30) days’ notice by the ACC. Homes shall be repainted within forty-five (45) days of notice by the ACC."
   },
   {
+   "code": "4.02-a",
+   "section": "4.02",
+   "title": "Weeds in landscape beds / planters",
+   "category": "Landscaping & lawn",
+   "cure_days": 15,
+   "keywords": "weeds weed weeding landscape bed beds planter planters flower bed flowerbed garden mulch overgrown unweeded unsightly growth",
+   "observed": "The landscape beds / planters at [location] contain weeds or other unsightly growth.",
+   "cure": "Remove the weeds and other unsightly growth from all landscape beds and planters, and keep them weeded and maintained.",
+   "standards_title": "Landscaping Maintenance",
+   "rule": "(a) General Standard. All Lots shall be landscaped in a manner that is harmonious, compatible, and consistent with the overall landscaping and general appearance of the community. Each Owner shall maintain the landscaping and yard area of the Lot in an attractive condition, free from harmful insect infestations, disease, weeds, underbrush, refuse, and other unsightly growth or objects. Landscape maintenance includes care of trees, shrubs, hedges, ground cover, annuals, turf grass, and irrigation systems."
+  },
+  {
+   "code": "4.05-w",
+   "section": "4.05",
+   "title": "Weeds in lawn / turf",
+   "category": "Landscaping & lawn",
+   "cure_days": 15,
+   "keywords": "weeds weed lawn turf grass yard weedy crabgrass dollarweed broadleaf lawn weeds weed free",
+   "observed": "The lawn at [location] has weeds that are not under control.",
+   "cure": "Remove the weeds from the lawn and keep it weed-free through regular weeding and lawn care.",
+   "standards_title": "Turf",
+   "rule": "Turf must be maintained & trimmed in a professional looking manner. No Weeds: A good lawn is free of weeds or has them under control. Regular weeding and lawn care practices can prevent weeds from taking over."
+  },
+  {
    "code": "4.02-c",
    "section": "4.02",
    "title": "Landscape change without approval",

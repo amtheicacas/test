@@ -294,6 +294,14 @@ add("3.13", "3.13", "Driveway condition", MAINT, 15, "driveway stain grease oil 
 add("3.35", "3.35", "Pressure cleaning needed", MAINT, 30, "pressure clean wash mold mildew algae dirty roof sidewalk driveway house stained",
     "The [roof / exterior walls / driveway / sidewalk / lanai] at [location] is [stained / covered in mold, mildew or algae] and needs cleaning.",
     "Pressure clean the roof and exterior surfaces and pavement, including sidewalks and driveways, within 30 days of notice.")
+add("4.02-a", "4.02", "Weeds in landscape beds / planters", LAND, 15,
+    "weeds weed weeding landscape bed beds planter planters flower bed flowerbed garden mulch overgrown unweeded unsightly growth",
+    "The landscape beds / planters at [location] contain weeds or other unsightly growth.",
+    "Remove the weeds and other unsightly growth from all landscape beds and planters, and keep them weeded and maintained.")
+add("4.05-w", "4.05", "Weeds in lawn / turf", LAND, 15,
+    "weeds weed lawn turf grass yard weedy crabgrass dollarweed broadleaf lawn weeds weed free",
+    "The lawn at [location] has weeds that are not under control.",
+    "Remove the weeds from the lawn and keep it weed-free through regular weeding and lawn care.")
 add("4.02-c", "4.02", "Landscape change without approval", LAND, 15, "landscaping change tree removed planted bed ACC approval shrub removal",
     "A landscape change ([describe: tree added or removed / shrub or hedge over 3 feet planted / landscape bed changed]) was made at [location] without ACC approval.",
     "Submit an ACC application for the change, or restore the landscaping to its previous approved condition.")
@@ -323,7 +331,7 @@ add("4.05", "4.05", "Turf standards", LAND, 15, "turf grass lawn height weeds de
     "Restore the lawn to the standards: healthy green St. Augustine grass, mowed at 3-4 inches, weed-free, pest and disease free, hard-edged, with no visible clumps of clippings.")
 
 # 4.02 sub-sections keep their own slice of the verbatim text
-SUB = {"4.02-c": "Approval of Changes", "4.02-d": "Lawns and Turf", "4.02-e": "Plant Health and Replacement",
+SUB = {"4.02-a": "General Standard", "4.02-c": "Approval of Changes", "4.02-d": "Lawns and Turf", "4.02-e": "Plant Health and Replacement",
        "4.02-f": "Shrubs, Hedges", "4.02-g": "Trees", "4.02-h": "Prohibited Plants"}
 SUB_ORDER = ["General Standard", "Definitions", "Approval of Changes", "Lawns and Turf", "Plant Health and Replacement",
              "Shrubs, Hedges", "Trees.", "Prohibited Plants", "Determinations and Compliance", "Existing Landscaping"]
@@ -352,6 +360,10 @@ def main(txt_path):
         rule = base["rule"]
         if d["code"] in SUB:
             rule = subs[SUB[d["code"]]]
+        if d["code"] == "4.05-w":   # quote just the weed clauses of the turf standard
+            m = re.search(r"No Weeds:.*?taking over\.", rule, flags=re.S)
+            assert m, "4.05 No Weeds clause not found"
+            rule = "Turf must be maintained & trimmed in a professional looking manner. " + re.sub(r"\s+", " ", m.group(0))
         items.append({**d, "standards_title": base["title"], "rule": rule})
     missing = [d["code"] for d in D if d["section"] not in by_section]
     assert not missing, missing

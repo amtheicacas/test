@@ -146,8 +146,10 @@ def test_invite_creates_homeowner_login():
 def test_hold_pauses_cure_clock_and_resumes():
     v = make_case("1 A St", status=S.NOTICE_SENT, cure_deadline=date.today() + timedelta(days=5))
     with pytest.raises(services.WorkflowError):
-        services.put_on_hold(v, " ")
-    services.put_on_hold(v, "Owner hospitalized")
+        services.put_on_hold(v, " ", date.today() + timedelta(days=30))
+    with pytest.raises(services.WorkflowError):
+        services.put_on_hold(v, "Owner hospitalized", date.today())   # the date must be after today
+    services.put_on_hold(v, "Owner hospitalized", date.today() + timedelta(days=30))
     v.held_on = date.today() - timedelta(days=10)
     v.save()
     assert services.advance_expired() == 0

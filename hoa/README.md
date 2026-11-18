@@ -116,3 +116,9 @@ When a violation is entered you choose how it goes out:
 - **Immediate - urgent:** email and US Mail go out right away.
 - **Draft:** saved without sending; issue it later from the case page with either timing.
 The cure period runs from the day the email goes out. A cure period of 0 makes the letter say "immediately (no later than 12 hours after the date of this correspondence)".
+
+## Putting a case on hold
+A hold needs an **On hold until** date. The owner gets an email 7 and 2 days before it ends (`REMINDER_DAYS`) telling them to take action. On that date (checked by `daily_jobs` and whenever a manager opens the dashboard) the hold lifts itself: the case shows **Off hold: cure period restarted**, the cure period starts over from that day (earlier extensions are cleared) and the owner is emailed the new deadline. "Lift hold now" does the same early. Only holds placed before a hearing is set restart the cure period; a case held at the committee or imposition stage goes back to where it was.
+
+## Testing as an owner
+`python manage.py owner_login --address "7316 Great Egret"` gives that existing owner a portal login (default password `demo-password-123`). `make_test_owner --email you@example.com` creates a throwaway test owner instead. Testing only.

@@ -16,10 +16,11 @@
 <label><input type="checkbox" name="request_extension"> {{ form.request_extension.label }}</label>
 {{ form.extension_days.label_tag }}{{ form.extension_days }}
 {% if v.status == "hearing_scheduled" %}<label><input type="checkbox" name="attorney_notice"> {{ form.attorney_notice.label }} (please tell us at least 7 days before)</label>{% endif %}
-<label>Photos (optional)</label><input type="file" name="photos" accept="image/*" multiple>
+<label>Photos (optional): show us the work or the corrected area</label><input type="file" name="photos" id="rphotos" accept="image/*" multiple>
+<div id="rthumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div>
 <button style="margin-top:10px">Send</button><p class="mut">We aim to reply within 48–72 hours and reinspect before a case is closed. Phone {{ MANAGER_PHONE }}, email {{ MANAGER_EMAIL }}.</p></form>{% endif %}
 <script>
 (function(){var url="{{ state_url }}",sig=null;function tick(){fetch(url,{credentials:"same-origin"}).then(r=>r.json()).then(function(d){
  if(sig!==null&&d.sig!==sig){var t=document.querySelector("textarea[name=message]");if(!t||!t.value){location.reload();}}sig=d.sig;}).catch(function(){});}
 tick();setInterval(tick,20000);})();
-</script>{% endblock %}
+</script>{% load static %}<script src="{% static 'violations/photopicker.js' %}"></script><script>(function(){var i=document.getElementById("rphotos");if(i)attachPhotoPicker(i,document.getElementById("rthumbs"));})();</script>{% endblock %}

@@ -13,7 +13,8 @@
 <label><input type="checkbox" name="request_extension" {% if form.request_extension.value %}checked{% endif %}> {{ form.request_extension.label }}</label>
 {{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}
 {% if v.status == "hearing_scheduled" %}<label><input type="checkbox" name="attorney_notice"> {{ form.attorney_notice.label }} (please tell us at least 7 days before)</label>{% endif %}
-<label>Photos showing the work or cure (optional)</label><input type="file" name="photos" accept="image/*" multiple>
+<label>Photos showing the work or cure (optional)</label><input type="file" name="photos" id="rphotos" accept="image/*" multiple>
+<div id="rthumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div><p class="mut" style="margin:0">Tip: if you've fixed it, tick "The violation has been fixed" above and add a photo of the corrected area. Photos up to 10 MB each.</p>
 <button style="margin-top:10px">Send to the association</button>
 <p class="mut">We aim to reply within 48–72 hours, and we reinspect before a case is closed. You can also call {{ MANAGER_PHONE }} or email {{ MANAGER_EMAIL }}.</p></form>{% endif %}
-{% endblock %}
+{% load static %}<script src="{% static 'violations/photopicker.js' %}"></script><script>(function(){var i=document.getElementById("rphotos");if(i)attachPhotoPicker(i,document.getElementById("rthumbs"));})();</script>{% endblock %}

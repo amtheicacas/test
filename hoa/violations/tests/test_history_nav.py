@@ -287,3 +287,76 @@ def test_form_shows_owner_and_tenant_recipients(db, client, django_user_model):
     html = client.get("/violations/new/").content.decode()
     assert 'id="owner-info"' in html and "Tina Tenant" in html and "t@example.com" in html
     assert "will not be notified" in html and 'id="recips"' not in html or True
+
+
+def test_draft_photo_can_be_removed_but_not_after_sending(db, client, django_user_model):
+    from django.core.files.base import ContentFile
+    from violations.models import Owner, ViolationType, Violation, Photo, Profile
+    o = Owner.objects.create(name="P O", property_address="6 Photo Way", email="p@example.com")
+    vt = ViolationType.objects.create(name="T6")
+    v = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c")
+    p = Photo.objects.create(violation=v, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    u = django_user_model.objects.create_user("mg5", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    assert "Remove this photo" in client.get(f"/violations/{v.pk}/").content.decode()
+    client.post(f"/violations/{v.pk}/delete_photo/", {"photo": p.pk})
+    assert not Photo.objects.filter(pk=p.pk).exists()
+    p2 = Photo.objects.create(violation=v, image=ContentFile(b"x", name="b.jpg"), from_resident=False)
+    v.status = "notice_sent"; v.save()
+    client.post(f"/violations/{v.pk}/delete_photo/", {"photo": p2.pk})
+    assert Photo.objects.filter(pk=p2.pk).exists()
+
+
+def test_resident_pages_offer_photo_upload_with_removable_thumbnails(db, client):
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="R O", property_address="7 Resident Way", email="r@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T7"), description="d", cure_required="c", status="notice_sent")
+    html = client.get(f"/r/{v.token}/").content.decode() if False else None
+    from django.urls import reverse
+    html = client.get(v.resident_url().replace("http://localhost:8000", "")).content.decode()
+    assert 'name="photos"' in html and "photopicker.js" in html and 'id="rthumbs"' in html
+
+
+def test_owner_login_command_and_portal_shows_letter_and_photo(db, client, django_user_model):
+    from django.core.files.base import ContentFile
+    from django.core.management import call_command
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Photo
+    o = Owner.objects.create(name="Adam Rouse", property_address="7316 Great Egret Boulevard #65", lot_no="65", email="a@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T8"), description="d", cure_required="c")
+    Photo.objects.create(violation=v, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    services.issue_first_notice(v)
+    call_command("owner_login", "--address", "7316 Great Egret")
+    client.force_login(django_user_model.objects.get(username="owner-65"))
+    html = client.get(f"/me/{v.pk}/").content.decode()
+    assert "T8" in html and "View / print" in html and "/photos/" in html and "Send a message" in html
+
+
+def test_hold_until_date_lifts_itself_restarts_cure_and_emails(db, mailoutbox):
+    from datetime import date, timedelta
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="H O", property_address="10 Hold Way", email="h@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T10"), description="d", cure_required="c",
+                                 status="notice_sent", cure_days=15, cure_deadline=date.today() + timedelta(days=3), extended_days=5)
+    services.put_on_hold(v, "Hospital", date.today() + timedelta(days=6))
+    assert services.send_hold_reminders() == 1 and "hold" in mailoutbox[-1].subject.lower()      # 6 days left: inside the 7-day window
+    assert services.send_hold_reminders() == 0                                                    # not twice
+    assert services.lift_expired_holds() == 0
+    assert services.lift_expired_holds(date.today() + timedelta(days=6)) == 1
+    v.refresh_from_db()
+    assert v.status == "notice_sent" and v.off_hold_on and v.extended_days == 0
+    assert v.cure_deadline == date.today() + timedelta(days=6 + 15)       # lifted 6 days from now: 15 fresh days from that day
+    assert v.get_status_display().startswith("Off hold") and "Hold ended" in mailoutbox[-1].subject
+
+
+def test_address_brackets_fill_in_automatically(db):
+    from violations.forms import ViolationForm
+    from violations.models import Owner, ViolationType
+    o = Owner.objects.create(name="A B", property_address="7316 Great Egret Boulevard #65")
+    vt = ViolationType.objects.create(name="Mold")
+    f = ViolationForm({"owner": o.pk, "vtype": vt.pk, "observed_on": "2026-01-01", "timing": "draft", "cure_days": 7,
+                       "description": "The sidewalk at [location] has mold.", "cure_required": "Clean [address]."})
+    assert f.is_valid(), f.errors
+    assert "7316 Great Egret Boulevard #65" in f.cleaned_data["description"] and "[" not in f.cleaned_data["cure_required"]

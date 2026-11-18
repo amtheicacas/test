@@ -24,6 +24,10 @@ class ViolationForm(forms.ModelForm):
 
     def clean(self):
         data = super().clean()
+        o = data.get("owner")
+        if o:   # we already know the address: fill "[location]" / "[address]" instead of asking the user to type it
+            for f in ("description", "cure_required"):
+                data[f] = re.sub(r"\[(location|address|property address)\]", lambda m: o.property_address, data.get(f) or "", flags=re.I)
         if data.get("non_curable"):
             data["cure_days"] = 0   # nothing to cure, so no cure period
         for f, label in (("description", "What was observed"), ("cure_required", "Required cure")):
@@ -131,6 +135,14 @@ class AssignForm(forms.Form):
 
 class HoldForm(forms.Form):
     reason = forms.CharField(label="Reason for hold")
+    until = forms.DateField(label="On hold until", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+                            help_text="The hold lifts itself on this date and the cure period starts over.")
+
+    def clean_until(self):
+        d = self.cleaned_data["until"]
+        if d <= date.today():
+            raise forms.ValidationError("Pick a date after today.")
+        return d
 
 
 class CommitteeForm(forms.Form):

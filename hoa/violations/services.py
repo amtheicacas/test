@@ -161,6 +161,17 @@ def send_due_mailings(today=None):
     return sent
 
 
+@transaction.atomic
+def delete_photo(v, photo, user=None):
+    """Remove a wrongly added photo. Only while the violation is still a draft (once the notice is out, the photo is part of it)."""
+    _require(v, S.DRAFT)
+    if photo.violation_id != v.pk or photo.from_resident:
+        raise WorkflowError("That photo can't be removed.")
+    photo.image.delete(save=False)
+    photo.delete()
+    log(v, "Photo removed before sending", user)
+
+
 def mark_mailed(notice, mailed_on, tracking="", user=None, method="", return_receipt_on=None):
     notice.mailed_on, notice.tracking_number = mailed_on, tracking
     notice.method, notice.return_receipt_on = method, return_receipt_on
@@ -212,24 +223,84 @@ def refer_to_attorney(v, user=None, note=""):
 
 
 @transaction.atomic
-def put_on_hold(v, reason, user=None):
+def put_on_hold(v, reason, until, user=None):
     _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.ON_HOLD)])
     if not reason.strip():
         raise WorkflowError("Give a reason for the hold.")
-    v.held_from, v.hold_reason, v.held_on, v.status = v.status, reason.strip(), date.today(), S.ON_HOLD
+    if not until or until <= date.today():
+        raise WorkflowError("Choose the date the hold lasts until (after today).")
+    v.held_from, v.hold_reason, v.held_on, v.hold_until, v.status = v.status, reason.strip(), date.today(), until, S.ON_HOLD
     v.save()
-    log(v, f"Put on hold: {reason.strip()}", user)
+    log(v, f"Put on hold until {until:%b %d, %Y}: {reason.strip()}", user)
+
+
+RESTART_CURE_FROM = (S.NOTICE_SENT, S.PENDING_BOARD, S.HEARING_NEEDED)   # holds before a hearing is set: the cure period starts over
 
 
 @transaction.atomic
-def resume(v, user=None):
+def resume(v, user=None, auto=False, today=None):
+    """Lift a hold (by hand, or automatically on its 'until' date). Cases held before a hearing go back to the cure period, which
+    starts over from today; later stages go back where they were."""
     _require(v, S.ON_HOLD)
+    today = today or date.today()
     back = v.held_from or S.NOTICE_SENT
-    if back == S.NOTICE_SENT and v.cure_deadline and v.held_on:  # the cure clock was paused
-        v.cure_deadline += timedelta(days=(date.today() - v.held_on).days)
-    v.status, v.held_from, v.hold_reason, v.held_on = back, "", "", None
+    restart = back in RESTART_CURE_FROM
+    if restart:
+        v.status, v.extended_days, v.off_hold_on = S.NOTICE_SENT, 0, today
+        v.cure_deadline = today + timedelta(days=v.cure_days)
+    else:
+        v.status = back
+    v.held_from, v.hold_reason, v.held_on, v.hold_until = "", "", None, None
     v.save()
-    log(v, f"Hold lifted — back to '{v.get_status_display()}'", user)
+    log(v, ("Hold ended automatically" if auto else "Hold lifted") + (f"; off hold, cure period restarted, new deadline {v.cure_deadline:%b %d, %Y}" if restart
+        else f" - back to '{v.get_status_display()}'"), user)
+    if restart:
+        when = "immediately" if v.cure_days == 0 else f"by {v.cure_deadline:%A, %B %d, %Y}"
+        _email_owner(v, f"Hold ended: violation at {v.owner.property_address}",
+                     f"The hold on the {v.vtype.name.lower()} violation at {v.owner.property_address} has ended. The cure period has started over "
+                     f"and the violation must now be corrected {when}.\n\nRequired cure: {v.cure_required}\n\n"
+                     "If you have already corrected it, please tell us (a photo helps) so it can be reinspected. If you need more time, "
+                     "please ask before the deadline. After the deadline the matter may be referred to the Board of Directors.")
+
+
+def lift_expired_holds(today=None):
+    """Holds whose 'until' date has arrived lift themselves (the cure period then starts over)."""
+    today = today or date.today()
+    n = 0
+    for v in Violation.objects.filter(status=S.ON_HOLD, hold_until__lte=today).select_related("owner", "vtype"):
+        resume(v, auto=True, today=today)
+        n += 1
+    return n
+
+
+def send_hold_reminders(today=None):
+    """Daily job: warn the owner that a hold is about to end and that they need to take action to cure (REMINDER_DAYS before)."""
+    today = today or date.today()
+    sent = 0
+    for v in Violation.objects.filter(status=S.ON_HOLD, hold_until__gt=today).select_related("owner", "vtype"):
+        left = (v.hold_until - today).days
+        due = [d for d in sorted(settings.REMINDER_DAYS) if left <= d]
+        if not due:
+            continue
+        done = set(v.reminders.filter(deadline=v.hold_until).values_list("days_before", flat=True))
+        todo = [d for d in due if d not in done]
+        if not todo:
+            continue
+        for d in todo:
+            Reminder.objects.get_or_create(violation=v, deadline=v.hold_until, days_before=d,
+                                           defaults={"sent_at": timezone.now() if d == todo[0] else None})
+        if not recipient_groups(v):
+            continue
+        when = "tomorrow" if left == 1 else f"in {left} days"
+        _email_owner(v, f"Reminder: the hold on the violation at {v.owner.property_address} ends {when}",
+                     f"The hold on the {v.vtype.name.lower()} violation at {v.owner.property_address} ends on {v.hold_until:%A, %B %d, %Y} ({when}). "
+                     "When it ends, the cure period starts over"
+                     + (" and the violation must be corrected immediately" if v.cure_days == 0 else f" and you will have {v.cure_days} days to correct it")
+                     + f".\n\nRequired cure: {v.cure_required}\n\nPlease take action now so the violation is corrected before the hold ends. "
+                     "If it is already corrected, tell us (a photo helps) so it can be reinspected. If you need more time, please contact us before the hold ends.")
+        log(v, f"Hold-ending reminder emailed ({left} day{'s' if left != 1 else ''} left)")
+        sent += 1
+    return sent
 
 
 @transaction.atomic
@@ -359,6 +430,7 @@ def advance_expired(today=None):
     today = today or date.today()
     n = 0
     send_due_mailings(today)
+    lift_expired_holds(today)
     for v in Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__lt=today):
         v.status = S.PENDING_BOARD
         v.save()
@@ -546,6 +618,8 @@ def owner_history(v, today=None):
         "others": others, "same_type": same_type, "same_section": same_section, "open_others": open_others, "past": past,
         "total": len(others) + 1, "fines_total": sum(o.fine_amount for o in imposed),
         "last_12_months": sum(1 for o in others if o.created_at.date() >= today - timedelta(days=365)) + 1,
+        "last_12_list": [o for o in others if o.created_at.date() >= today - timedelta(days=365)],
+        "imposed": imposed,
         "occurrence": len(same_type) + 1,           # this is the 1st, 2nd, 3rd... time for this violation type
         "repeat_of": repeat_of,
     }
