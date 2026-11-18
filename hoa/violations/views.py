@@ -285,9 +285,26 @@ def violation_create(request):
         return redirect(v)
     from .models import ViolationType
     catalog = [standards_search.serialize(t) for t in ViolationType.objects.exclude(code__isnull=True).order_by("section", "code")]
-    return render(request, "violations/form.html", {"form": form, "catalog": catalog,
+    owner_info = {str(o.pk): recipient_summary(o) for o in Owner.objects.filter(active=True)}
+    return render(request, "violations/form.html", {"form": form, "catalog": catalog, "owner_info": owner_info,
                                                     "ai_available": standards_search.ai_available(),
                                                     "categories": sorted({c["category"] for c in catalog})})
+
+
+def recipient_summary(o):
+    """Who a notice for this home reaches (shown on the new-violation form): owner and, while the lease is active, the tenant."""
+    def lines(kind):
+        return o.address_block(kind).split("\n", 1)[1].replace("\n", ", ")
+    owner = {"name": o.display_name, "emails": list(o.all_emails), "mail": [lines(k) for k in o.owner_mail_kinds()]}
+    out = {"owner": owner, "tenant": None, "tenant_note": ""}
+    if o.has_tenant:
+        out["tenant"] = {"name": o.tenant_name, "emails": list(o.tenant_emails), "mail": [lines("tenant")],
+                         "lease": " to ".join(d.strftime("%b %-d, %Y") for d in (o.tenant_start, o.tenant_end) if d)}
+    elif o.tenant_name.strip():
+        out["tenant_note"] = (f"A tenant ({o.tenant_name}) is on record but the lease "
+                              + ("ended " + o.tenant_end.strftime("%b %-d, %Y") if o.tenant_lease_ended else "has not started")
+                              + ", so they will not be notified.")
+    return out
 
 
 @staff_only

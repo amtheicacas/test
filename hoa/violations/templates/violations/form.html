@@ -30,6 +30,7 @@
 </form>
 
 {{ catalog|json_script:"catalog-data" }}
+{{ owner_info|json_script:"owner-info" }}
 <script>
 (function () {
   var CAT = JSON.parse(document.getElementById("catalog-data").textContent);
@@ -70,6 +71,24 @@
     olist.addEventListener("mousedown", function (e) { var el = e.target.closest("[data-i]"); if (el) { e.preventDefault(); pick(+el.getAttribute("data-i")); } });
     oq.addEventListener("blur", function () { setTimeout(function () { olist.style.display = "none"; }, 120); });
     own.addEventListener("change", function () { if (own.value) { var o = opts.filter(function (x) { return x.v === own.value; })[0]; if (o) oq.value = o.t; } });
+    // ---- who will get the notice: owner, and the tenant while the lease is active ----
+    var INFO = JSON.parse($("owner-info").textContent);
+    var panel = document.createElement("div"); panel.id = "recips"; panel.className = "card"; panel.style.cssText = "display:none;margin:6px 0 10px;background:var(--bg)";
+    own.parentNode.insertBefore(panel, own.nextSibling);
+    function who(label, p) {
+      return '<p style="margin:4px 0"><b>' + label + ': ' + esc(p.name) + '</b>' + (p.lease ? ' <span class="mut">(lease ' + esc(p.lease) + ')</span>' : '') + '<br>' +
+        'Email: ' + (p.emails.length ? esc(p.emails.join("; ")) : '<span class="late">none on file</span>') + '<br>' +
+        'US Mail: ' + (p.mail.length ? p.mail.map(esc).join('<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span class="late">no address</span>') + '</p>';
+    }
+    function showRecips() {
+      var i = INFO[own.value];
+      if (!i) { panel.style.display = "none"; return; }
+      panel.innerHTML = '<b>This notice will go to:</b>' + who("Owner", i.owner) + (i.tenant ? who("Tenant", i.tenant)
+        : (i.tenant_note ? '<p class="mut" style="margin:4px 0">' + esc(i.tenant_note) + '</p>' : '<p class="mut" style="margin:4px 0">No tenant on record: owner only.</p>'));
+      panel.style.display = "block";
+    }
+    own.addEventListener("change", showRecips);
+    showRecips();
     if (own.value) own.dispatchEvent(new Event("change"));
   }
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }

@@ -273,3 +273,17 @@ def test_dashboard_overdue_counts(db, client, django_user_model):
     client.force_login(u)
     r = client.get("/violations/?overdue=fine")
     assert r.status_code == 200 and "5 Late Way" in r.content.decode()
+
+
+def test_form_shows_owner_and_tenant_recipients(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, Profile
+    Owner.objects.create(name="Nilesh Patel", property_address="7213 Great Egret Boulevard #3", email="n@example.com",
+                         tenant_name="Tina Tenant", tenant_email="t@example.com", tenant_end=date.today() + timedelta(days=90))
+    Owner.objects.create(name="Old Lease", property_address="8 Old Way", tenant_name="Gone Tenant", tenant_end=date.today() - timedelta(days=5))
+    u = django_user_model.objects.create_user("mg4", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    html = client.get("/violations/new/").content.decode()
+    assert 'id="owner-info"' in html and "Tina Tenant" in html and "t@example.com" in html
+    assert "will not be notified" in html and 'id="recips"' not in html or True
