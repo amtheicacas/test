@@ -47,7 +47,8 @@ def can_view(user, v):
     if role in STAFF:
         return True
     if role == "committee":
-        return v.committee_meeting_id is not None and v.status in COMMITTEE_VISIBLE
+        # the committee sees a case once the Board has voted on it (waiting for a meeting), and from then on through its meeting
+        return v.status == S.HEARING_NEEDED or (v.committee_meeting_id is not None and v.status in COMMITTEE_VISIBLE)
     if role == "homeowner":
         o = accounts.owner_of(user)
         return bool(o) and v.owner_id == o.id and v.status != S.DRAFT
@@ -621,6 +622,7 @@ def committee_home(request):
     now = timezone.now()
     ms = CommitteeMeeting.objects.annotate(n=Count("violations"), done=Count("violations", filter=~Q(violations__committee_outcome="")))
     return render(request, "violations/committee_home.html", {
+        "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner", "vtype").order_by("board_meeting_date", "pk"),
         "upcoming": ms.filter(starts_at__gte=now - timedelta(hours=12)).order_by("starts_at"),
         "past": ms.filter(starts_at__lt=now - timedelta(hours=12))[:6]})
 

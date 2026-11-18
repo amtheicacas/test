@@ -1,5 +1,5 @@
 {% extends "violations/base.html" %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
-<p><a href="{% url 'committee_meeting' v.committee_meeting_id %}">← Meeting list</a></p>
+<p>{% if v.committee_meeting_id %}<a href="{% url 'committee_meeting' v.committee_meeting_id %}">&larr; Meeting list</a>{% else %}<a href="{% url 'committee_home' %}">&larr; Committee meetings</a>{% endif %}</p>
 <h1>{{ v.owner.property_address }} — {{ v.vtype }}</h1>
 <div class="card">{% include "violations/_steps.html" %}
 <p><b>Owner:</b> {{ v.owner.display_name }}{% if v.owner.has_tenant %} · tenant {{ v.owner.tenant_name }}{% endif %}</p>

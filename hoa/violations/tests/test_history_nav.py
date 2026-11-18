@@ -635,3 +635,18 @@ def test_new_violation_page_script_runs_without_errors_and_search_lists_weeds(db
     r = subprocess.run(["node", f.name], capture_output=True, text=True)
     os.unlink(f.name)
     assert r.returncode == 0, r.stderr[-400:]
+
+
+def test_committee_sees_cases_after_the_board_vote_and_login_command(db, client, django_user_model):
+    from django.core.management import call_command
+    from violations.models import Owner, ViolationType, Violation
+    call_command("make_login", "committee", "--username", "cmtest", "--name", "Casey Member")
+    o = Owner.objects.create(name="W O", property_address="20 Wait Way")
+    vt = ViolationType.objects.create(name="Trash")
+    waiting = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="hearing_needed", proposed_fine=100)
+    early = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board")
+    client.force_login(django_user_model.objects.get(username="cmtest"))
+    html = client.get("/committee/").content.decode()
+    assert "Waiting to be scheduled" in html and "20 Wait Way" in html
+    assert client.get(f"/committee/cases/{waiting.pk}/").status_code == 200           # visible once the Board has voted
+    assert client.get(f"/committee/cases/{early.pk}/").status_code == 403             # not before
