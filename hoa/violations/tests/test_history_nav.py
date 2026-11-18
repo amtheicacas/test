@@ -185,3 +185,40 @@ def test_label_text_includes_resident_name():
     out = subprocess.run(["node", "-e", f"const F=require({json.dumps(str(js))});console.log(F.labelText({{address:'1 A St',lot:'4',owner:'Pat Lee'}},{{address:true,lot:false,name:true}}))"],
                          capture_output=True, text=True).stdout.strip()
     assert out == "1 A St · Pat Lee"
+
+
+def _case(owner, vtype, **kw):
+    from violations.models import Violation, Photo
+    from violations import services
+    v = Violation.objects.create(owner=owner, vtype=vtype, description="x", cure_required="Fix it.", **kw)
+    return v
+
+
+def test_zero_cure_days_letter_says_immediately(db):
+    from violations.models import Owner, ViolationType
+    from violations.pdf import render_notice_pdf
+    from violations.models import Notice
+    import subprocess, tempfile, os
+    o = Owner.objects.create(name="Zed Owner", property_address="1 Test Way", email="z@example.com")
+    vt = ViolationType.objects.create(name="Thing", default_cure_days=15)
+    v = _case(o, vt, cure_days=0, non_curable=True, board_emergency=True)
+    assert v.cure_phrase == "immediately" and v.is_immediate
+    n = Notice.objects.create(violation=v, kind=Notice.Kind.VIOLATION)
+    pdf = render_notice_pdf(n, "owner")
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(pdf if isinstance(pdf, bytes) else pdf.getvalue())
+    t = subprocess.run(["pdftotext", "-layout", f.name, "-"], capture_output=True, text=True).stdout
+    os.unlink(f.name)
+    assert "cannot be cured" in t and "declared this matter an emergency" in t
+    assert "within 0 days" not in t and "immediately" in t
+
+
+def test_form_accepts_zero_days_and_non_curable_forces_zero(db):
+    from violations.forms import ViolationForm
+    from violations.models import Owner, ViolationType
+    o = Owner.objects.create(name="A B", property_address="2 Test Way")
+    vt = ViolationType.objects.create(name="T2")
+    base = {"owner": o.pk, "vtype": vt.pk, "observed_on": "2026-01-01", "description": "d", "cure_required": "c", "cure_days": 0}
+    f = ViolationForm(base); assert f.is_valid(), f.errors
+    f2 = ViolationForm({**base, "cure_days": 10, "non_curable": "on"}); assert f2.is_valid()
+    assert f2.cleaned_data["cure_days"] == 0

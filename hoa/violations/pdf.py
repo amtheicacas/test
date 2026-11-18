@@ -144,6 +144,15 @@ def _respond_line(v):
     return _p("\n".join(bits), SMALL)
 
 
+def _immediate_notes(v):
+    out = []
+    if v.board_emergency:
+        out.append(_p("The Board of Directors has declared this matter an emergency.", BOLD))
+    if v.safety_issue:
+        out.append(_p("This condition presents a health or safety concern and requires your immediate attention.", BOLD))
+    return out
+
+
 def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     """The Notice of Violation page(s) without the response form."""
     if v.vtype.section and v.vtype.source == "Declaration":
@@ -154,7 +163,10 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     top = Table([[left, _photo(v, stamp)]], colWidths=[4.1 * inch, 2.4 * inch])
     top.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                              ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
-    cure_by = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"within {v.cure_days} days of receipt of this notice"
+    if v.total_cure_days == 0:
+        cure_by = None   # no cure period: the letter says "immediately"
+    else:
+        cure_by = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"within {v.cure_days} days of receipt of this notice"
     s = letterhead() + [_p("FIRST CLASS MAIL", BOLD), top, Spacer(1, 8),
         _p(f"RE: {v.owner.property_address} located at {settings.HOA_NAME} Violation of the Covenants and Restrictions. "
            "All Governing Documents can be located and reviewed in the Homeowner Portal or at the Association's Website."),
@@ -178,12 +190,15 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     if v.vtype.rule_text:   # the COVENANTS line already names the section, so don't repeat "Section 5.4 Signs." at the start of the quote
         s.append(_p(re.sub(r"^Section [\d.]+ [^.]+\.\s*", "", v.vtype.rule_text), RULE))
     s += [_p(f"Observed on {v.observed_on:%B %d, %Y}: {v.description}", RULE),
-          _p(f"Required cure: {v.cure_required} Please correct this by {cure_by}.", RULE),
+          _p(f"Required cure: {v.cure_required} " + (
+              ("Because this violation cannot be cured, no cure period is provided." if v.non_curable
+               else "Please correct this immediately upon receipt of this notice.") if cure_by is None
+              else f"Please correct this by {cure_by}."), RULE)] + _immediate_notes(v) + [
           _p("We appreciate your prompt attention to this matter. We find in most cases homeowners respond to this notice "
              "by immediately correcting the problem. If you can correct this situation in a reasonable length of time, we "
              f"thank you for making {settings.HOA_NAME} a better community, and you can consider this matter resolved."),
           _p("If you are unable to take corrective action, please submit a violation correction plan using the attached "
-             f"Correction Response Form within {v.cure_days} days of receipt of this notice."),
+             f"Correction Response Form {'immediately' if v.total_cure_days == 0 else 'within ' + str(v.cure_days) + ' days of receipt of this notice'}."),
           _p("Please be advised that you must comply with the above on or before the date stated. If you fail or refuse to comply, or "
              "if further violations occur, the Association may, with proper notice, pursue further action against you to enforce the "
              "Governing Documents. Such action may include (but is not limited to): imposing a fine against you and/or suspending your "
@@ -216,7 +231,7 @@ def _response_form(v, to_name, mail_block, dated):
         Spacer(1, 4),
         _p("______    The non-compliance is not at this address."),
         _p("______    This issue has already been resolved."),
-        _p(f"______    I cannot resolve this issue within {v.cure_days} days."),
+        _p("______    I cannot resolve this issue " + ("immediately." if v.total_cure_days == 0 else f"within {v.cure_days} days.")),
         _p("My plan to resolve this violation is as follows:"), Spacer(1, 12),
         _p("Comments:"), _p(line), Spacer(1, 4), _p(line), Spacer(1, 4), _p(line), Spacer(1, 14),
         _p("Signature: " + "_" * 60), Spacer(1, 14),

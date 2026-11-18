@@ -245,6 +245,8 @@ def send_cure_reminders(today=None):
     sent = 0
     for v in Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__gte=today).select_related("owner", "vtype"):
         left = (v.cure_deadline - today).days
+        if v.total_cure_days == 0:
+            continue   # "immediately" notices have no countdown to remind about
         due = [d for d in sorted(settings.REMINDER_DAYS) if left <= d]  # most urgent threshold first
         if not due:
             continue

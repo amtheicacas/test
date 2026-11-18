@@ -8,17 +8,19 @@ from .models import Violation
 
 class ViolationForm(forms.ModelForm):
     send_now = forms.BooleanField(required=False, initial=True,
-        label="Issue immediately: email the owner and send to the print/mail provider")
+        label="Send the notice now: email the owner and send to the print/mail provider")
 
     class Meta:
         model = Violation
-        fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days", "safety_issue"]
+        fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days", "non_curable", "safety_issue", "board_emergency"]
         widgets = {"observed_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                    "description": forms.Textarea(attrs={"rows": 3}),
                    "cure_required": forms.Textarea(attrs={"rows": 3})}
 
     def clean(self):
         data = super().clean()
+        if data.get("non_curable"):
+            data["cure_days"] = 0   # nothing to cure, so no cure period
         for f, label in (("description", "What was observed"), ("cure_required", "Required cure")):
             if re.search(r"\[[^\]]*\]", data.get(f) or ""):
                 self.add_error(f, f"{label} still has [bracketed] text. Replace it with the specifics before sending.")

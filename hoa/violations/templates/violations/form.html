@@ -20,9 +20,12 @@
     <details><summary>Show the rule text that will be quoted in the letter</summary><p id="ruletext" style="white-space:pre-line;margin-top:6px"></p></details>
   </div>
   <div id="brackets" class="msg warning" style="display:none"></div>
-  {{ form.as_p }}
+  {{ form.non_field_errors }}
+  {% for f in form %}{% if f.name == "non_curable" %}<p style="margin-bottom:2px"><b>Immediate Issue</b> <span class="mut">(tick any that apply; the Board may act before a cure period would run out)</span></p>{% endif %}
+  {% if f.name == "non_curable" or f.name == "safety_issue" or f.name == "board_emergency" %}<p style="margin:2px 0 2px 14px">{{ f }} <label for="{{ f.id_for_label }}" style="display:inline;font-weight:400">{{ f.label }}</label>{{ f.errors }}</p>
+  {% else %}<p>{{ f.label_tag }} {{ f }}{% if f.help_text %}<br><span class="mut">{{ f.help_text }}</span>{% endif %}{{ f.errors }}</p>{% endif %}{% endfor %}
   <label>Photo(s) of the violation</label><input type="file" name="photos" accept="image/*" multiple>
-  <p class="mut">Leave "Issue immediately" checked to send right away, or uncheck it to save a draft and review first. Anything in [square brackets] must be replaced with the specifics before it can be sent.</p>
+  <p class="mut">Leave "Send the notice now" checked to send right away, or uncheck it to save a draft and review first. Anything in [square brackets] must be replaced with the specifics before it can be sent.</p>
   <button>Save</button>
 </form>
 
@@ -108,7 +111,7 @@
   }
   function apply(c) {
     sel.value = c.id;
-    desc.value = c.observed; cure.value = c.cure; days.value = c.cure_days;
+    desc.value = c.observed; cure.value = c.cure; if (!(nc && nc.checked)) days.value = c.cure_days;
     $("rulebox").style.display = "block";
     $("ruletitle").textContent = c.reference;
     $("ruletext").textContent = c.rule;
@@ -124,6 +127,8 @@
     var c = byId[sel.value];
     if (c && (!desc.value.trim() || confirm("Replace the current text with the drafted text for this rule?"))) apply(c);
   });
+  var nc = $("id_non_curable");
+  if (nc) { nc.addEventListener("change", function () { if (nc.checked) days.value = 0; days.readOnly = nc.checked; }); if (nc.checked) days.readOnly = true; }
   desc.addEventListener("input", bracketCheck); cure.addEventListener("input", bracketCheck);
   browse(); bracketCheck();
   if (sel.value && byId[sel.value]) { $("rulebox").style.display = "block"; $("ruletitle").textContent = byId[sel.value].reference; $("ruletext").textContent = byId[sel.value].rule; }

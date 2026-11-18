@@ -211,13 +211,17 @@ class Violation(models.Model):
     observed_on = models.DateField(default=date.today)
     description = models.TextField(help_text="What was observed.")
     cure_required = models.TextField(help_text="What the owner must do to cure.")
-    cure_days = models.PositiveIntegerField(default=15, help_text="Days allowed to cure from the notice date.")
+    cure_days = models.PositiveIntegerField(default=15, help_text="Days allowed to cure from the notice date. Enter 0 for \"immediately\".")
     cure_deadline = models.DateField(null=True, blank=True)
     extended_days = models.PositiveIntegerField(default=0, help_text="Total days added to the cure period by approved extensions.")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     token = models.CharField(max_length=64, unique=True, editable=False, default=secrets.token_urlsafe)
 
-    safety_issue = models.BooleanField(default=False, help_text="Threatens health/safety — Board may act before the cure deadline.")
+    # "Immediate Issue" options: any of these lets the Board act before a cure period would run out
+    non_curable = models.BooleanField("Non curable violation", default=False,
+                                      help_text="Can't be undone by corrective action, so no cure period is given.")
+    safety_issue = models.BooleanField("Safety issue", default=False, help_text="Threatens health/safety — Board may act before the cure deadline.")
+    board_emergency = models.BooleanField("Board declared emergency", default=False)
     # Board stage: the vote only PROPOSES a fine and/or suspension
     board_meeting_date = models.DateField(null=True, blank=True)
     proposed_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
@@ -297,6 +301,16 @@ class Violation(models.Model):
     def pending_extension(self):
         """The owner's oldest unanswered request for more time, if any."""
         return self.responses.filter(extension_requested=True, handled=False).first()
+
+    @property
+    def is_immediate(self):
+        return self.non_curable or self.safety_issue or self.board_emergency
+
+    @property
+    def cure_phrase(self):
+        """'immediately' or 'within N days' (used in letters and screens)."""
+        n = self.total_cure_days
+        return "immediately" if n == 0 else f"within {n} days"
 
     @property
     def total_cure_days(self):
