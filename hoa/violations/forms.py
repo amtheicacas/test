@@ -7,8 +7,12 @@ from .models import Violation
 
 
 class ViolationForm(forms.ModelForm):
-    send_now = forms.BooleanField(required=False, initial=True,
-        label="Send the notice now: email the owner and send to the print/mail provider")
+    timing = forms.ChoiceField(
+        label="Violation Issuance Timing", initial="standard", widget=forms.RadioSelect,
+        choices=[("standard", "Standard: email the owner now, then hold the mailed copy 2 business days "
+                              "(if it is corrected in that time, the postage is saved)"),
+                 ("urgent", "Issue immediately - urgent: email and send to US Mail right now"),
+                 ("draft", "Save as a draft (don't send yet)")])
 
     class Meta:
         model = Violation

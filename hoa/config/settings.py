@@ -184,5 +184,7 @@ MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Max
 
 # Declaration 8.1(A)(i): a suspension of recreational-facility use may not exceed 60 days for an infraction (and may be renewed for successive
 # 60-day periods while the infraction is uncorrected). Fines of $1,000 or more may be secured by a lien; smaller fines may not.
+# First notices go out by email at once; the printed/mailed copy waits this many business days (Mon-Fri) in case the owner fixes it (saves postage).
+MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))

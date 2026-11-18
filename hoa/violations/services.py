@@ -53,11 +53,28 @@ def _signature():
     return (f"\n\nQuestions? {contact}" if contact else "") + f"\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}"
 
 
-def send_notice(v, kind, user=None):
-    """Create a notice, print/mail it (if a provider is on), and email each recipient (owner, and tenant if rented) their own
-    copy with the PDF attached. A failure to email or mail is recorded on the notice and never stops the case."""
+def add_business_days(start, n):
+    """The date n weekdays (Mon-Fri) after `start`. Holidays are not skipped."""
+    d = start
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
+def send_notice(v, kind, user=None, hold_mail_days=0):
+    """Create a notice, email each recipient (owner, and tenant if rented) their own copy with the PDF attached, and print/mail it.
+    With hold_mail_days > 0 the email goes now but the printed copy waits that many business days (see send_due_mailings).
+    A failure to email or mail is recorded on the notice and never stops the case."""
     notice = Notice.objects.create(violation=v, kind=kind)
-    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
+    if hold_mail_days:
+        notice.mail_hold_until = add_business_days(date.today(), hold_mail_days)
+        notice.save()
+        log(v, f"{notice.get_kind_display()}: mailed copy held until {notice.mail_hold_until:%b %d, %Y} "
+            f"({hold_mail_days} business days) in case it is corrected first")
+    else:
+        mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
     sent_to, errors = [], []
     for who, emails, name in recipient_groups(v):
         try:
@@ -86,16 +103,62 @@ def send_notice(v, kind, user=None):
 
 
 @transaction.atomic
-def issue_first_notice(v, user=None, today=None):
+def issue_first_notice(v, user=None, today=None, timing=None):
+    """Standard: email now, mail after settings.MAIL_DELAY_BUSINESS_DAYS business days. Urgent: email and mail now.
+    The cure period runs from the day the email goes out."""
     _require(v, S.DRAFT)
+    timing = timing or v.issuance_timing or Violation.Timing.STANDARD
     if not v.photos.filter(from_resident=False).exists():
         raise WorkflowError("Add at least one photo of the violation before sending.")
     today = today or date.today()
     v.cure_deadline = today + timedelta(days=v.cure_days)
     v.status = S.NOTICE_SENT
+    v.issuance_timing = timing
     v.save()
-    log(v, f"Notice of Violation issued; cure deadline {v.cure_deadline:%b %d, %Y}", user)
-    return send_notice(v, Notice.Kind.VIOLATION, user)
+    log(v, f"Notice of Violation issued ({'urgent: email and mail now' if timing == Violation.Timing.URGENT else 'standard: email now, mail later'}); "
+           f"cure deadline {v.cure_deadline:%b %d, %Y}", user)
+    delay = 0 if timing == Violation.Timing.URGENT else settings.MAIL_DELAY_BUSINESS_DAYS
+    return send_notice(v, Notice.Kind.VIOLATION, user, hold_mail_days=delay)
+
+
+def _mail_due(notice):
+    """Hand a held notice to the mail provider now (it stays on the print list when no provider is on)."""
+    notice.mail_tried_on = date.today()
+    notice.save()
+    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
+
+
+def cancel_held_mailings(v, reason="corrected before the mail date; postage saved"):
+    n = 0
+    for notice in v.notices.filter(mail_hold_until__isnull=False, mailed_on__isnull=True, mail_cancelled=False):
+        notice.mail_cancelled = True
+        notice.save()
+        log(v, f"{notice.get_kind_display()}: mailing cancelled ({reason})")
+        n += 1
+    return n
+
+
+def mail_now(notice, user=None):
+    """Override the delay: send this held notice to the mail provider immediately."""
+    if not notice.mail_held:
+        raise WorkflowError("This notice is not waiting to be mailed.")
+    log(notice.violation, f"{notice.get_kind_display()}: mailed copy released early", user)
+    _mail_due(notice)
+
+
+def send_due_mailings(today=None):
+    """Daily job: hand over held notices whose wait is over, unless the case was corrected or closed meanwhile."""
+    today = today or date.today()
+    sent = 0
+    qs = Notice.objects.filter(mail_hold_until__lte=today, mailed_on__isnull=True, mail_cancelled=False).exclude(mail_tried_on=today)
+    for notice in qs.select_related("violation__owner"):
+        v = notice.violation
+        if v.cured_on or v.status in (S.CURED, S.CLOSED, S.DISMISSED):
+            cancel_held_mailings(v)
+            continue
+        _mail_due(notice)
+        sent += 1
+    return sent
 
 
 def mark_mailed(notice, mailed_on, tracking="", user=None, method="", return_receipt_on=None):
@@ -118,6 +181,7 @@ def _close_if_done(v, user=None):
 def mark_cured(v, user=None, note="", today=None):
     _require(v, *Violation.OPEN)
     v.cured_on = today or date.today()
+    cancel_held_mailings(v)
     if v.status in (S.FINE_APPROVED, S.LEDGER_PENDING):
         log(v, "Violation corrected" + (f": {note}" if note else ""), user)
         _close_if_done(v, user)
@@ -172,6 +236,7 @@ def resume(v, user=None):
 def dismiss(v, user=None, note=""):
     _require(v, *Violation.OPEN)
     v.status = S.DISMISSED
+    cancel_held_mailings(v, "case dismissed")
     v.save()
     log(v, "Dismissed (no violation / withdrawn)" + (f": {note}" if note else ""), user)
 
@@ -293,6 +358,7 @@ def advance_expired(today=None):
     """Daily job: cure periods that ended without cure move to the board queue."""
     today = today or date.today()
     n = 0
+    send_due_mailings(today)
     for v in Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__lt=today):
         v.status = S.PENDING_BOARD
         v.save()

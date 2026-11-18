@@ -218,7 +218,30 @@ def test_form_accepts_zero_days_and_non_curable_forces_zero(db):
     from violations.models import Owner, ViolationType
     o = Owner.objects.create(name="A B", property_address="2 Test Way")
     vt = ViolationType.objects.create(name="T2")
-    base = {"owner": o.pk, "vtype": vt.pk, "observed_on": "2026-01-01", "description": "d", "cure_required": "c", "cure_days": 0}
+    base = {"owner": o.pk, "vtype": vt.pk, "observed_on": "2026-01-01", "description": "d", "cure_required": "c", "cure_days": 0, "timing": "standard"}
     f = ViolationForm(base); assert f.is_valid(), f.errors
     f2 = ViolationForm({**base, "cure_days": 10, "non_curable": "on"}); assert f2.is_valid()
     assert f2.cleaned_data["cure_days"] == 0
+
+
+def test_standard_issue_holds_the_mail_two_business_days_and_cure_cancels_it(db, settings, mailoutbox):
+    from datetime import date
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Photo, Notice
+    from django.core.files.base import ContentFile
+    o = Owner.objects.create(name="Hold Owner", property_address="3 Test Way", email="h@example.com")
+    vt = ViolationType.objects.create(name="T3")
+    v = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c")
+    Photo.objects.create(violation=v, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    n = services.issue_first_notice(v)
+    assert len(mailoutbox) == 1 and n.mail_held                       # emailed at once, mail waits
+    assert n.mail_hold_until == services.add_business_days(date.today(), 2)
+    services.mark_cured(v)
+    n.refresh_from_db()
+    assert n.mail_cancelled and not n.mail_held                       # fixed first: no postage
+
+
+def test_urgent_mails_now_and_business_days_skip_weekends():
+    from datetime import date
+    from violations.services import add_business_days
+    assert add_business_days(date(2026, 11, 20), 2) == date(2026, 11, 24)   # Fri + 2 business days = Tue

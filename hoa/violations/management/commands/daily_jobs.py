@@ -7,5 +7,6 @@ class Command(BaseCommand):
     help = "Run once a day: refer expired cure periods to the board and send deadline reminders."
 
     def handle(self, *a, **kw):
+        self.stdout.write(f"{services.send_due_mailings()} held mailing(s) sent to the mail provider.")
         self.stdout.write(f"{services.send_cure_reminders()} reminder(s) sent.")
         self.stdout.write(f"{services.advance_expired()} violation(s) referred to the board.")

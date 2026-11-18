@@ -131,7 +131,9 @@ def home(request):
         "expiring": Violation.objects.filter(status=S.NOTICE_SENT).order_by("cure_deadline")[:8],
         "board_queue": Violation.objects.filter(status=S.PENDING_BOARD).count(),
         "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED).count(),
-        "unmailed": Notice.objects.filter(mailed_on__isnull=True).count(),
+        "unmailed": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False).filter(
+            Q(mail_hold_until__isnull=True) | Q(mail_hold_until__lte=date.today())).count(),
+        "held_mail": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__gt=date.today()).count(),
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "awaiting_reply": _awaiting_reply(),
@@ -242,12 +244,17 @@ def violation_create(request):
     if request.method == "POST" and form.is_valid():
         v = form.save(commit=False)
         v.created_by = request.user
+        timing = form.cleaned_data["timing"]
+        if timing != "draft":
+            v.issuance_timing = timing
         v.save()
         n = _save_photos(v, request.FILES.getlist("photos"))
         services.log(v, f"Violation recorded with {n} photo(s)", request.user)
-        if form.cleaned_data["send_now"]:
-            if _run(request, services.issue_first_notice, v, request.user,
-                    ok="Notice issued: emailed and sent to the print/mail provider.") is None:
+        if timing != "draft":
+            held = timing == "standard"
+            if _run(request, services.issue_first_notice, v, request.user, timing=timing,
+                    ok=("Notice emailed. The mailed copy is held until %d business days from now." % settings.MAIL_DELAY_BUSINESS_DAYS)
+                       if held else "Notice issued: emailed and sent to the print/mail provider.") is None:
                 messages.info(request, "Saved as a draft instead.")
         return redirect(v)
     from .models import ViolationType
@@ -284,7 +291,11 @@ def violation_action(request, pk, action):
         services.log(v, f"{n} photo(s) added", u)
         messages.success(request, f"{n} photo(s) added.")
     elif action == "send_notice":
-        _run(request, services.issue_first_notice, v, u, ok="Notice issued: emailed and sent to the print/mail provider (or ready to print).")
+        _run(request, services.issue_first_notice, v, u, timing=P.get("timing") or None,
+             ok="Notice issued: emailed now; the mailed copy follows per the chosen timing.")
+    elif action == "mail_now":
+        n = get_object_or_404(Notice, pk=P.get("notice"), violation=v)
+        _run(request, services.mail_now, n, u, ok="Mailed copy released.")
     elif action == "cure":
         _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked corrected.")
     elif action == "dismiss":

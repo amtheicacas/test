@@ -277,7 +277,7 @@ def test_create_issues_immediately(client):
     o = Owner.objects.create(name="Pat", property_address="9 X St", email="pat@example.com")
     t = ViolationType.objects.create(name="Shed")
     r = client.post("/violations/new/", {"owner": o.pk, "vtype": t.pk, "observed_on": date.today().isoformat(),
-                                         "description": "d", "cure_required": "c", "cure_days": 15, "send_now": "on",
+                                         "description": "d", "cure_required": "c", "cure_days": 15, "timing": "standard",
                                          "photos": png()})
     v = Violation.objects.get()
     assert r.status_code == 302 and v.status == S.NOTICE_SENT and len(mail.outbox) == 1

@@ -109,3 +109,10 @@ python manage.py sync_vantaca --csv owners.csv   # works today: use any Vantaca 
 python manage.py sync_vantaca                    # API: needs VANTACA_BASE_URL / _OWNERS_PATH / _USER / _PASSWORD
 ```
 Owners are matched on Vantaca's account ID, then property address, so hand-entered owners get linked, not duplicated. Notes and violations are never overwritten. Schedule it daily from cron. The API client is untested against a live Vantaca account; adjust `FIELD_ALIASES` in `violations/vantaca.py` to match the real response.
+
+## Violation Issuance Timing
+When a violation is entered you choose how it goes out:
+- **Standard (default):** emailed to the owner (and tenant) at once; the printed US Mail copy is held `MAIL_DELAY_BUSINESS_DAYS` (default 2) business days (Mon-Fri, holidays not skipped). If the violation is marked corrected or dismissed in that time, the mailing is cancelled and the postage is saved. Held mailings are released by `python manage.py daily_jobs` (schedule it daily) and also when a manager opens the dashboard; a **Mail now** button on the case releases one early.
+- **Immediate - urgent:** email and US Mail go out right away.
+- **Draft:** saved without sending; issue it later from the case page with either timing.
+The cure period runs from the day the email goes out. A cure period of 0 makes the letter say "immediately (no later than 12 hours after the date of this correspondence)".

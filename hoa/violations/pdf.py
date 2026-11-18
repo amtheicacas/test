@@ -192,13 +192,13 @@ def _nov_body(v, notice_kind, to_name, mail_block, dated, stamp=None):
     s += [_p(f"Observed on {v.observed_on:%B %d, %Y}: {v.description}", RULE),
           _p(f"Required cure: {v.cure_required} " + (
               ("Because this violation cannot be cured, no cure period is provided." if v.non_curable
-               else "Please correct this immediately upon receipt of this notice.") if cure_by is None
+               else "Please correct this immediately (no later than 12 hours after the date of this correspondence).") if cure_by is None
               else f"Please correct this by {cure_by}."), RULE)] + _immediate_notes(v) + [
           _p("We appreciate your prompt attention to this matter. We find in most cases homeowners respond to this notice "
              "by immediately correcting the problem. If you can correct this situation in a reasonable length of time, we "
              f"thank you for making {settings.HOA_NAME} a better community, and you can consider this matter resolved."),
           _p("If you are unable to take corrective action, please submit a violation correction plan using the attached "
-             f"Correction Response Form {'immediately' if v.total_cure_days == 0 else 'within ' + str(v.cure_days) + ' days of receipt of this notice'}."),
+             f"Correction Response Form {'immediately (no later than 12 hours after the date of this correspondence)' if v.total_cure_days == 0 else 'within ' + str(v.cure_days) + ' days of receipt of this notice'}."),
           _p("Please be advised that you must comply with the above on or before the date stated. If you fail or refuse to comply, or "
              "if further violations occur, the Association may, with proper notice, pursue further action against you to enforce the "
              "Governing Documents. Such action may include (but is not limited to): imposing a fine against you and/or suspending your "
@@ -231,7 +231,7 @@ def _response_form(v, to_name, mail_block, dated):
         Spacer(1, 4),
         _p("______    The non-compliance is not at this address."),
         _p("______    This issue has already been resolved."),
-        _p("______    I cannot resolve this issue " + ("immediately." if v.total_cure_days == 0 else f"within {v.cure_days} days.")),
+        _p("______    I cannot resolve this issue " + ("immediately (no later than 12 hours after the date of this correspondence)." if v.total_cure_days == 0 else f"within {v.cure_days} days.")),
         _p("My plan to resolve this violation is as follows:"), Spacer(1, 12),
         _p("Comments:"), _p(line), Spacer(1, 4), _p(line), Spacer(1, 4), _p(line), Spacer(1, 14),
         _p("Signature: " + "_" * 60), Spacer(1, 14),

@@ -218,6 +218,10 @@ class Violation(models.Model):
     token = models.CharField(max_length=64, unique=True, editable=False, default=secrets.token_urlsafe)
 
     # "Immediate Issue" options: any of these lets the Board act before a cure period would run out
+    class Timing(models.TextChoices):
+        STANDARD = "standard", "Standard: email now, mail after the delay"
+        URGENT = "urgent", "Urgent: email and mail now"
+    issuance_timing = models.CharField(max_length=10, choices=Timing.choices, default=Timing.STANDARD)
     non_curable = models.BooleanField("Non curable violation", default=False,
                                       help_text="Can't be undone by corrective action, so no cure period is given.")
     safety_issue = models.BooleanField("Safety issue", default=False, help_text="Threatens health/safety — Board may act before the cure deadline.")
@@ -364,6 +368,13 @@ class Notice(models.Model):
     provider_ids = models.CharField(max_length=500, blank=True)
     provider_note = models.CharField(max_length=300, blank=True)
     email_error = models.CharField(max_length=300, blank=True, help_text="Set if the email could not be sent.")
+    mail_hold_until = models.DateField(null=True, blank=True, help_text="Email went out; the printed copy waits until this date.")
+    mail_cancelled = models.BooleanField(default=False, help_text="The held mailing was dropped (corrected before the mail date).")
+    mail_tried_on = models.DateField(null=True, blank=True, help_text="Last day the app tried to hand this to the mail provider.")
+
+    @property
+    def mail_held(self):
+        return bool(self.mail_hold_until and not self.mailed_on and not self.mail_cancelled)
 
     class Meta:
         ordering = ["created_at"]

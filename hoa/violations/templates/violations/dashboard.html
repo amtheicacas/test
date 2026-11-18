@@ -57,7 +57,7 @@
 <h2 style="margin:22px 0 8px">Needs your attention</h2>
 <div class="card"><ul>
 <li><a href="{% url 'board_queue' %}">{{ board_queue }} awaiting board vote</a>, {{ need_hearing }} need a hearing scheduled</li>
-<li>{{ unmailed }} notice(s) not yet logged as mailed</li></ul></div>
+<li>{{ unmailed }} notice(s) not yet logged as mailed</li>{% if held_mail %}<li>{{ held_mail }} mailed cop{{ held_mail|pluralize:"y,ies" }} on hold (emailed already; mailing after the 2-business-day wait unless corrected first)</li>{% endif %}</ul></div>
 {% if ledger_pending %}<div class="card" style="border-color:var(--warn)"><h2>Committee decisions awaiting approval to post &amp; send</h2><table>{% for v in ledger_pending %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a><td>{% if v.fine_amount %}fine ${{ v.fine_amount }}{% endif %} {{ v.suspension }}<td><a class="btn" href="{{ v.get_absolute_url }}">Review</a></tr>{% endfor %}</table></div>{% endif %}
 {% if reinspect %}<div class="card"><h2>Owner says it's fixed — reinspect</h2><table>{% for r in reinspect %}<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a><td>{{ r.message|truncatechars:90 }}</tr>{% endfor %}</table></div>{% endif %}
 {% if awaiting_reply %}<div class="card"><h2>Owner messages awaiting a reply</h2><table>{% for r,late in awaiting_reply %}<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a><td>{{ r.message|truncatechars:80 }}<td class="{% if late %}late{% else %}mut{% endif %}">{{ r.created_at|timesince }} ago</tr>{% endfor %}</table></div>{% endif %}

@@ -157,10 +157,10 @@ def test_drafted_text_with_brackets_cannot_be_sent(client):
     manager(client)
     o = Owner.objects.create(name="Pat", property_address="1 A St", email="p@example.com")
     t = ViolationType.objects.get(code="3.22-timing")
-    r = _post(client, o, t, description=t.observed_template, cure_required=t.cure_template, send_now="on")
+    r = _post(client, o, t, description=t.observed_template, cure_required=t.cure_template, timing="standard")
     assert r.status_code == 200 and b"bracketed" in r.content
     assert Violation.objects.count() == 0
-    r = _post(client, o, t, description="Containers were at the curb on Mon 11/2 at 9 a.m.", cure_required=t.cure_template, send_now="on")
+    r = _post(client, o, t, description="Containers were at the curb on Mon 11/2 at 9 a.m.", cure_required=t.cure_template, timing="standard")
     v = Violation.objects.get()
     assert r.status_code == 302 and v.status == "notice_sent" and v.vtype == t
 
