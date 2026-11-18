@@ -2,6 +2,11 @@ import re
 import secrets
 from datetime import date
 
+
+def short_date(d):
+    """'Nov 5, 2026' (the '%-d' strftime flag does not work on Windows)."""
+    return f"{d:%b} {d.day}, {d.year}"
+
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
@@ -394,7 +399,7 @@ class Violation(models.Model):
     @property
     def stage_flag(self):
         if self.status == self.Status.ON_HOLD:
-            return "On hold" + (f" until {self.hold_until:%b %-d, %Y}" if self.hold_until else "")
+            return "On hold" + (f" until {short_date(self.hold_until)}" if self.hold_until else "")
         if self.status == self.Status.NOTICE_SENT and self.off_hold_on:
             return "Off hold"
         if self.status == self.Status.REFERRED_LEGAL:
@@ -495,18 +500,18 @@ class Notice(models.Model):
         """Plain-language delivery record: when it was emailed, mailed (method, tracking number), return receipt."""
         out = []
         if self.emailed_at:
-            out.append(f"Emailed {self.emailed_at:%b %-d, %Y} to {self.emailed_to}")
+            out.append(f"Emailed {short_date(self.emailed_at)} to {self.emailed_to}")
         elif self.email_error:
             out.append("Email could not be delivered")
         if self.mail_held:
-            out.append(f"US Mail copy scheduled for {self.mail_hold_until:%b %-d, %Y}")
+            out.append(f"US Mail copy scheduled for {short_date(self.mail_hold_until)}")
         elif self.mail_cancelled:
             out.append("US Mail copy not sent (the violation was corrected first)")
         if self.mailed_on:
             how = self.get_method_display() or "Mailed"
-            out.append(f"{how} by US Mail {self.mailed_on:%b %-d, %Y}" + (f", tracking number {self.tracking_number}" if self.tracking_number else ""))
+            out.append(f"{how} by US Mail {short_date(self.mailed_on)}" + (f", tracking number {self.tracking_number}" if self.tracking_number else ""))
             if self.return_receipt_on:
-                out.append(f"Return receipt received {self.return_receipt_on:%b %-d, %Y}")
+                out.append(f"Return receipt received {short_date(self.return_receipt_on)}")
         if staff and self.provider:
             out.append(f"Print/mail provider: {self.provider} {self.provider_ids}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))
         return out

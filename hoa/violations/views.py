@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
-from .models import CannedReply, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from .models import short_date, CannedReply, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -315,10 +315,10 @@ def recipient_summary(o):
     out = {"owner": owner, "address": o.property_address, "tenant": None, "tenant_note": ""}
     if o.has_tenant:
         out["tenant"] = {"name": o.tenant_name, "emails": list(o.tenant_emails), "mail": [lines("tenant")],
-                         "lease": " to ".join(d.strftime("%b %-d, %Y") for d in (o.tenant_start, o.tenant_end) if d)}
+                         "lease": " to ".join(short_date(d) for d in (o.tenant_start, o.tenant_end) if d)}
     elif o.tenant_name.strip():
         out["tenant_note"] = (f"A tenant ({o.tenant_name}) is on record but the lease "
-                              + ("ended " + o.tenant_end.strftime("%b %-d, %Y") if o.tenant_lease_ended else "has not started")
+                              + ("ended " + short_date(o.tenant_end) if o.tenant_lease_ended else "has not started")
                               + ", so they will not be notified.")
     return out
 
