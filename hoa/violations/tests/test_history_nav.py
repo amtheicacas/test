@@ -726,3 +726,15 @@ def test_sent_to_compliance_committee_pill_is_red_in_the_owner_portal(db):
     o = Owner.objects.create(name="R P", property_address="24 Red Way")
     v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T24"), description="d", cure_required="c", status="hearing_scheduled")
     assert v.portal_status == ("Sent to Compliance Committee", "red")
+
+
+def test_owner_home_shows_when_the_cure_period_ended_for_later_stages(db, client, django_user_model):
+    from datetime import date
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="E D", property_address="25 Ended Way")
+    Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T25"), description="d", cure_required="c", status="hearing_scheduled",
+                             cure_deadline=date(2026, 11, 3))
+    u = django_user_model.objects.create_user("own4", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    html = client.get("/me/").content.decode()
+    assert "Cure period ended" in html and "Nov 3, 2026" in html

@@ -27,7 +27,7 @@
 <div class="bd"><div><h3>{{ c.v.vtype.name }}</h3><span class="pill {{ c.v.portal_status.1 }}">{{ c.v.portal_status.0 }}</span></div>
 <p class="desc">{{ c.v.description }}</p>
 <div class="facts"><div><span>Issued</span><b>{{ c.issued|date:"M j, Y" }}</b></div>
-<div><span>Cure by</span><b>{% if c.v.status == "notice_sent" and c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% elif c.v.status == "notice_sent" %}Immediately{% else %}&ndash;{% endif %}</b>
+<div><span>{% if c.v.status == "notice_sent" %}Cure by{% else %}Cure period ended{% endif %}</span><b>{% if c.v.status == "notice_sent" and c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% elif c.v.status == "notice_sent" %}Immediately{% elif c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% else %}&ndash;{% endif %}</b>
 {% if c.left is not None %}<span class="chip {% if c.left < 0 %}late{% elif c.left <= 3 %}soon{% endif %}" style="margin-top:2px;text-transform:none;letter-spacing:0">{% if c.left < 0 %}{{ c.left|cut:"-" }} day{{ c.left|cut:"-"|pluralize }} past due{% elif c.left == 0 %}due today{% else %}{{ c.left }} day{{ c.left|pluralize }} left{% endif %}</span>{% endif %}</div></div>
 <span class="go">View details &amp; respond &rarr;</span></div></a>{% endfor %}</div>
 {% else %}<div class="card" style="text-align:center;padding:30px"><h2 style="font-size:1.2rem">You have no open violations</h2><p class="mut" style="margin:0">Nothing needs your attention right now. Thank you for helping keep Heron Landing beautiful.</p></div>{% endif %}
