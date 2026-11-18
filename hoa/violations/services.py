@@ -632,10 +632,10 @@ def fine_problems(v, amount):
 
 @transaction.atomic
 def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspension="", votes_for=None, votes_against=None,
-                 suspension_days=None):
-    """Board vote at a meeting. 'proceed' only PROPOSES a fine and/or suspension; nothing is owed until the committee approves.
-    Per the Fining Resolution it takes a majority of the Board; the vote is recorded. A suspension names the Common Areas /
-    facilities and a number of days."""
+                 suspension_days=None, by_majority=False):
+    """Board decision at a meeting. 'proceed' issues the fine, which is only proposed until the Compliance Committee approves it at
+    its hearing (FS 720.305(2)). It takes a majority of the Board: either confirm 'by_majority' (the Board approved this at its meeting)
+    or give the votes. (Suspensions are still supported here but the app no longer offers them: the Association has no amenities.)"""
     _require(v, S.PENDING_BOARD)
     v.board_meeting_date = meeting_date
     if decision == "proceed":
@@ -643,9 +643,9 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
         suspension = (suspension or "").strip()
         if not fine and not suspension:
             raise WorkflowError("Enter the proposed fine amount and/or suspension the Board voted on.")
-        if votes_for is None or votes_against is None or votes_for <= votes_against:
-            raise WorkflowError("A fine or suspension needs a majority of the Board. Enter the votes for and against "
-                                "(votes for must be more than votes against).")
+        if not (by_majority or (votes_for is not None and votes_against is not None and votes_for > votes_against)):
+            raise WorkflowError("A fine needs approval by a majority of the Board. Confirm that the Board approved it at its meeting "
+                                "(or enter votes for and against, with more for than against).")
         if suspension and not suspension_days:
             raise WorkflowError("A suspension needs a number of days (the Board sets a reasonable period).")
         if suspension_days and not suspension:
@@ -661,7 +661,7 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
         v.board_votes_for, v.board_votes_against = votes_for, votes_against
         what = " and ".join(x for x in [f"fine ${fine:,.2f}" if fine else "",
                                         f"suspension of {suspension} for {suspension_days} days" if suspension else ""] if x)
-        log(v, f"Board voted {meeting_date:%b %d, %Y} ({votes_for}-{votes_against}) to levy: {what}"
+        log(v, f"Board voted {meeting_date:%b %d, %Y} ({f'{votes_for}-{votes_against}' if votes_for is not None else 'majority'}) to levy: {what}"
             + (f". {note}" if note else ""), user)
     elif decision == "dismiss":
         v.status = S.DISMISSED

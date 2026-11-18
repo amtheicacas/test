@@ -118,7 +118,7 @@ def test_board_queue_shows_a_history_line(client):
     mk(o, t, S.PENDING_BOARD, days_ago=20)
     login(client, "board")
     page = client.get("/board/").content.decode()
-    assert "2nd" in page and "time for this violation type" in page and "$100 in prior fines" in page
+    assert "2nd" in page and "time</b>" in page.replace("</b> time", "time</b>") and "$100 prior fines" in page
 
 
 # ---------- menu counts ----------
@@ -692,3 +692,30 @@ def test_owner_portal_status_pills_are_color_coded_with_friendly_wording(db, cli
     assert 'class="pill yellow">In Cure Period' in html and 'class="pill orange">Sent to Board for Fine' in html
     assert "Cure period running" not in html and "Awaiting board vote" not in html
     assert "In Cure Period" in client.get(f"/me/{a.pk}/").content.decode()
+
+
+def test_board_queue_bulk_decisions_with_per_row_overrides(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    vt = ViolationType.objects.create(name="Bulk", default_fine=100)
+    cases = []
+    for i in range(3):
+        o = Owner.objects.create(name=f"B{i}", property_address=f"{i + 30} Bulk Way")
+        cases.append(Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board",
+                                              cure_deadline=date.today() - timedelta(days=20)))
+    u = django_user_model.objects.create_user("bd2", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    page = client.get("/board/").content.decode()
+    assert 'id="all"' in page and "Fine issued" in page and "Suspension" not in page and "votes" not in page.lower().replace("by majority vote", "")
+    d = date.today().isoformat()
+    a, b, c = cases
+    post = {"pick": [a.pk, b.pk, c.pk], "date": d, "note": "",
+            f"decision_{a.pk}": "proceed", f"fine_{a.pk}": "100", f"date_{a.pk}": d,
+            f"decision_{b.pk}": "proceed", f"fine_{b.pk}": "75", f"date_{b.pk}": d,          # a different fine for one row
+            f"decision_{c.pk}": "dismiss", f"date_{c.pk}": d}
+    client.post("/board/bulk/", post)                                                          # no majority tick: nothing happens
+    a.refresh_from_db(); assert a.status == "pending_board"
+    client.post("/board/bulk/", {**post, "by_majority": "on"})
+    for v in cases: v.refresh_from_db()
+    assert (a.status, a.proposed_fine) == ("hearing_needed", 100) and (b.status, b.proposed_fine) == ("hearing_needed", 75) and c.status == "dismissed"
+    assert a.board_votes_for is None and a.proposed_suspension == ""

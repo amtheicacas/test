@@ -263,7 +263,7 @@ def test_board_queue_prefills_the_types_usual_fine(client):
     v.vtype.default_fine = 75
     v.vtype.save()
     page = client.get("/board/").content.decode()
-    assert 'value="75.00"' in page and "Board votes for" in page and "Suspension: number of days" in page
+    assert 'value="75.00"' in page and "Suspension" not in page and "Board votes for" not in page
 
 
 def test_locate_button_reports_a_failed_lookup_instead_of_crashing(client, monkeypatch):

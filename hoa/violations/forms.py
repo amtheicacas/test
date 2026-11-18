@@ -99,15 +99,12 @@ class NoteForm(forms.Form):
 
 
 class BoardForm(forms.Form):
-    decision = forms.ChoiceField(choices=[("proceed", "Propose fine/suspension — send to committee hearing"),
+    decision = forms.ChoiceField(choices=[("proceed", "Fine issued: send to the Compliance Committee"),
                                           ("dismiss", "Dismiss"), ("extend", "Grant more time / second notice")])
     meeting_date = forms.DateField(widget=DateInput, initial=date.today, label="Board meeting date")
     proposed_fine = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=8,
-                                       label="Proposed fine ($; up to $100/day, $1,000 total)")
-    proposed_suspension = forms.CharField(required=False, label="Suspension: which Common Areas / facilities (if any)")
-    proposed_suspension_days = forms.IntegerField(required=False, min_value=1, max_value=730, label="Suspension: number of days")
-    board_votes_for = forms.IntegerField(required=False, min_value=0, label="Board votes for")
-    board_votes_against = forms.IntegerField(required=False, min_value=0, label="Board votes against")
+                                       label="Fine ($; up to $100/day, $1,000 total)")
+    by_majority = forms.BooleanField(required=False, label="The Board approved this by majority vote at its meeting")
     extension_days = forms.IntegerField(required=False, min_value=1, max_value=365, label="Days to add (if granting time)")
     new_deadline = forms.DateField(widget=DateInput, required=False, label="or exact new deadline (if granting time)")
     note = forms.CharField(required=False)

@@ -9,6 +9,7 @@ urlpatterns = [
     path("violations/standards/search/", views.standards_search_api, name="standards_search"),
     path("violations/<int:pk>/", views.violation_detail, name="violation_detail"),
     path("replies/", views.canned_replies, name="canned_replies"),
+    path("board/bulk/", views.board_bulk, name="board_bulk"),
     path("violations/<int:pk>/legal/", views.legal_refer, name="legal_refer"),
     path("violations/<int:pk>/legal/email/", views.legal_email, name="legal_email"),
     path("owners/<int:pk>/correspondence/", views.owner_correspondence, name="owner_correspondence"),

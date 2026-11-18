@@ -508,8 +508,7 @@ def violation_action(request, pk, action):
                          f"board {d['meeting_date']}", days=d["extension_days"], ok="Board granted more time.")
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
-                     fine=d["proposed_fine"], suspension=d["proposed_suspension"], votes_for=d["board_votes_for"],
-                     votes_against=d["board_votes_against"], suspension_days=d["proposed_suspension_days"],
+                     fine=d["proposed_fine"], by_majority=d["by_majority"],
                      ok="Board decision recorded. It will go to the next Compliance Committee meeting you assign.")
         return redirect(request.POST.get("next") or v)
     elif action == "assign":
@@ -575,13 +574,53 @@ def notice_pdf(request, pk):
 
 
 @staff_only
+@require_POST
+def board_bulk(request):
+    """Record Board decisions for the ticked rows of the queue in one go. Each row carries its own decision, fine and meeting date
+    (the toolbar just fills them in), so any row can differ."""
+    P = request.POST
+    ids = [int(x) for x in P.getlist("pick") if x.isdigit()]
+    if not ids:
+        messages.error(request, "Tick the violations you want to act on.")
+        return redirect("board_queue")
+    by_majority = bool(P.get("by_majority"))
+    done, problems = 0, []
+    for v in Violation.objects.filter(pk__in=ids, status=S.PENDING_BOARD).select_related("owner"):
+        try:
+            when = date.fromisoformat(P.get(f"date_{v.pk}") or P.get("date") or "")
+        except ValueError:
+            problems.append(f"#{v.pk}: enter the Board meeting date.")
+            continue
+        decision = P.get(f"decision_{v.pk}", "proceed")
+        try:
+            if decision == "extend":
+                days = int(P.get("days") or 0)
+                if days <= 0:
+                    raise services.WorkflowError("Enter the days to add.")
+                services.grant_extension(v, None, request.user, f"board {when}", days=days)
+            else:
+                fine = P.get(f"fine_{v.pk}") or None
+                services.board_decide(v, decision, when, request.user, P.get("note", ""), fine=fine, by_majority=by_majority)
+            done += 1
+        except (services.WorkflowError, ValueError, ArithmeticError) as e:
+            problems.append(f"#{v.pk} {v.owner.property_address}: {e}")
+    if done:
+        messages.success(request, f"Recorded {done} Board decision{'s' if done != 1 else ''}. Fines issued go to Waiting to be scheduled; assign them to a committee meeting.")
+    for pr in problems:
+        messages.error(request, pr)
+    return redirect("board_queue")
+
+
+@staff_only
 def board_queue(request):
     services.advance_expired()
     vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype"))
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
         v.bform = forms.BoardForm(initial={"proposed_fine": v.vtype.default_fine})
         v.history = services.owner_history(v)
-    return render(request, "violations/board.html", {"verify_list": _verify_list(), "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
+        v.peek = next((p for p in v.photos.all() if not p.from_resident), None)
+        v.pending_ext = v.pending_extension
+    return render(request, "violations/board.html", {"today": date.today(), "verify_list": _verify_list(), "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
                                                       "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED)})

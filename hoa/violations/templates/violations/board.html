@@ -1,16 +1,43 @@
-{% extends "violations/base.html" %}{% load hoa_tags %}{% block content %}
+{% extends "violations/base.html" %}{% load hoa_tags %}{% block title %}Board queue{% endblock %}{% block mainclass %}wide{% endblock %}{% block content %}
+<style>
+.bq td,.bq th{vertical-align:middle}.bq tr.row-link{cursor:pointer}.bq tr.row-link:hover td{background:var(--bg)}
+.bq .peek{display:none;position:absolute;z-index:40;left:0;top:100%;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px;box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.bq .peek img{display:block;max-width:260px;max-height:200px;border-radius:7px}.bq td.v{position:relative}.bq td.v:hover .peek{display:block}
+.bq input[type=number]{width:96px}.bq input[type=date]{width:150px}.bq select{min-width:150px}
+#bar{position:sticky;top:64px;z-index:30}
+</style>
 <h1>Board meeting queue</h1>
-<p class="mut">Violations whose cure period ended without cure. A "proceed" vote sends the case to a fining-committee hearing; the fine only takes effect if the committee approves it.</p>
+<p class="mut">Violations whose cure period ended without cure. Tick the ones to act on, set the decision, fine and meeting date once for all of them, then adjust any row that needs to differ. A fine issued here is only proposed until the Compliance Committee approves it at its hearing (Florida Statutes 720.305(2)).</p>
 {% if verify_list %}<div class="card" style="border-color:var(--warn)"><h2>Verify before voting: marked for re-inspection <span class="pill late">{{ verify_list|length }}</span></h2><p class="mut" style="margin-top:0">The owner says these are corrected. Confirm at inspection, then open the case and record the result.</p><table>{% for v in verify_list %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<td class="{% if v.reinspect_age > 7 %}late{% endif %}">{{ v.reinspect_age }} day{{ v.reinspect_age|pluralize }} waiting</tr>{% endfor %}</table></div>{% endif %}
 {% if ledger_pending %}<div class="card" style="border-color:var(--warn)"><h2>Committee decisions awaiting approval to post &amp; send</h2><table>{% for v in ledger_pending %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a><td>{% if v.fine_amount %}fine ${{ v.fine_amount }}{% endif %} {{ v.suspension }}<td><a class="btn" href="{{ v.get_absolute_url }}">Review &amp; approve</a></tr>{% endfor %}</table></div>{% endif %}
-{% for v in violations %}<div class="card"><h2><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a> — {{ v.owner.property_address }}</h2>
-<p class="mut" style="margin:0 0 6px"><b>{{ v.history.occurrence }}{{ v.history.occurrence|ordinal_suffix }}</b> time for this violation type · {{ v.history.open_others|length }} other open · ${{ v.history.fines_total|floatformat:"0g" }} in prior fines{% if v.history.repeat_of %} · <b class="late">repeat within 3 months of a cure</b>{% endif %}</p>
-<p>{{ v.description }}<br><span class="mut">Cure deadline was {{ v.cure_deadline|date:"M j, Y" }}.</span></p>
-{% for r in v.responses.all %}<p class="mut">{% if r.from_resident %}Owner{% else %}Staff{% endif %}: {{ r.message }}</p>{% endfor %}
-{% include "violations/_extension_request.html" with next=request.path %}
-<form method="post" action="{% url 'violation_action' v.pk 'board' %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'board_queue' %}">
-<p class="mut">Suggested fine from the violation type: ${{ v.vtype.default_fine }}. The vote only proposes it; a majority of the Board is required.</p>
-<div class="row">{% for f in v.bform %}<div>{{ f.label_tag }}{{ f }}</div>{% endfor %}</div><button style="margin-top:8px">Record vote</button></form></div>
-{% empty %}<div class="card mut">Nothing awaiting a board vote.</div>{% endfor %}
+{% if violations %}<form method="post" action="{% url 'board_bulk' %}" id="bulk">{% csrf_token %}
+<div class="card" id="bar"><div class="row" style="align-items:flex-end">
+<div style="flex:0 0 auto;min-width:0"><label style="margin:0"><input type="checkbox" id="all"> Select all</label><span class="mut" id="count">0 selected</span></div>
+<div><label>Decision for selected</label><select id="b-decision"><option value="proceed">Fine issued: send to the Compliance Committee</option><option value="extend">Grant more time</option><option value="dismiss">Dismiss</option></select></div>
+<div><label>Board meeting date</label><input type="date" id="b-date" value="{{ today|date:'Y-m-d' }}"></div>
+<div id="b-fine-box"><label>Fine amount for selected ($)</label><input type="number" id="b-fine" step="0.01" min="0" placeholder="each row's own"></div>
+<div id="b-days-box" style="display:none"><label>Days to add</label><input type="number" id="b-days" name="days" min="1" max="365"></div>
+<div style="flex:0 0 auto;min-width:0"><button type="button" class="sec" id="apply">Fill into selected rows</button></div></div>
+<div class="row" style="align-items:center;margin-top:8px"><label style="font-weight:400;margin:0;flex:2 1 320px"><input type="checkbox" name="by_majority"> The Board approved these by majority vote at its meeting</label>
+<input name="note" placeholder="Note for the record (optional)" style="flex:2 1 220px"><button style="flex:0 0 auto;min-width:0">Record decisions for the selected rows</button></div></div>
+<div class="card" style="padding:0;overflow:auto"><table class="bq"><tr><th style="width:36px"><th>Violation<th>Property / owner<th>Cure ended<th>History<th>Fine issued ($)<th>Decision<th>Meeting date</tr>
+{% for v in violations %}<tr class="row-link" data-href="{{ v.get_absolute_url }}"><td><input type="checkbox" name="pick" value="{{ v.pk }}" class="pick">
+<td class="v"><a href="{{ v.get_absolute_url }}" target="_blank" rel="noopener"><b>#{{ v.pk }}</b> {{ v.vtype.name }}</a>{% if v.pending_ext %} <span class="pill flag" title="{{ v.pending_ext.message|truncatechars:120 }}">asked for more time</span>{% endif %}
+{% if v.peek %}<div class="peek"><img src="{% url 'photo' v.peek.pk %}" alt=""></div>{% endif %}
+<td>{{ v.owner.property_address }}<div class="mut">{{ v.owner.display_name }}</div>
+<td>{{ v.cure_deadline|date:"M j, Y" }}
+<td><b>{{ v.history.occurrence }}{{ v.history.occurrence|ordinal_suffix }}</b> time<div class="mut">{{ v.history.open_others|length }} other open &middot; ${{ v.history.fines_total|floatformat:"0g" }} prior fines</div>
+<td><input type="number" step="0.01" min="0" name="fine_{{ v.pk }}" value="{{ v.vtype.default_fine|floatformat:2 }}" class="f-fine">
+<td><select name="decision_{{ v.pk }}" class="f-decision"><option value="proceed">Fine issued: to committee</option><option value="extend">Grant more time</option><option value="dismiss">Dismiss</option></select>
+<td><input type="date" name="date_{{ v.pk }}" value="{{ today|date:'Y-m-d' }}" class="f-date"></tr>{% endfor %}</table></div></form>
+<script>(function(){var f=document.getElementById("bulk");if(!f)return;var picks=[].slice.call(f.querySelectorAll(".pick")),all=document.getElementById("all");
+function count(){var n=picks.filter(function(p){return p.checked}).length;document.getElementById("count").textContent=" "+n+" selected";}
+all.addEventListener("change",function(){picks.forEach(function(p){p.checked=all.checked});count();});picks.forEach(function(p){p.addEventListener("change",count);});
+var dec=document.getElementById("b-decision");dec.addEventListener("change",function(){document.getElementById("b-days-box").style.display=dec.value==="extend"?"block":"none";document.getElementById("b-fine-box").style.display=dec.value==="proceed"?"block":"none";});
+document.getElementById("apply").addEventListener("click",function(){picks.forEach(function(p){if(!p.checked)return;var tr=p.closest("tr");
+tr.querySelector(".f-decision").value=dec.value;var d=document.getElementById("b-date").value;if(d)tr.querySelector(".f-date").value=d;var fine=document.getElementById("b-fine").value;if(fine&&dec.value==="proceed")tr.querySelector(".f-fine").value=fine;});});
+f.querySelectorAll("tr.row-link").forEach(function(tr){tr.addEventListener("click",function(e){if(e.target.closest("input,select,a,label,button"))return;window.open(tr.getAttribute("data-href"),"_blank");});});})();</script>
+{% for v in violations %}{% if v.pending_ext %}<div class="card"><h2>Owner asked for more time: #{{ v.pk }} {{ v.vtype.name }} &mdash; {{ v.owner.property_address }}</h2>{% include "violations/_extension_request.html" with next=request.path %}</div>{% endif %}{% endfor %}
+{% else %}<div class="card mut">Nothing awaiting a Board decision.</div>{% endif %}
 {% if need_hearing %}<div class="card"><h2>Approved by board — waiting to be sent to a committee meeting (<a href="{% url 'meetings' %}">Committee meetings</a>)</h2>{% for v in need_hearing %}<p><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a></p>{% endfor %}</div>{% endif %}
 {% endblock %}
