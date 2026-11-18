@@ -20,7 +20,6 @@
 <label><input type="checkbox" name="cure_reported"> {{ form.cure_reported.label }}</label>
 <label><input type="checkbox" name="request_extension" {% if form.request_extension.value %}checked{% endif %}> {{ form.request_extension.label }}</label>
 <div id="extbox" style="display:none">{{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}</div><script>(function(){var c=document.querySelector("input[name=request_extension]"),b=document.getElementById("extbox");if(!c||!b)return;function t(){b.style.display=c.checked?"block":"none";}c.addEventListener("change",t);t();})();</script>
-{% if v.status == "hearing_scheduled" %}<label><input type="checkbox" name="attorney_notice"> {{ form.attorney_notice.label }} (please tell us at least 7 days before)</label>{% endif %}
 <label>Photos (optional): show us the work or the corrected area</label><input type="file" name="photos" id="rphotos" accept="image/*" multiple>
 <div id="rthumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div>
 <button style="margin-top:10px">Send</button><p class="mut">We aim to reply within 48–72 hours and reinspect before a case is closed. Phone {{ MANAGER_PHONE }}, email {{ MANAGER_EMAIL }}.</p></form>{% endif %}

@@ -30,7 +30,7 @@ def _staff_counts():
 
 def hoa(request):
     role = accounts.role_of(request.user)
-    ctx = {"HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role}
+    ctx = {"HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role, "HOA_DOCUMENTS_URL": settings.HOA_DOCUMENTS_URL}
     if role in accounts.STAFF_ROLES:
         ctx["NAV"] = _staff_counts()
     elif role == "committee":

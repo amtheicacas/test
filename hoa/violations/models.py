@@ -335,7 +335,9 @@ class Violation(models.Model):
         for i, label in enumerate(self.STEPS):
             if legal and i == 5:
                 out.append(("Referred to attorney", "legal"))
-            if i == cur and not ended:
+            if i == 1 and self.non_curable and self.status != St.DRAFT:
+                state = "skipped"     # a point-in-time violation has no cure period
+            elif i == cur and not ended:
                 state = "current"
             elif i < cur or (cur == 5 and i == 5 and not legal):
                 state = "skipped" if (ended and i in evidence and not evidence[i]) else "done"
@@ -433,6 +435,11 @@ class Violation(models.Model):
         """The written-findings letter must go out within DECISION_LETTER_DAYS of the hearing."""
         from datetime import timedelta
         return (self.hearing_date.date() + timedelta(days=settings.DECISION_LETTER_DAYS)) if self.hearing_date else None
+
+    @property
+    def is_point_in_time(self):
+        """A one-time event that can't be cured (dog off leash, parking in the street...). Goes straight to the Board queue."""
+        return bool(self.non_curable)
 
     @property
     def is_immediate(self):
@@ -556,6 +563,7 @@ class Response(models.Model):
     cure_reported = models.BooleanField(default=False, help_text="Owner says it is fixed; needs reinspection.")
     attorney_notice = models.BooleanField(default=False, help_text="Owner will bring an attorney to the hearing.")
     handled = models.BooleanField(default=False, help_text="Staff has dealt with this request.")
+    read_at = models.DateTimeField(null=True, blank=True, help_text="When a board member or the manager first opened the case after this owner message.")
     decision = models.CharField(max_length=10, blank=True, choices=[("approved", "Approved"), ("declined", "Declined")])
     created_at = models.DateTimeField(auto_now_add=True)
 

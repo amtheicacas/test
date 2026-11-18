@@ -17,7 +17,7 @@ class ViolationForm(forms.ModelForm):
     class Meta:
         model = Violation
         fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days", "non_curable", "safety_issue", "board_emergency"]
-        labels = {"non_curable": "Non curable violation (dog off leash, parking in street, blocked sidewalk, noise violation)"}
+        labels = {"non_curable": "Point-in-time violation: a one-time event that can't be cured (dog off leash, parking in street, blocked sidewalk, noise violation)"}
         widgets = {"observed_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                    "description": forms.Textarea(attrs={"rows": 3}),
                    "cure_required": forms.Textarea(attrs={"rows": 3})}
@@ -154,7 +154,6 @@ class ResidentForm(forms.Form):
     message = forms.CharField(widget=forms.Textarea(attrs={"rows": 4}), max_length=5000)
     cure_reported = forms.BooleanField(required=False, label="The violation has been fixed (please reinspect)")
     request_extension = forms.BooleanField(required=False, label="I need more time to cure")
-    attorney_notice = forms.BooleanField(required=False, label="I will bring an attorney to the hearing")
     extension_days = forms.IntegerField(required=False, min_value=1, max_value=180, label="How many more days?")
 
     def clean(self):

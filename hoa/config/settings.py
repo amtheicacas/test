@@ -114,6 +114,7 @@ FINE_MAX_PER_DAY = int(env("FINE_MAX_PER_DAY", "100"))
 FINE_AGGREGATE_CAP = int(env("FINE_AGGREGATE_CAP", "1000"))
 FINE_PAYMENT_DAYS = int(env("FINE_PAYMENT_DAYS", "30"))       # fine due at least this many days after delivery of the decision letter...
 FINE_MAIL_BUFFER_DAYS = int(env("FINE_MAIL_BUFFER_DAYS", "5"))  # ...plus these days for mail to arrive
+HOA_DOCUMENTS_URL = env("HOA_DOCUMENTS_URL", "https://home.sunstatemanagement.com/login")   # where owners find the governing documents
 ATTORNEY_NAME = env("ATTORNEY_NAME", "")      # the Association's attorney: pre-fills the "send to legal" email draft
 ATTORNEY_EMAIL = env("ATTORNEY_EMAIL", "")
 DECISION_LETTER_DAYS = int(env("DECISION_LETTER_DAYS", "7"))    # the decision letter must go out within this many days of the hearing

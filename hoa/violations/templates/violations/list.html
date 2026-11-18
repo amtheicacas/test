@@ -5,5 +5,5 @@
 <input type="date" name="from" value="{{ frm }}" title="Observed from"><input type="date" name="to" value="{{ to }}" title="Observed to">
 <input name="q" value="{{ q }}" placeholder="Owner, address, description"><button>Filter</button></form>
 <div class="card"><table><tr><th>Case<th>Property / owner<th>Status<th>Deadline</tr>{% for v in violations %}
-<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<br><span class="mut">{{ v.owner.name }}</span><td><span class="pill">{{ v.get_status_display }}</span><td>{{ v.cure_deadline|date:"M j, Y"|default:"—" }}</tr>
+<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a> {% if v.unread %}<span title="Unread message from the owner" aria-label="Unread message from the owner" style="font-size:1.05rem">&#9993;</span> {% endif %}{% include "violations/_pit_badge.html" %}<td>{{ v.owner.property_address }}<br><span class="mut">{{ v.owner.name }}</span><td><span class="pill">{{ v.get_status_display }}</span><td>{{ v.cure_deadline|date:"M j, Y"|default:"—" }}</tr>
 {% empty %}<tr><td colspan=4 class="mut">Nothing here.</tr>{% endfor %}</table></div>{% endblock %}

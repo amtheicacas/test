@@ -13,7 +13,7 @@
 <h2 style="margin:18px 0 6px">Violations for this meeting <span class="mut" style="font-weight:400;font-size:.9rem">&middot; {{ sum.n }} case{{ sum.n|pluralize }}, {{ sum.undecided }} still to decide</span></h2>
 {% for r in rows %}{% with v=r.v %}<div class="card" id="case-{{ v.pk }}">
 <div class="row" style="align-items:flex-start;gap:14px"><div style="flex:2 1 280px"><h3 style="margin:0;font-size:1.05rem"><a href="{% url 'committee_case' v.pk %}">{{ v.owner.property_address }}</a></h3>
-<div class="mut">{{ v.owner.display_name }}</div><div style="margin-top:4px"><b>{{ v.vtype.name }}</b></div><div class="mut" style="margin-top:2px">{{ v.description|truncatechars:140 }}</div>
+<div class="mut">{{ v.owner.display_name }}</div><div style="margin-top:4px"><b>{{ v.vtype.name }}</b> {% include "violations/_pit_badge.html" %}{% if v.is_point_in_time or r.pit %} <span class="mut" style="color:#6f5fc4">{{ r.pit }} prior point-in-time for this owner</span>{% endif %}</div><div class="mut" style="margin-top:2px">{{ v.description|truncatechars:140 }}</div>
 <div style="margin-top:6px">Board proposed: <b>{% if v.proposed_fine %}${{ v.proposed_fine }}{% endif %}{% if v.proposed_suspension %} {{ v.proposed_suspension }} ({{ v.proposed_suspension_days }} days){% endif %}</b></div></div>
 <div style="flex:3 1 340px">
 {% if v.committee_outcome %}<p style="margin-top:0"><span class="pill flag">Decision: {{ v.get_committee_outcome_display }}{% if v.committee_outcome == "amend" %} &middot; ${{ v.committee_amended_fine }}{% endif %}</span>{% if v.committee_votes_for is not None %} <span class="mut">vote {{ v.committee_votes_for }}&ndash;{{ v.committee_votes_against }}</span>{% endif %}</p><p class="mut" style="margin-top:0">{{ v.committee_findings }}</p>{% endif %}

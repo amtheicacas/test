@@ -232,7 +232,8 @@ def _dashboard_visuals(counts):
 # ---------- staff / board ----------
 @staff_only
 def violation_list(request):
-    qs = Violation.objects.select_related("owner", "vtype")
+    qs = Violation.objects.select_related("owner", "vtype").annotate(
+        unread=Exists(Response.objects.filter(violation=OuterRef("pk"), from_resident=True, read_at__isnull=True)))
     g = request.GET
     status, q, vtype = g.get("status", ""), g.get("q", "").strip(), g.get("type", "")
     if status == "open":
@@ -412,6 +413,7 @@ def owner_correspondence(request, pk):
 @staff_only
 def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
+    v.responses.filter(from_resident=True, read_at__isnull=True).update(read_at=timezone.now())   # opening the case marks owner messages as read
     ctx = {
         "v": v, "S": S, "steps": v.stage_steps(), "mail": services.correspondence(v, staff=True),
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(), "canned": CannedReply.objects.all(),
@@ -620,6 +622,7 @@ def board_queue(request):
         v.history = services.owner_history(v)
         v.peek = next((p for p in v.photos.all() if not p.from_resident), None)
         v.pending_ext = v.pending_extension
+        v.unread = v.responses.filter(from_resident=True, read_at__isnull=True).exists()
     return render(request, "violations/board.html", {"today": date.today(), "verify_list": _verify_list(), "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
@@ -692,7 +695,8 @@ def committee_meeting(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     summary = _meeting_summary(m)
     can_edit = m.results_status == CommitteeMeeting.Results.OPEN
-    rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED} for v in summary["cases"]]
+    rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED,
+             "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count()} for v in summary["cases"]]
     return render(request, "violations/committee_meeting.html", {"m": m, "rows": rows, "S": S, "sum": summary, "can_edit": can_edit,
                                                                   "ready": can_edit and summary["n"] and not summary["undecided"]})
 
@@ -792,7 +796,7 @@ def committee_case(request, pk):
     if not can_view(request.user, v):
         raise PermissionDenied
     return render(request, "violations/committee_case.html", {
-        "v": v, "S": S, "steps": v.stage_steps(), "committee_form": forms.CommitteeForm(),
+        "v": v, "S": S, "steps": v.stage_steps(), "committee_form": forms.CommitteeForm(), "history": services.owner_history(v),
         "can_vote": v.status == S.HEARING_SCHEDULED and v.hearing_date and v.hearing_date <= timezone.now()})
 
 
@@ -824,7 +828,7 @@ def _handle_owner_post(request, v, form):
     services.add_response(v, d["message"], from_resident=True, user=request.user if request.user.is_authenticated else None,
                           extension_requested=d["request_extension"],
                           extension_days=d["extension_days"] if d["request_extension"] else None,
-                          cure_reported=d["cure_reported"], attorney_notice=d["attorney_notice"])
+                          cure_reported=d["cure_reported"])
     n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
     if n:
         services.log(v, f"Owner uploaded {n} photo(s)")

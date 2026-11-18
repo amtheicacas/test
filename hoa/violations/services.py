@@ -133,7 +133,12 @@ def issue_first_notice(v, user=None, today=None, timing=None):
     log(v, f"Notice of Violation issued ({'urgent: email and mail now' if timing == Violation.Timing.URGENT else 'standard: email now, mail later'}); "
            f"cure deadline {v.cure_deadline:%b %d, %Y}", user)
     delay = 0 if timing == Violation.Timing.URGENT else settings.MAIL_DELAY_BUSINESS_DAYS
-    return send_notice(v, Notice.Kind.VIOLATION, user, hold_mail_days=delay)
+    notice = send_notice(v, Notice.Kind.VIOLATION, user, hold_mail_days=delay)
+    if v.non_curable:   # point in time: nothing to cure, so it goes straight to the Board queue
+        v.status = S.PENDING_BOARD
+        v.save()
+        log(v, "Point-in-time violation: sent straight to the Board queue (no cure period)", user)
+    return notice
 
 
 def _mail_due(notice):
@@ -915,7 +920,9 @@ def owner_history(v, today=None):
     imposed = [o for o in others if o.fine_amount and o.status in (S.FINE_APPROVED, S.CLOSED, S.REFERRED_LEGAL)]
     this_issued = (v.notices.filter(kind=Notice.Kind.VIOLATION).values_list("created_at", flat=True).first() or v.created_at).date()
     repeat_of = next((o for o in same_type if o.cured_on and 0 <= (this_issued - o.cured_on).days <= 90), None)
+    pit_prior = [o for o in others if o.non_curable]
     return {
+        "pit_prior": pit_prior, "pit_count": len(pit_prior),
         "others": others, "same_type": same_type, "same_section": same_section, "open_others": open_others, "past": past,
         "total": len(others) + 1, "fines_total": sum(o.fine_amount for o in imposed),
         "last_12_months": sum(1 for o in others if o.created_at.date() >= today - timedelta(days=365)) + 1,

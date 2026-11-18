@@ -21,12 +21,12 @@
 <div class="row" style="align-items:center;margin-top:8px"><label style="font-weight:400;margin:0;flex:2 1 320px"><input type="checkbox" name="by_majority"> The Board approved these by majority vote at its meeting</label>
 <input name="note" placeholder="Note for the record (optional)" style="flex:2 1 220px"><button style="flex:0 0 auto;min-width:0">Record decisions for the selected rows</button></div></div>
 <div class="card" style="padding:0;overflow:auto"><table class="bq"><tr><th style="width:36px"><th>Violation<th>Property / owner<th>Cure ended<th>History<th>Fine issued ($)<th>Decision<th>Meeting date</tr>
-{% for v in violations %}<tr class="row-link" data-href="{{ v.get_absolute_url }}"><td><input type="checkbox" name="pick" value="{{ v.pk }}" class="pick">
-<td class="v"><a href="{{ v.get_absolute_url }}" target="_blank" rel="noopener"><b>#{{ v.pk }}</b> {{ v.vtype.name }}</a>{% if v.pending_ext %} <span class="pill flag" title="{{ v.pending_ext.message|truncatechars:120 }}">asked for more time</span>{% endif %}
+{% for v in violations %}<tr class="row-link{% if v.is_point_in_time %} pit{% endif %}" data-href="{{ v.get_absolute_url }}"><td><input type="checkbox" name="pick" value="{{ v.pk }}" class="pick">
+<td class="v"><a href="{{ v.get_absolute_url }}" target="_blank" rel="noopener"><b>#{{ v.pk }}</b> {{ v.vtype.name }}</a>{% if v.unread %} <span title="Unread message from the owner" aria-label="Unread message from the owner" style="font-size:1.05rem">&#9993;</span>{% endif %}{% include "violations/_pit_badge.html" %}{% if v.pending_ext %} <span class="pill flag" title="{{ v.pending_ext.message|truncatechars:120 }}">asked for more time</span>{% endif %}
 {% if v.peek %}<div class="peek"><img src="{% url 'photo' v.peek.pk %}" alt=""></div>{% endif %}
 <td>{{ v.owner.property_address }}<div class="mut">{{ v.owner.display_name }}</div>
 <td>{{ v.cure_deadline|date:"M j, Y" }}
-<td><b>{{ v.history.occurrence }}{{ v.history.occurrence|ordinal_suffix }}</b> time<div class="mut">{{ v.history.open_others|length }} other open &middot; ${{ v.history.fines_total|floatformat:"0g" }} prior fines</div>
+<td><b>{{ v.history.occurrence }}{{ v.history.occurrence|ordinal_suffix }}</b> time<div class="mut">{{ v.history.open_others|length }} other open &middot; ${{ v.history.fines_total|floatformat:"0g" }} prior fines</div>{% if v.is_point_in_time or v.history.pit_count %}<div class="mut" style="color:#6f5fc4"><b>{{ v.history.pit_count }}</b> prior point-in-time</div>{% endif %}
 <td><input type="number" step="0.01" min="0" name="fine_{{ v.pk }}" value="{{ v.vtype.default_fine|floatformat:2 }}" class="f-fine">
 <td><select name="decision_{{ v.pk }}" class="f-decision"><option value="proceed">Fine issued: to committee</option><option value="extend">Grant more time</option><option value="dismiss">Dismiss</option></select>
 <td><input type="date" name="date_{{ v.pk }}" value="{{ today|date:'Y-m-d' }}" class="f-date"></tr>{% endfor %}</table></div></form>

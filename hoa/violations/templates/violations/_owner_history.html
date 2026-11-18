@@ -15,12 +15,14 @@
   {% include "violations/_hist_tile.html" with key="all" big=history.total label="violations on record (incl. this)" cases=history.others empty="Only this violation is on record." %}
   {% include "violations/_hist_tile.html" with key="open" big=history.open_others|length label="other open now" cases=history.open_others empty="No other open violations." %}
   {% include "violations/_hist_tile.html" with key="12m" big=history.last_12_months label="in the last 12 months (incl. this)" cases=history.last_12_list empty="No earlier violations in the last 12 months." %}
+  {% include "violations/_hist_tile.html" with key="pit" big=history.pit_count label="prior point-in-time violations" cases=history.pit_prior empty="No prior point-in-time violations." %}
   {% include "violations/_hist_tile.html" with key="fines" big=history.fines_total|floatformat:"0g" dollar="1" label="fines imposed before" cases=history.imposed empty="No fines imposed before." %}
 </div>
 {% include "violations/_hist_panel.html" with key="occ" title="Same violation type, earlier cases" cases=history.same_type empty="First time for this violation type." %}
 {% include "violations/_hist_panel.html" with key="all" title="Everything on record for this owner (besides this case)" cases=history.others empty="Only this violation is on record." %}
 {% include "violations/_hist_panel.html" with key="open" title="Other open violations" cases=history.open_others empty="No other open violations." %}
 {% include "violations/_hist_panel.html" with key="12m" title="Other violations in the last 12 months" cases=history.last_12_list empty="No earlier violations in the last 12 months." %}
+{% include "violations/_hist_panel.html" with key="pit" title="Prior point-in-time violations" cases=history.pit_prior empty="No prior point-in-time violations." %}
 {% include "violations/_hist_panel.html" with key="fines" title="Fines imposed before" cases=history.imposed empty="No fines imposed before." %}
 <script>(function(){var root=document.getElementById("owner-history");if(!root)return;
 root.addEventListener("click",function(e){var t=e.target.closest(".tile");if(!t)return;var k=t.getAttribute("data-key"),p=root.querySelector('.hist-panel[data-key="'+k+'"]'),open=!p.classList.contains("open");

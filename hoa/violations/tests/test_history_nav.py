@@ -738,3 +738,58 @@ def test_owner_home_shows_when_the_cure_period_ended_for_later_stages(db, client
     client.force_login(u)
     html = client.get("/me/").content.decode()
     assert "Cure period ended" in html and "Nov 3, 2026" in html
+
+
+def test_point_in_time_goes_straight_to_the_board_queue_and_stands_out(db, client, django_user_model, mailoutbox):
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Photo, Profile
+    from django.core.files.base import ContentFile
+    o = Owner.objects.create(name="P I", property_address="26 Point Way", email="p@example.com")
+    vt = ViolationType.objects.create(name="Dog off leash")
+    old = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="closed", non_curable=True)
+    v = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", non_curable=True, cure_days=0)
+    Photo.objects.create(violation=v, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    services.issue_first_notice(v)
+    v.refresh_from_db()
+    assert v.status == "pending_board" and mailoutbox                                         # notice emailed, then straight to the Board
+    assert dict(v.stage_steps())["Cure period"] == "skipped"
+    assert services.owner_history(v)["pit_count"] == 1
+    u = django_user_model.objects.create_user("bd3", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    page = client.get("/board/").content.decode()
+    assert "Point in time" in page and "1</b> prior point-in-time" in page
+    cu = django_user_model.objects.create_user("cm2", password="x"); Profile.objects.update_or_create(user=cu, defaults={"role": "committee"})
+    v.status = "hearing_needed"; v.save()
+    client.force_login(cu)
+    assert "1 prior point-in-time violation" in client.get(f"/committee/cases/{v.pk}/").content.decode()
+
+
+def test_owner_portal_links_to_hoa_documents(db, client, django_user_model):
+    from violations.models import Owner, Profile
+    o = Owner.objects.create(name="D L", property_address="27 Docs Way")
+    u = django_user_model.objects.create_user("own5", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    html = client.get("/me/").content.decode()
+    assert "https://home.sunstatemanagement.com/login" in html and "HOA Documents" in html
+
+
+def test_owner_pages_no_longer_offer_the_bringing_an_attorney_checkbox(db, client, django_user_model):
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="N A", property_address="28 Counsel Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T28"), description="d", cure_required="c", status="hearing_scheduled")
+    u = django_user_model.objects.create_user("own6", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    assert "bring an attorney" not in client.get(f"/me/{v.pk}/").content.decode()
+    assert "bring an attorney" not in client.get(f"/r/{v.token}/").content.decode()
+
+
+def test_unread_owner_message_shows_an_envelope_until_staff_open_the_case(db, client, django_user_model):
+    from violations.models import Owner, ViolationType, Violation, Profile, Response
+    o = Owner.objects.create(name="M O", property_address="29 Mail Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T29"), description="d", cure_required="c", status="notice_sent")
+    Response.objects.create(violation=v, message="Hello", from_resident=True)
+    u = django_user_model.objects.create_user("mg13", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    assert "Unread message from the owner" in client.get("/violations/").content.decode()
+    client.get(f"/violations/{v.pk}/")
+    assert "Unread message from the owner" not in client.get("/violations/").content.decode()
