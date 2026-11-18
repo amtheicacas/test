@@ -665,3 +665,14 @@ def test_backdate_meeting_lets_the_committee_decide_now(db, django_user_model):
     call_command("backdate_meeting", str(m.pk))
     a.refresh_from_db()
     services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="x")
+
+
+def test_refer_to_board_early_asks_for_confirmation(db, client, django_user_model):
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="E O", property_address="21 Early Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T21"), description="d", cure_required="c", status="notice_sent")
+    u = django_user_model.objects.create_user("mg12", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    html = client.get(f"/violations/{v.pk}/").content.decode()
+    assert "Refer this case to the Board early?" in html and "This is unusual" in html
