@@ -382,6 +382,16 @@ class Violation(models.Model):
         return out
 
     @property
+    def portal_status(self):
+        """(label, color) for the status pill the owner sees. Only some stages are color coded."""
+        St = self.Status
+        if self.status == St.NOTICE_SENT:
+            return ("In Cure Period", "yellow")
+        if self.status == St.PENDING_BOARD:
+            return ("Sent to Board for Fine", "orange")
+        return (self.get_status_display(), "")
+
+    @property
     def needs_reinspection(self):
         return bool(self.reinspect_on and self.status in self.OPEN and self.status != self.Status.DRAFT)
 

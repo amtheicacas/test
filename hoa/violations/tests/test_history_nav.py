@@ -676,3 +676,19 @@ def test_refer_to_board_early_asks_for_confirmation(db, client, django_user_mode
     client.force_login(u)
     html = client.get(f"/violations/{v.pk}/").content.decode()
     assert "Refer this case to the Board early?" in html and "This is unusual" in html
+
+
+def test_owner_portal_status_pills_are_color_coded_with_friendly_wording(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="C P", property_address="22 Color Way")
+    vt = ViolationType.objects.create(name="T22")
+    a = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="notice_sent", cure_deadline=date.today() + timedelta(days=5))
+    b = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T23"), description="d", cure_required="c", status="pending_board", cure_deadline=date.today() - timedelta(days=1))
+    u = django_user_model.objects.create_user("own3", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    html = client.get("/me/").content.decode()
+    assert 'class="pill yellow">In Cure Period' in html and 'class="pill orange">Sent to Board for Fine' in html
+    assert "Cure period running" not in html and "Awaiting board vote" not in html
+    assert "In Cure Period" in client.get(f"/me/{a.pk}/").content.decode()

@@ -31,6 +31,9 @@ button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}
 ol.steps{list-style:none;display:flex;gap:6px;padding:0;margin:6px 0;flex-wrap:wrap;counter-reset:s}
 ol.steps li{flex:1;min-width:120px;padding:10px 8px;border-radius:10px;border:1px solid var(--line);font-size:.8rem;color:var(--mut);text-align:center;counter-increment:s;background:var(--card)}
 .pill.flag{color:var(--warn);border-color:var(--warn)}
+.pill.yellow{background:#fdf0b8;color:#6b4e00;border-color:#e6c53a;font-weight:600}
+.pill.orange{background:#ffd9b0;color:#8a3a00;border-color:#f08a24;font-weight:600}
+@media(prefers-color-scheme:dark){.pill.yellow{background:#5a4a00;color:#ffe680;border-color:#a88a00}.pill.orange{background:#6b3000;color:#ffc58a;border-color:#c46a10}}
 ol.steps li .ic{display:block;width:30px;height:30px;line-height:28px;margin:0 auto 5px;border-radius:50%;border:1px solid var(--line);font-size:1rem}
 ol.steps li.done{color:var(--ok);border-color:var(--ok)}ol.steps li.done .ic{background:var(--ok);color:var(--card);border-color:var(--ok)}
 ol.steps li.current{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}ol.steps li.current .ic{background:var(--acc-ink);color:var(--acc);border-color:var(--acc-ink)}

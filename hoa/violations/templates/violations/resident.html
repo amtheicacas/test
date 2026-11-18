@@ -2,7 +2,7 @@
 <h1>Violation notice — {{ v.owner.property_address }}</h1>
 <div class="card">{% include "violations/_steps.html" %}<p><b>{{ v.vtype }}</b>{% if v.vtype.reference %} ({{ v.vtype.reference }}){% endif %} — observed {{ v.observed_on|date:"F j, Y" }}</p>
 <p>{{ v.description }}</p><p><b>What is needed to cure:</b> {{ v.cure_required }}</p>
-{% if v.status == "notice_sent" %}<p><b>Cure by: {{ v.cure_deadline|date:"F j, Y" }}</b></p>{% else %}<p><span class="pill">{{ v.get_status_display }}</span></p>{% endif %}
+{% if v.status == "notice_sent" %}<p><b>Cure by: {{ v.cure_deadline|date:"F j, Y" }}</b></p>{% else %}<p><span class="pill {{ v.portal_status.1 }}">{{ v.portal_status.0 }}</span></p>{% endif %}
 {% if v.hearing_date and v.status == "hearing_scheduled" %}<p><b>Compliance Committee hearing: {{ v.hearing_date|date:"l, F j, Y g:i A" }}</b> {{ v.hearing_location }}.<br>The Board proposed {% if v.proposed_fine %}a fine of ${{ v.proposed_fine }}{% endif %} {% if v.proposed_suspension %}a suspension ({{ v.proposed_suspension }}){% endif %}; nothing is owed unless a majority of the Committee approves it. You may attend, speak and give evidence.</p>{% endif %}
 {% if v.status == "fine_approved" %}<p>{% if v.fine_amount %}<b>Fine imposed: ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"F j, Y" }}.</b>{% endif %} {% if v.suspension %}Suspension: {{ v.suspension }}.{% endif %}</p>{% endif %}
 <div class="photos">{% for p in v.photos.all %}<img src="{% url 'resident_photo' v.token p.pk %}" alt="">{% endfor %}</div></div>

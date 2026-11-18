@@ -24,7 +24,7 @@
 {% if open_cards %}<h2 style="margin:18px 0 8px">Open violations <span class="mut" style="font-weight:400;font-size:.9rem">&middot; nearest cure date first</span></h2>
 <div class="vgrid">{% for c in open_cards %}<a class="vcard" href="{% url 'my_violation' c.v.pk %}">
 <div class="ph"{% if c.photo %} style="background-image:url('{% url 'photo' c.photo.pk %}')"{% endif %}>{% if not c.photo %}No photo{% endif %}</div>
-<div class="bd"><div><h3>{{ c.v.vtype.name }}</h3><span class="pill">{{ c.v.get_status_display }}</span></div>
+<div class="bd"><div><h3>{{ c.v.vtype.name }}</h3><span class="pill {{ c.v.portal_status.1 }}">{{ c.v.portal_status.0 }}</span></div>
 <p class="desc">{{ c.v.description }}</p>
 <div class="facts"><div><span>Issued</span><b>{{ c.issued|date:"M j, Y" }}</b></div>
 <div><span>Cure by</span><b>{% if c.v.status == "notice_sent" and c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% elif c.v.status == "notice_sent" %}Immediately{% else %}&ndash;{% endif %}</b>
@@ -32,5 +32,5 @@
 <span class="go">View details &amp; respond &rarr;</span></div></a>{% endfor %}</div>
 {% else %}<div class="card" style="text-align:center;padding:30px"><h2 style="font-size:1.2rem">You have no open violations</h2><p class="mut" style="margin:0">Nothing needs your attention right now. Thank you for helping keep Heron Landing beautiful.</p></div>{% endif %}
 
-{% if past_cards %}<div class="card past" style="margin-top:18px"><h2>Past violations</h2><table>{% for c in past_cards %}<tr><td><a href="{% url 'my_violation' c.v.pk %}">{{ c.v.vtype.name }}</a><td class="mut">{{ c.issued|date:"M j, Y" }}<td><span class="pill">{{ c.v.get_status_display }}</span></tr>{% endfor %}</table></div>{% endif %}
+{% if past_cards %}<div class="card past" style="margin-top:18px"><h2>Past violations</h2><table>{% for c in past_cards %}<tr><td><a href="{% url 'my_violation' c.v.pk %}">{{ c.v.vtype.name }}</a><td class="mut">{{ c.issued|date:"M j, Y" }}<td><span class="pill {{ c.v.portal_status.1 }}">{{ c.v.portal_status.0 }}</span></tr>{% endfor %}</table></div>{% endif %}
 {% endblock %}
