@@ -258,6 +258,10 @@ class Violation(models.Model):
     ledger_reference = models.CharField(max_length=120, blank=True, help_text="Vantaca transaction / reference number.")
     cured_on = models.DateField(null=True, blank=True)
     legal_referred_on = models.DateField(null=True, blank=True)
+    legal_path = models.CharField(max_length=12, blank=True, help_text="after_fine: fine imposed but still not corrected; direct: sent to the attorney because of the nature of the violation.")
+    legal_reason = models.TextField(blank=True)
+    legal_sent_on = models.DateTimeField(null=True, blank=True, help_text="When the reviewed email package went to the attorney.")
+    legal_sent_to = models.CharField(max_length=200, blank=True)
 
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -340,7 +344,9 @@ class Violation(models.Model):
         out, idx = [], 0
         for label, state in steps:
             if state == "legal":
-                out.append({"label": label, "state": state, "icon": "\u2696", "date": legal_ev.created_at.date() if legal_ev else None, "note": "Referred"})
+                out.append({"label": label, "state": state, "icon": "\u2696",
+                            "date": (self.legal_sent_on.date() if self.legal_sent_on else self.legal_referred_on),
+                            "note": "Sent to attorney" if self.legal_sent_on else "Referred, email not sent"})
                 continue
             d, note = dates[idx]
             icon = "\u21b7" if state == "skipped" else self.ICONS[idx]

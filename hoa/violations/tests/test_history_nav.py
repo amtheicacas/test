@@ -489,3 +489,57 @@ def test_reinspect_flag_ages_shows_in_lists_and_resolves(db, client, django_user
     services.reinspect_result(v, corrected=True)
     v.refresh_from_db()
     assert v.status == "cured" and v.reinspect_on is None
+
+
+def _legal_case(status="fine_approved", **kw):
+    from datetime import date, timedelta
+    from django.core.files.base import ContentFile
+    from violations.models import Owner, ViolationType, Violation, Photo, Notice
+    o = Owner.objects.create(name="Lee Owner", property_address="19 Legal Ln", lot_no="19", email="l@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="Fence without approval", section="3.22", standards_title="Fences"),
+                                 description="A fence was installed.", cure_required="Remove it.", status=status, **kw)
+    Photo.objects.create(violation=v, image=ContentFile(b"jpgdata", name="fence.jpg"), from_resident=False)
+    Notice.objects.create(violation=v, kind="violation")
+    return v
+
+
+def test_send_to_legal_drafts_an_email_and_sends_nothing_until_clicked(db, client, django_user_model, mailoutbox, settings):
+    from datetime import date
+    from violations import services
+    from violations.models import Profile
+    settings.ATTORNEY_EMAIL, settings.ATTORNEY_NAME = "counsel@lawfirm.test", "Ms. Counsel"
+    v = _legal_case(fine_amount=200, fine_due_on=date(2026, 12, 20), committee_votes_for=3, committee_votes_against=0, board_votes_for=3, board_votes_against=0)
+    u = django_user_model.objects.create_user("mg9", password="x", email="mgr@example.com")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    r = client.post(f"/violations/{v.pk}/legal/", {"note": ""}, follow=True)
+    v.refresh_from_db()
+    assert v.status == "referred_legal" and v.legal_path == "after_fine" and not mailoutbox      # referred, nothing sent
+    html = r.content.decode()
+    assert "Not sent" in html and "counsel@lawfirm.test" in html and "Ms. Counsel" in html
+    assert "issued a fine of $200.00" in html and "the violation is not complete" in html and "Violation photo:" in html
+    keys = [a["key"] for a in services.legal_email_draft(v)["attachments"]]
+    r = client.post(f"/violations/{v.pk}/legal/email/", {"do": "send", "to": "counsel@lawfirm.test", "subject": "Referral", "body": "Please review.", "att": keys})
+    assert len(mailoutbox) == 1 and mailoutbox[0].to == ["counsel@lawfirm.test"] and len(mailoutbox[0].attachments) == len(keys) == 2
+    v.refresh_from_db()
+    assert v.legal_sent_on and v.legal_sent_to == "counsel@lawfirm.test"
+    assert not v.emails.exists()                                                                   # not in the owner's correspondence
+
+
+def test_direct_referral_needs_a_reason_and_the_email_says_no_fine(db, client, django_user_model, mailoutbox):
+    from violations import services
+    from violations.models import Profile
+    v = _legal_case(status="notice_sent", safety_issue=True)
+    u = django_user_model.objects.create_user("mg10", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    client.post(f"/violations/{v.pk}/legal/", {"note": ""})
+    v.refresh_from_db(); assert v.status == "notice_sent"                                           # a reason is required
+    client.post(f"/violations/{v.pk}/legal/", {"note": "Structural hazard"})
+    v.refresh_from_db(); assert v.status == "referred_legal" and v.legal_path == "direct" and not mailoutbox
+    body = services.legal_email_draft(v)["body"]
+    assert "referring it directly" in body and "no fine has been imposed" in body and "Structural hazard" in body and "safety issue" in body
+    st = dict(v.stage_steps())
+    assert st["Fine issued by Board"] == "skipped" and st["Referred to attorney"] == "legal"
+    z = client.post(f"/violations/{v.pk}/legal/email/", {"do": "download", "to": "a@b.c", "subject": "s", "body": "b", "att": ["photo-1"]})
+    assert z["Content-Type"] == "application/zip"

@@ -34,6 +34,9 @@
 {% if v.responses.all|length %}{% for r in v.responses.all %}{% if r.cure_reported and not r.handled %}<div class="msg warning">Owner reports this is fixed — reinspect, then mark corrected.</div>{% endif %}{% endfor %}{% endif %}
 {% include "violations/_extension_request.html" %}
 
+{% if v.status == S.REFERRED_LEGAL %}<div class="card" style="border-color:var(--warn)"><h2><span class="pill flag">&#9878; Referred to attorney</span> {{ v.legal_referred_on|date:"M j, Y" }}</h2>
+<p>{% if v.legal_path == "after_fine" %}Normal path: a fine was imposed and the violation is still not corrected.{% else %}<b>Direct referral:</b> the Board vote, hearing and fine steps were bypassed.{% endif %}{% if v.legal_reason %} <span class="mut">{{ v.legal_reason }}</span>{% endif %}</p>
+{% if v.legal_sent_on %}<p>Email sent to {{ v.legal_sent_to }} on {{ v.legal_sent_on|date:"M j, Y" }}. <a href="{% url 'legal_email' v.pk %}">View / send again</a></p>{% else %}<p><b>The email to the attorney has not been sent.</b> <a class="btn" href="{% url 'legal_email' v.pk %}">Review &amp; send the draft</a></p>{% endif %}</div>{% endif %}
 {% if v.needs_reinspection %}<div class="card" style="border-color:var(--warn)"><h2><span class="pill flag">Re-inspect</span> Waiting {{ v.reinspect_age }} day{{ v.reinspect_age|pluralize }} (marked {{ v.reinspect_on|date:"M j, Y" }})</h2>
 <p class="mut" style="margin-top:0">The owner reports this is corrected. It stays on the "verify before the Board meeting" list until you record the result of the re-inspection.</p>
 <form method="post" action="{% url 'violation_action' v.pk 'reinspect_result' %}" class="row" style="align-items:center">{% csrf_token %}<input name="note" placeholder="Note (optional; shown to the owner if not corrected)"><button name="result" value="corrected" style="flex:0 0 auto;min-width:0">Verified corrected</button><button name="result" value="not_corrected" class="bad" style="flex:0 0 auto;min-width:0">Still not corrected</button></form></div>
@@ -86,7 +89,7 @@
 {% if v.is_open %}{% if v.status == S.ON_HOLD %}<div class="card"><h2>On hold</h2><p>{{ v.hold_reason }} (since {{ v.held_on|date:"M j, Y" }}){% if v.hold_until %}<br><b>On hold until {{ v.hold_until|date:"F j, Y" }}.</b> The hold lifts itself that day and the cure period starts over. The owner is emailed before it ends.{% endif %}</p><form method="post" action="{% url 'violation_action' v.pk 'resume' %}">{% csrf_token %}<button>Lift hold now (cure period starts over)</button></form></div>
 {% elif v.is_open and v.status != S.DRAFT %}<div class="card"><h2>Hold / legal</h2><div class="row">
 <form method="post" action="{% url 'violation_action' v.pk 'hold' %}">{% csrf_token %}{{ hold_form.reason }}<label style="margin-top:6px">On hold until</label>{{ hold_form.until }}<button class="sec" style="margin-top:6px">Put on hold</button></form>
-<form method="post" action="{% url 'violation_action' v.pk 'legal' %}">{% csrf_token %}<input name="note" placeholder="Note"><button class="bad" style="margin-top:6px">Send to legal</button></form></div></div>{% endif %}
+<a class="btn bad" style="margin-top:6px" href="{% url 'legal_refer' v.pk %}">Send to legal&hellip;</a></div></div>{% endif %}
 <div class="card"><h2>Close</h2><div class="row">
 {% if v.status != S.DRAFT %}<form method="post" action="{% url 'violation_action' v.pk 'cure' %}">{% csrf_token %}<input name="note" placeholder="Note (e.g. reinspected, verified)"><button style="margin-top:6px">Mark corrected</button></form>{% endif %}
 <form method="post" action="{% url 'violation_action' v.pk 'dismiss' %}">{% csrf_token %}<input name="note" placeholder="Reason"><button class="bad" style="margin-top:6px">Dismiss (no violation)</button></form></div></div>{% endif %}

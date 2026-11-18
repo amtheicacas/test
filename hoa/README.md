@@ -122,3 +122,6 @@ A hold needs an **On hold until** date. The owner gets an email 7 and 2 days bef
 
 ## Testing as an owner
 `python manage.py owner_login --address "7316 Great Egret"` gives that existing owner a portal login (default password `demo-password-123`). `make_test_owner --email you@example.com` creates a throwaway test owner instead. Testing only.
+
+## Send to legal
+"Send to legal…" on a case opens a two-step flow. Step 1 records the referral: if a fine was imposed and the violation is still not corrected it is the **normal path**; from any other stage it is a **direct referral** (the Board vote, hearing and fine steps are shown as bypassed, and a reason is required). Step 2 is a **drafted email to the attorney** (case summary, timeline, status, owner replies) with every letter sent to the owner and the violation photos as attachments. Nothing is sent automatically: you edit the draft, then click Send, or download everything as a .zip to send from your own email. Set `ATTORNEY_NAME` and `ATTORNEY_EMAIL` to pre-fill the address. Cases referred but not yet emailed show on the dashboard.

@@ -143,6 +143,7 @@ def home(request):
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
+        "legal_drafts": Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).select_related("owner", "vtype"),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
         "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
@@ -342,6 +343,62 @@ def canned_replies(request):
 
 
 @staff_only
+def legal_refer(request, pk):
+    """Step 1 of 'Send to legal': confirm the referral (and why, if it skips the usual process). Nothing is emailed."""
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), pk=pk)
+    if v.status == S.REFERRED_LEGAL:
+        return redirect("legal_email", pk=pk)
+    after_fine = v.status == S.FINE_APPROVED
+    if request.method == "POST":
+        note = (request.POST.get("note") or "").strip()
+        if not after_fine and not note:
+            messages.error(request, "Say why this is going straight to the attorney.")
+        else:
+            if _run(request, services.refer_to_attorney, v, request.user, note) is None and v.status != S.REFERRED_LEGAL:
+                v.refresh_from_db()
+            if v.status == S.REFERRED_LEGAL:
+                messages.success(request, "Marked as referred to the attorney. Review the draft email below; nothing has been sent.")
+                return redirect("legal_email", pk=pk)
+    flags = [x for x, on in (("Non curable violation", v.non_curable), ("Safety issue", v.safety_issue), ("Board declared emergency", v.board_emergency)) if on]
+    return render(request, "violations/legal_refer.html", {"v": v, "after_fine": after_fine, "flags": flags,
+                                                           "prefill": request.POST.get("note", "") or ("; ".join(flags) if flags else "")})
+
+
+@staff_only
+def legal_email(request, pk):
+    """Step 2: review and edit the drafted email to the attorney, then send it, or download everything to send from your own email."""
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), pk=pk)
+    if v.status != S.REFERRED_LEGAL:
+        messages.info(request, "This case has not been referred to the attorney.")
+        return redirect(v)
+    draft = services.legal_email_draft(v, request.user)
+    if request.method == "POST":
+        P = request.POST
+        to, cc, subject, body = P.get("to", "").strip(), P.get("cc", "").strip(), P.get("subject", ""), P.get("body", "")
+        keys = P.getlist("att")
+        for a in draft["attachments"]:
+            a["checked"] = a["key"] in keys
+        draft.update(to=to, subject=subject, body=body)
+        if P.get("do") == "download":
+            import io, zipfile
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr("email-draft.txt", f"To: {to}\nCc: {cc}\nSubject: {subject}\n\n{body}\n")
+                for k in keys:
+                    att = services.legal_attachment_bytes(v, k)
+                    if att:
+                        z.writestr(att[0], att[1])
+            return HttpResponse(buf.getvalue(), content_type="application/zip",
+                                headers={"Content-Disposition": f'attachment; filename="legal-package-case-{v.pk}.zip"'})
+        if P.get("do") == "send":
+            if _run(request, services.send_legal_email, v, to, subject, body, keys, request.user, cc, ok=f"Sent to {to}.") is not None or v.legal_sent_on:
+                v.refresh_from_db()
+                if v.legal_sent_on:
+                    return redirect(v)
+    return render(request, "violations/legal_email.html", {"v": v, "draft": draft, "cc": request.POST.get("cc", "")})
+
+
+@staff_only
 def owner_correspondence(request, pk):
     """Board / manager: every letter and email sent to this owner (and tenant) across all their cases, with mailing and tracking details."""
     o = get_object_or_404(Owner, pk=pk)
@@ -478,7 +535,7 @@ def violation_action(request, pk, action):
         if f.is_valid():
             _run(request, services.record_payment, v, f.cleaned_data["paid_on"], u, ok="Payment recorded.")
     elif action == "legal":
-        _run(request, services.refer_to_attorney, v, u, P.get("note", ""), ok="Referred to the attorney.")
+        return redirect("legal_refer", pk=v.pk)   # the referral has its own step now (see legal_refer)
     return redirect(v)
 
 

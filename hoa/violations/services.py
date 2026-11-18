@@ -231,10 +231,130 @@ def record_payment(v, paid_on, user=None):
 
 @transaction.atomic
 def refer_to_attorney(v, user=None, note=""):
+    """Mark the case as referred to the attorney. A fine imposed but the violation still not corrected is the normal path ('after_fine');
+    anything else is a direct referral because of the nature of the violation ('direct'), which bypasses the Board / Committee steps.
+    This sends nothing: the email to the attorney is drafted for review (legal_email_draft) and only sent when someone clicks Send."""
     _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.LEDGER_PENDING)])
-    v.status, v.legal_referred_on = S.REFERRED_LEGAL, date.today()
+    v.legal_path = "after_fine" if v.status == S.FINE_APPROVED else "direct"
+    v.status, v.legal_referred_on, v.legal_reason, v.legal_sent_on, v.legal_sent_to = S.REFERRED_LEGAL, date.today(), (note or "").strip(), None, ""
     v.save()
-    log(v, "Referred to the Association's attorney" + (f": {note}" if note else ""), user)
+    cancel_held_mailings(v, "case referred to the attorney")
+    log(v, ("Referred to the Association's attorney after the fine was imposed" if v.legal_path == "after_fine"
+            else "Referred directly to the Association's attorney (Board / Committee steps bypassed)") + (f": {note}" if note else "")
+        + ". Draft email to the attorney prepared, not sent.", user)
+
+
+# ---- the email to the attorney: drafted for review, sent only when a person clicks Send ----
+def _money(x):
+    return f"${Decimal(x):,.2f}"
+
+
+def legal_attachments(v):
+    """[{key, label, filename, checked}]: every letter sent to the owner, the photos we sent them, and (unchecked) the owner's own photos."""
+    import os
+    out = []
+    for n in v.notices.all():
+        d = timezone.localtime(n.created_at)
+        out.append({"key": f"letter-{n.pk}", "label": f"{n.get_kind_display()} ({d:%b} {d.day}, {d.year})",
+                    "filename": f"{n.kind}-letter-{d:%Y-%m-%d}.pdf", "checked": True})
+    for p in v.photos.all():
+        mine = p.from_resident
+        out.append({"key": f"photo-{p.pk}", "label": ("Owner's photo: " if mine else "Violation photo: ") + os.path.basename(p.image.name),
+                    "filename": os.path.basename(p.image.name), "checked": not mine})
+    return out
+
+
+def legal_attachment_bytes(v, key):
+    import os
+    kind, _, pk = key.partition("-")
+    if kind == "letter":
+        n = v.notices.filter(pk=pk).first()
+        return (f"{n.kind}-letter-{timezone.localtime(n.created_at):%Y-%m-%d}.pdf", render_notice_pdf(n, "owner"), "application/pdf") if n else None
+    if kind == "photo":
+        p = v.photos.filter(pk=pk).first()
+        if not p:
+            return None
+        import mimetypes
+        with p.image.open("rb") as f:
+            return (os.path.basename(p.image.name), f.read(), mimetypes.guess_type(p.image.name)[0] or "application/octet-stream")
+    return None
+
+
+def legal_email_draft(v, user=None):
+    """The drafted email (to, subject, body) summarizing the case for the attorney. Nothing is sent."""
+    o = v.owner
+    d = lambda x: f"{x:%B} {x.day}, {x.year}"
+    who = (settings.ATTORNEY_NAME or "").strip()
+    rule = " ".join(x for x in (("Declaration" if v.vtype.source == "Declaration" else "Community Standards") + (f" \u00a7{v.vtype.section}" if v.vtype.section else ""),
+                                v.vtype.standards_title) if x)
+    lines = [f"Dear {who or 'Counsel'},", "",
+             "The Association is referring the following matter to you for review and further action.", "",
+             "OWNER AND PROPERTY",
+             f"Owner: {o.display_name}", f"Property: {o.property_address}" + (f" (Lot {o.lot_no})" if o.lot_no else "")]
+    if o.has_separate_mailing:
+        lines.append(f"Owner's mailing address: {o.mailing_address.strip()}")
+    if o.has_tenant:
+        lines.append(f"Tenant: {o.tenant_name}" + (f" (lease through {d(o.tenant_end)})" if o.tenant_end else ""))
+    lines += ["", "VIOLATION", f"{v.vtype.name} ({rule})", f"Observed {d(v.observed_on)}: {v.description}", f"Required cure: {v.cure_required}", ""]
+    tl = []
+    for n in v.notices.all():
+        dd = timezone.localtime(n.created_at)
+        how = "first class mail and email" if n.kind in ("violation", "second", "extension") else "certified mail and email"
+        tl.append((n.created_at, f"{d(dd)}: {n.get_kind_display()} sent by {how}" + (f" (certified tracking {n.tracking_number})" if n.tracking_number else "")))
+    if v.cure_deadline:
+        tl.append((timezone.make_aware(datetime.combine(v.cure_deadline, datetime.min.time())), f"{d(v.cure_deadline)}: cure deadline (including any extension)"))
+    if v.board_meeting_date:
+        tl.append((timezone.make_aware(datetime.combine(v.board_meeting_date, datetime.min.time())),
+                   f"{d(v.board_meeting_date)}: Board voted to proceed" + (f" ({v.board_votes_for}-{v.board_votes_against})" if v.board_votes_for is not None else "")))
+    if v.hearing_date:
+        tl.append((v.hearing_date, f"{d(timezone.localtime(v.hearing_date))}: Fining Committee hearing" + (
+            f"; decision by vote of {v.committee_votes_for}-{v.committee_votes_against}" if v.committee_votes_for is not None else "")))
+    tl.sort(key=lambda x: x[0])
+    if tl:
+        lines += ["TIMELINE"] + [f"- {t}" for _, t in tl] + [""]
+    lines.append("STATUS")
+    if v.legal_path == "after_fine":
+        amt = (f"a fine of {_money(v.fine_amount)}" if v.fine_amount else "a suspension of privileges") + (
+            f" and a suspension of {v.suspension}" if v.fine_amount and v.suspension else "")
+        due = f", due {d(v.fine_due_on)}" if v.fine_due_on else ""
+        paid = (" The fine has been paid." if v.fine_paid_on else (" The fine has not been paid." if v.fine_amount else ""))
+        lines.append(f"This matter was issued {amt}{due}, following the Association's notice and hearing process, but the violation is not complete: it has not been corrected.{paid}")
+    else:
+        flags = ", ".join(x for x, on in (("non-curable", v.non_curable), ("safety issue", v.safety_issue), ("Board-declared emergency", v.board_emergency)) if on)
+        lines.append("Because of the nature of this violation" + (f" ({flags})" if flags else "") + ", the Association is referring it directly to you without completing "
+                     "the fining process (no fine has been imposed at this time).")
+        if v.legal_reason:
+            lines.append(f"Reason for the direct referral: {v.legal_reason}")
+    replies = [r for r in v.responses.all() if r.from_resident][-3:]
+    if replies:
+        lines += ["", "OWNER'S RESPONSES"] + [f"- {timezone.localtime(r.created_at):%b} {timezone.localtime(r.created_at).day}: {r.message.strip()[:400]}" for r in replies]
+    lines += ["", "Attached are the letters the Association sent to the owner and the photographs of the violation. Please let us know what additional information you need and how you recommend we proceed.", "",
+              "Thank you,", (user.get_full_name() or user.get_username()) if user is not None and getattr(user, "is_authenticated", False) else "",
+              "On behalf of the Board of Directors", settings.HOA_NAME]
+    return {"to": settings.ATTORNEY_EMAIL, "subject": f"Referral - {v.vtype.name} - {o.property_address} (Case #{v.pk})",
+            "body": "\n".join(lines), "attachments": legal_attachments(v)}
+
+
+def send_legal_email(v, to, subject, body, keys, user=None, cc=""):
+    """Send the reviewed email to the attorney with the chosen attachments. Only ever called when a person clicks Send."""
+    _require(v, S.REFERRED_LEGAL)
+    if "@" not in (to or ""):
+        raise WorkflowError("Enter the attorney's email address.")
+    msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, [to.strip()], cc=[cc.strip()] if cc.strip() else [],
+                       reply_to=[user.email] if user is not None and getattr(user, "email", "") else None)
+    n = 0
+    for k in keys:
+        att = legal_attachment_bytes(v, k)
+        if att:
+            msg.attach(*att)
+            n += 1
+    try:
+        msg.send()
+    except Exception as e:
+        raise WorkflowError(f"The email could not be sent: {e}")
+    v.legal_sent_on, v.legal_sent_to = timezone.now(), to.strip()
+    v.save(update_fields=["legal_sent_on", "legal_sent_to"])
+    log(v, f"Email sent to the attorney ({to.strip()}) with {n} attachment(s)", user)
 
 
 @transaction.atomic

@@ -1,0 +1,19 @@
+{% extends "violations/base.html" %}{% block title %}Email to the attorney{% endblock %}{% block content %}
+<p><a href="{{ v.get_absolute_url }}">&larr; Back to case #{{ v.pk }}</a></p>
+<h1>Email to the attorney</h1>
+{% if v.legal_sent_on %}<div class="msg success">Sent to {{ v.legal_sent_to }} on {{ v.legal_sent_on|date:"M j, Y g:i A" }}. You can still edit and send again.</div>
+{% else %}<div class="msg warning"><b>Not sent.</b> This is a draft for you to review. Nothing goes out until you click <b>Send email</b>.</div>{% endif %}
+<p class="mut">{% if v.legal_path == "after_fine" %}Normal path: fine imposed, violation not corrected.{% else %}Direct referral: Board / Committee steps bypassed.{% endif %}</p>
+<form class="card" method="post" id="legalform">{% csrf_token %}
+<div class="row"><div><label>To (attorney)</label><input name="to" type="email" value="{{ draft.to }}" placeholder="attorney@lawfirm.com" required></div><div><label>Cc (optional)</label><input name="cc" type="email" value="{{ cc }}"></div></div>
+{% if not draft.to %}<p class="mut" style="margin:4px 0 0">Tip: set <code>ATTORNEY_EMAIL</code> and <code>ATTORNEY_NAME</code> once and this fills in automatically.</p>{% endif %}
+<label>Subject</label><input name="subject" id="subj" value="{{ draft.subject }}">
+<label>Message</label><textarea name="body" id="bodytxt" rows="24" style="font-family:inherit">{{ draft.body }}</textarea>
+<label style="margin-top:12px">Attachments</label>
+{% for a in draft.attachments %}<label style="font-weight:400;margin:2px 0"><input type="checkbox" name="att" value="{{ a.key }}" {% if a.checked %}checked{% endif %}> {{ a.label }}</label>{% empty %}<p class="mut">No letters or photos on file.</p>{% endfor %}
+<div class="row" style="margin-top:14px;align-items:center">
+<button name="do" value="send" style="flex:0 0 auto;min-width:0" onclick="return confirm('Send this email to the attorney now?')">Send email</button>
+<button name="do" value="download" class="sec" style="flex:0 0 auto;min-width:0">Download everything (.zip) to send from my own email</button>
+<a class="btn sec" style="flex:0 0 auto;min-width:0" id="mailto" href="#">Open in my email app (no attachments)</a></div></form>
+<script>(function(){var a=document.getElementById("mailto");a.addEventListener("click",function(e){var f=document.getElementById("legalform");var to=f.to.value,s=f.subject.value,b=f.body.value;
+a.href="mailto:"+encodeURIComponent(to)+"?subject="+encodeURIComponent(s)+"&body="+encodeURIComponent(b.slice(0,1800));});})();</script>{% endblock %}
