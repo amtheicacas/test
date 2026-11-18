@@ -255,3 +255,21 @@ def test_make_test_owner_command(db, django_user_model):
     u = django_user_model.objects.get(username="testowner")
     assert o.email == "me@example.com" and u.check_password("demo-password-123")
     assert u.profile.role == "homeowner" and u.profile.owner == o
+
+
+def test_dashboard_overdue_counts(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="O", property_address="5 Late Way")
+    vt = ViolationType.objects.create(name="T5")
+    Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board",
+                             cure_deadline=date.today() - timedelta(days=20))
+    Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="fine_approved",
+                             fine_amount=50, fine_due_on=date.today() - timedelta(days=2))
+    from violations.views import overdue_qs
+    assert overdue_qs("board").count() == 1 and overdue_qs("fine").count() == 1 and overdue_qs("hearing").count() == 0
+    u = django_user_model.objects.create_user("mg3", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    r = client.get("/violations/?overdue=fine")
+    assert r.status_code == 200 and "5 Late Way" in r.content.decode()

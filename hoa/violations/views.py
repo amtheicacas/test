@@ -145,6 +145,25 @@ def home(request):
     return render(request, "violations/dashboard.html", ctx)
 
 
+OVERDUE = [  # key, label, what makes it overdue
+    ("board", "Waiting on a Board vote too long", "the cure period ended more than BOARD_REVIEW_TARGET_DAYS ago and the Board has not voted"),
+    ("hearing", "Hearing date passed, no decision", "the Compliance Committee meeting has happened but no decision is recorded"),
+    ("fine", "Fine past its payment due date", "imposed fine not paid by the due date"),
+]
+
+
+def overdue_qs(key, today=None):
+    today = today or date.today()
+    if key == "board":
+        return Violation.objects.filter(status=S.PENDING_BOARD,
+                                        cure_deadline__lt=today - timedelta(days=settings.BOARD_REVIEW_TARGET_DAYS))
+    if key == "hearing":
+        return Violation.objects.filter(status=S.HEARING_SCHEDULED, hearing_date__lt=timezone.now())
+    if key == "fine":
+        return Violation.objects.filter(status=S.FINE_APPROVED, fine_amount__gt=0, fine_paid_on__isnull=True, fine_due_on__lt=today)
+    return Violation.objects.none()
+
+
 PIPELINE = [("Cure period", "notice_sent"), ("Board vote", "pending_board"), ("Schedule hearing", "hearing_needed"),
             ("Committee / hearing", "hearing_scheduled"), ("Post to ledger", "ledger_pending"),
             ("Imposed", "fine_approved"), ("On hold", "on_hold")]
@@ -179,7 +198,12 @@ def _dashboard_visuals(counts):
     cured_30 = Violation.objects.filter(cured_on__gte=today - timedelta(days=30)).count()
     total = Violation.objects.count()
     cured_all = sum(counts.get(k, 0) for k in ("cured", "closed"))
+    overdue = [{"key": k, "label": l, "hint": h.replace("BOARD_REVIEW_TARGET_DAYS", f"{settings.BOARD_REVIEW_TARGET_DAYS} days"), "n": overdue_qs(k, today).count()} for k, l, h in OVERDUE]
+    late_replies = sum(1 for _, late in _awaiting_reply() if late)
+    overdue.append({"key": "replies", "label": "Owner messages unanswered past the reply target",
+                    "hint": f"no staff reply within {settings.REPLY_TARGET_HOURS} hours", "n": late_replies})
     return {
+        "overdue": overdue, "overdue_total": sum(o["n"] for o in overdue),
         "pipeline": pipeline, "top_types": top, "trend": trend,
         "kpi_open": open_qs.count(),
         "kpi_homes": open_qs.values("owner").distinct().count(),
@@ -202,6 +226,8 @@ def violation_list(request):
         qs = qs.filter(status=status)
     if vtype:
         qs = qs.filter(vtype_id=vtype)
+    if g.get("overdue") in ("board", "hearing", "fine"):
+        qs = qs.filter(pk__in=overdue_qs(g["overdue"]).values("pk"))
     if q:
         qs = qs.filter(Q(owner__name__icontains=q) | Q(owner__property_address__icontains=q)
                        | Q(description__icontains=q) | Q(vtype__name__icontains=q))
