@@ -330,7 +330,7 @@ def test_owner_login_command_and_portal_shows_letter_and_photo(db, client, djang
     call_command("owner_login", "--address", "7316 Great Egret")
     client.force_login(django_user_model.objects.get(username="owner-65"))
     html = client.get(f"/me/{v.pk}/").content.decode()
-    assert "T8" in html and "View / print" in html and "/photos/" in html and "Send a message" in html
+    assert "T8" in html and "Open / print the letter" in html and "/photos/" in html and "Send a message" in html
 
 
 def test_hold_until_date_lifts_itself_restarts_cure_and_emails(db, mailoutbox):
@@ -360,3 +360,41 @@ def test_address_brackets_fill_in_automatically(db):
                        "description": "The sidewalk at [location] has mold.", "cure_required": "Clean [address]."})
     assert f.is_valid(), f.errors
     assert "7316 Great Egret Boulevard #65" in f.cleaned_data["description"] and "[" not in f.cleaned_data["cure_required"]
+
+
+def test_correspondence_shows_letters_emails_and_certified_tracking(db, client, django_user_model):
+    from datetime import date
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Photo, Profile, Notice
+    from django.core.files.base import ContentFile
+    o = Owner.objects.create(name="C O", property_address="11 Corr Way", email="c@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T11"), description="d", cure_required="c")
+    Photo.objects.create(violation=v, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    n = services.issue_first_notice(v, timing="urgent")
+    services.mark_mailed(n, date.today(), "9407123456", method="certified")
+    assert v.emails.filter(notice=n).count() == 1                       # a copy of the email is kept
+    u = django_user_model.objects.create_user("mg6", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    html = client.get(f"/violations/{v.pk}/").content.decode()
+    assert "Certified" in html and "9407123456" in html and "View letter" in html and "Email copy" in html
+    page = client.get(f"/owners/{o.pk}/correspondence/").content.decode()
+    assert "9407123456" in page
+
+
+def test_owner_home_lists_cases_nearest_cure_date_first_with_photo(db, client, django_user_model):
+    from datetime import date, timedelta
+    from django.core.files.base import ContentFile
+    from violations.models import Owner, ViolationType, Violation, Photo, Profile
+    o = Owner.objects.create(name="Sorted Owner", property_address="12 Sort Way")
+    vt = ViolationType.objects.create(name="Thing")
+    later = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="LaterOne"), description="d", cure_required="c", status="notice_sent", cure_deadline=date.today() + timedelta(days=20))
+    sooner = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="SoonerOne"), description="d", cure_required="c", status="notice_sent", cure_deadline=date.today() + timedelta(days=2))
+    Photo.objects.create(violation=sooner, image=ContentFile(b"x", name="a.jpg"), from_resident=False)
+    u = django_user_model.objects.create_user("own2", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    html = client.get("/me/").content.decode()
+    assert html.index("SoonerOne") < html.index("LaterOne")
+    assert "steps" not in html.split("<main")[1]                          # no stage tracker on the home screen
+    assert "background-image" in html and "Cure by" in html

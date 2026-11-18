@@ -11,7 +11,7 @@
 {{ form.message.label_tag }}{{ form.message }}{{ form.message.errors }}
 <label><input type="checkbox" name="cure_reported" {% if form.cure_reported.value %}checked{% endif %}> {{ form.cure_reported.label }}</label>
 <label><input type="checkbox" name="request_extension" {% if form.request_extension.value %}checked{% endif %}> {{ form.request_extension.label }}</label>
-{{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}
+<div id="extbox" style="display:none">{{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}</div><script>(function(){var c=document.querySelector("input[name=request_extension]"),b=document.getElementById("extbox");if(!c||!b)return;function t(){b.style.display=c.checked?"block":"none";}c.addEventListener("change",t);t();})();</script>
 {% if v.status == "hearing_scheduled" %}<label><input type="checkbox" name="attorney_notice"> {{ form.attorney_notice.label }} (please tell us at least 7 days before)</label>{% endif %}
 <label>Photos showing the work or cure (optional)</label><input type="file" name="photos" id="rphotos" accept="image/*" multiple>
 <div id="rthumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div><p class="mut" style="margin:0">Tip: if you've fixed it, tick "The violation has been fixed" above and add a photo of the corrected area. Photos up to 10 MB each.</p>

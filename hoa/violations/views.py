@@ -308,10 +308,18 @@ def recipient_summary(o):
 
 
 @staff_only
+def owner_correspondence(request, pk):
+    """Board / manager: every letter and email sent to this owner (and tenant) across all their cases, with mailing and tracking details."""
+    o = get_object_or_404(Owner, pk=pk)
+    cases = [{"v": v, "mail": services.correspondence(v, staff=True)} for v in o.violations.exclude(status=S.DRAFT).select_related("vtype")]
+    return render(request, "violations/owner_correspondence.html", {"owner": o, "cases": cases})
+
+
+@staff_only
 def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     ctx = {
-        "v": v, "S": S, "steps": v.stage_steps(),
+        "v": v, "S": S, "steps": v.stage_steps(), "mail": services.correspondence(v, staff=True),
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(),
         "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
         "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
@@ -567,9 +575,34 @@ def _handle_owner_post(request, v, form):
 
 @homeowner_only
 def my_violations(request):
+    """The owner's simple home screen: what's new, then each open violation (photo, issued date, cure date; nearest cure date first)."""
     o = accounts.owner_of(request.user)
-    vs = Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype") if o else []
-    return render(request, "violations/me_list.html", {"owner": o, "violations": vs})
+    vs = list(Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype").prefetch_related("photos", "notices")) if o else []
+    today = date.today()
+    cards = []
+    for v in vs:
+        photo = next((p for p in v.photos.all() if not p.from_resident), None)
+        first = next((n for n in v.notices.all() if n.kind == "violation"), None)
+        left = (v.cure_deadline - today).days if v.cure_deadline and v.status == S.NOTICE_SENT else None
+        cards.append({"v": v, "photo": photo, "issued": (first.created_at if first else v.created_at).date(), "left": left,
+                      "open": v.status in Violation.OPEN})
+    open_cards = sorted([c for c in cards if c["open"]], key=lambda c: (c["v"].cure_deadline is None, c["v"].cure_deadline or today, c["v"].pk))
+    past = sorted([c for c in cards if not c["open"]], key=lambda c: c["issued"], reverse=True)
+    updates = []
+    for v in vs:
+        for n in v.notices.all():
+            updates.append({"when": n.created_at, "text": f"{n.get_kind_display()}: {v.vtype.name}", "v": v,
+                            "new": n.kind in ("violation", "second", "hearing", "fine")})
+        for r in v.responses.all():
+            if not r.from_resident:
+                updates.append({"when": r.created_at, "text": f"New message from the Association: {v.vtype.name}", "v": v, "new": True})
+    updates.sort(key=lambda u: u["when"], reverse=True)
+    cutoff = timezone.now() - timedelta(days=7)
+    for u in updates:
+        u["fresh"] = u["when"] >= cutoff
+    first_name = (request.user.first_name or (o.display_name.split()[0] if o else "")).strip()
+    return render(request, "violations/me_list.html", {"owner": o, "open_cards": open_cards, "past_cards": past,
+                                                       "updates": updates[:6], "first_name": first_name})
 
 
 @homeowner_only
@@ -582,7 +615,9 @@ def my_violation(request, pk):
         _handle_owner_post(request, v, form)
         return redirect("my_violation", pk=pk)
     return render(request, "violations/me_detail.html", {"v": v, "steps": v.stage_steps(), "form": form, "S": S,
-                                                         "notices": v.notices.all(), "state_url": f"/me/{pk}/state/"})
+                                                         "notices": v.notices.all(), "mail": services.correspondence(v),
+                                                         "latest_letter": next((n for n in reversed(list(v.notices.all())) if n.kind in ("violation", "second")), None),
+                                                         "state_url": f"/me/{pk}/state/"})
 
 
 @homeowner_only

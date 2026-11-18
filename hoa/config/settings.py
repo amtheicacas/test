@@ -187,5 +187,6 @@ MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Max
 # First notices go out by email at once; the printed/mailed copy waits this many business days (Mon-Fri) in case the owner fixes it (saves postage).
 BOARD_REVIEW_TARGET_DAYS = int(env("BOARD_REVIEW_TARGET_DAYS", "14"))   # the dashboard flags a case "overdue" when the Board has not voted this many days after the cure period ended
 MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
+X_FRAME_OPTIONS = "SAMEORIGIN"   # lets the app show its own letter PDFs inside its pages
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))

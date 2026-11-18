@@ -15,7 +15,7 @@ from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Event, Notice, Reminder, Response, Violation
+from .models import EmailLog, Event, Notice, Reminder, Response, Violation
 from . import ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
@@ -53,6 +53,18 @@ def _signature():
     return (f"\n\nQuestions? {contact}" if contact else "") + f"\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}"
 
 
+def correspondence(v, staff=False):
+    """Everything sent to the owner (and tenant) about this case, newest last: each letter with how it was delivered, and each email."""
+    items = []
+    for n in v.notices.all():
+        items.append({"when": n.created_at, "kind": "letter", "title": n.get_kind_display(), "notice": n,
+                      "lines": n.delivery_lines(staff), "emails": [e for e in n.email_logs.all()]})
+    for e in v.emails.filter(notice__isnull=True):
+        items.append({"when": e.sent_at, "kind": "email", "title": e.subject, "email": e, "lines": []})
+    items.sort(key=lambda i: i["when"])
+    return items
+
+
 def add_business_days(start, n):
     """The date n weekdays (Mon-Fri) after `start`. Holidays are not skipped."""
     d = start
@@ -87,8 +99,11 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
             msg.send()
             sent_to += emails
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=body, to=", ".join(emails), recipient=who)
         except Exception as e:  # SMTP down, bad address...
             errors.append(f"{who}: {e}"[:150])
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=body, to=", ".join(emails), recipient=who,
+                                    ok=False, error=str(e)[:300])
     if sent_to:
         notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(sent_to)
     notice.email_error = "; ".join(errors)[:300]
@@ -316,12 +331,14 @@ def _email_owner(v, subject, body):
     """Plain email to the owner(s) and tenant, each addressed by name. Returns the recipients."""
     to = []
     for who, emails, name in recipient_groups(v):
+        full = f"Dear {name},\n\n{body}\n\nView your case or reply: {v.resident_url()}{_signature()}"
         try:
-            EmailMessage(subject, f"Dear {name},\n\n{body}\n\nView your case or reply: {v.resident_url()}{_signature()}",
-                         settings.DEFAULT_FROM_EMAIL, emails).send()
+            EmailMessage(subject, full, settings.DEFAULT_FROM_EMAIL, emails).send()
             to += emails
+            EmailLog.objects.create(violation=v, subject=subject, body=full, to=", ".join(emails), recipient=who)
         except Exception as e:
             log(v, f"Email '{subject[:40]}' failed for {who}: {e}"[:300])
+            EmailLog.objects.create(violation=v, subject=subject, body=full, to=", ".join(emails), recipient=who, ok=False, error=str(e)[:300])
     return to
 
 

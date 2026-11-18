@@ -8,6 +8,7 @@ urlpatterns = [
     path("violations/new/", views.violation_create, name="violation_create"),
     path("violations/standards/search/", views.standards_search_api, name="standards_search"),
     path("violations/<int:pk>/", views.violation_detail, name="violation_detail"),
+    path("owners/<int:pk>/correspondence/", views.owner_correspondence, name="owner_correspondence"),
     path("violations/<int:pk>/<str:action>/", views.violation_action, name="violation_action"),
     path("notices/<int:pk>/mailed/", views.notice_mailed, name="notice_mailed"),
     path("notices/<int:pk>/pdf/", views.notice_pdf, name="notice_pdf"),

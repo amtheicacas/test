@@ -389,6 +389,43 @@ class Notice(models.Model):
         ordering = ["created_at"]
 
 
+    def delivery_lines(self, staff=False):
+        """Plain-language delivery record: when it was emailed, mailed (method, tracking number), return receipt."""
+        out = []
+        if self.emailed_at:
+            out.append(f"Emailed {self.emailed_at:%b %-d, %Y} to {self.emailed_to}")
+        elif self.email_error:
+            out.append("Email could not be delivered")
+        if self.mail_held:
+            out.append(f"US Mail copy scheduled for {self.mail_hold_until:%b %-d, %Y}")
+        elif self.mail_cancelled:
+            out.append("US Mail copy not sent (the violation was corrected first)")
+        if self.mailed_on:
+            how = self.get_method_display() or "Mailed"
+            out.append(f"{how} by US Mail {self.mailed_on:%b %-d, %Y}" + (f", tracking number {self.tracking_number}" if self.tracking_number else ""))
+            if self.return_receipt_on:
+                out.append(f"Return receipt received {self.return_receipt_on:%b %-d, %Y}")
+        if staff and self.provider:
+            out.append(f"Print/mail provider: {self.provider} {self.provider_ids}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))
+        return out
+
+
+class EmailLog(models.Model):
+    """A copy of every email the app sends about a violation, so the board and manager can see exactly what the owner was told."""
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="emails")
+    notice = models.ForeignKey("Notice", null=True, blank=True, on_delete=models.SET_NULL, related_name="email_logs")
+    subject = models.CharField(max_length=250)
+    body = models.TextField()
+    to = models.CharField(max_length=500)
+    recipient = models.CharField(max_length=10, blank=True, help_text="owner or tenant")
+    sent_at = models.DateTimeField(auto_now_add=True)
+    ok = models.BooleanField(default=True)
+    error = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["sent_at"]
+
+
 class Response(models.Model):
     """Messages between the owner and the association (owner replies, extension requests, staff replies)."""
     violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="responses")
