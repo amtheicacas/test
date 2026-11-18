@@ -17,6 +17,7 @@ class ViolationForm(forms.ModelForm):
     class Meta:
         model = Violation
         fields = ["owner", "vtype", "observed_on", "description", "cure_required", "cure_days", "non_curable", "safety_issue", "board_emergency"]
+        labels = {"non_curable": "Non curable violation (dog off leash, parking in street, blocked sidewalk, noise violation)"}
         widgets = {"observed_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                    "description": forms.Textarea(attrs={"rows": 3}),
                    "cure_required": forms.Textarea(attrs={"rows": 3})}
