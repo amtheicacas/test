@@ -514,7 +514,7 @@ console.log(JSON.stringify(out));
 def test_map_has_view_and_label_toggles_and_satellite_imagery(client, settings):
     manager(client)
     page = client.get("/map/").content.decode()
-    for must in ['name="view" value="plan"', 'name="view" value="street"', 'name="view" value="satellite"', "Site plan (a box per house)", "Satellite",
+    for must in ['name="view" value="plan"', 'name="view" value="street"', 'name="view" value="satellite"', "Site plan", "Satellite",
                  'id="lbl-address"', 'id="lbl-lot"', "Lot no.", "World_Imagery", "sat_url"]:
         assert must in page, must
     settings.MAP_SATELLITE_URL = "https://sat.example/{z}/{x}/{y}.jpg"

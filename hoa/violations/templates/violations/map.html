@@ -9,12 +9,13 @@
 <details class="card" id="filters" open style="padding:8px 14px"><summary style="cursor:pointer;font-weight:600">View, labels &amp; filters</summary>
   <div class="row" style="margin:10px 0;align-items:center">
     <div style="flex:0 0 auto"><b>View</b>
-      <label style="font-weight:400;display:inline-block;margin:0 0 0 10px"><input type="radio" name="view" value="plan"> Site plan (a box per house)</label>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 10px"><input type="radio" name="view" value="plan"> Site plan</label>
       <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="radio" name="view" value="street"> Street map</label>
       <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="radio" name="view" value="satellite"> Satellite</label></div>
     <div style="flex:0 0 auto"><b>Labels</b>
       <label style="font-weight:400;display:inline-block;margin:0 0 0 10px"><input type="checkbox" id="lbl-address"> Address</label>
       <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="checkbox" id="lbl-lot"> Lot no.</label>
+      <label style="font-weight:400;display:inline-block;margin:0 0 0 14px"><input type="checkbox" id="lbl-name"> Resident name</label>
       <span class="mut" id="lbl-hint" style="margin-left:10px"></span></div>
   </div>
   <div class="row" style="align-items:flex-start">
@@ -95,8 +96,8 @@ function tilesFor(view){
 
 function makeMarker(h,p,box){
   var m=box?L.marker(p,{icon:L.divIcon({className:"",html:'<div class="hbox plan"></div>',iconSize:[30,20],iconAnchor:[15,10]})})
-           :L.circleMarker(p,{radius:8,color:"#fff",weight:1.5,fillColor:COLORS[h.color],fillOpacity:.95});
-  m.bindTooltip("");m.bindPopup("");return m;
+           :L.circleMarker(p,{radius:10,color:"#fff",weight:2,fillColor:COLORS[h.color],fillOpacity:.95});
+  m.bindTooltip("",{direction:"top",offset:[0,-8],opacity:1});m.bindPopup("");return m;
 }
 function paint(B,x,color){
   if(B.box){var el=x.m.getElement();if(!el||!el.firstChild)return;var b=el.firstChild;
@@ -106,10 +107,10 @@ function paint(B,x,color){
 
 function updateLabels(B){
   B.labels.clearLayers();
-  var o={address:$("lbl-address").checked,lot:B.box?false:$("lbl-lot").checked,short:B.box};   // on the site plan the lot number is inside each box
+  var o={address:$("lbl-address").checked,lot:B.box?false:$("lbl-lot").checked,name:$("lbl-name").checked,short:B.box};   // on the site plan the lot number is inside each box
   if(B!==BOARDS[curView==="plan"?"plan":"geo"])return;
-  if(!o.address&&!o.lot){$("lbl-hint").textContent="";return;}
-  if(B.map.getZoom()<B.labelMinZoom){$("lbl-hint").textContent="Zoom in to see address labels.";return;}
+  if(!o.address&&!o.lot&&!o.name){$("lbl-hint").textContent="";return;}
+  if(B.map.getZoom()<B.labelMinZoom){$("lbl-hint").textContent="Zoom in to see the labels.";return;}
   $("lbl-hint").textContent="";
   B.items.forEach(function(x){
     if(!B.map.hasLayer(x.m))return;
@@ -128,7 +129,9 @@ function renderBoard(B){
     shown++;cases+=v.cases.length;
     paint(B,x,v.color);
     var lot=x.h.lot?" (Lot "+esc(x.h.lot)+")":"";
-    x.m.setTooltipContent("<b>"+esc(x.h.address)+"</b>"+lot+"<br>"+esc(x.h.owner)+(x.h.rented?" <i>(rented)</i>":"")+"<br>"+v.cases.length+" case"+(v.cases.length==1?"":"s")+" in this view");
+    x.m.setTooltipContent("<b>"+esc(x.h.address)+"</b>"+lot+"<br>"+esc(x.h.owner)+(x.h.rented?" <i>(rented)</i>":"")+"<br>"+v.cases.length+" case"+(v.cases.length==1?"":"s")+" in this view"
+      +(v.cases.length?"<br>"+v.cases.slice(0,4).map(function(c){return "&bull; "+esc(c.type)+" <span class='mut'>("+esc(c.status)+")</span>"}).join("<br>")+(v.cases.length>4?"<br>+"+(v.cases.length-4)+" more":""):"")
+      +"<br><span class='mut'>"+x.h.open+" open, "+x.h.resolved+" resolved overall</span>");
     x.m.setPopupContent("<b>"+esc(x.h.address)+"</b>"+lot+"<br>"+(v.cases.length?v.cases.map(function(c){return "<a href='"+c.url+"'>#"+c.id+" "+esc(c.type)+"</a> — "+esc(c.status)+" <span class='mut'>("+c.date+")</span>"}).join("<br>"):"No violations in this view")+(v.hidden?"<br><span class='mut'>"+v.hidden+" other case"+(v.hidden==1?"":"s")+" hidden by the filters</span>":""));
   });
   B.shown=shown;B.cases=cases;
@@ -156,19 +159,19 @@ function setView(view){
   curView=view;remember("view",view);
   var m=plan?planMap:geoMap;m.invalidateSize();
   if(plan&&!planFitted){planFitted=true;planMap.fitBounds(PB);}
-  if(!plan&&!geoFitted&&BOARDS.geo.items.length){geoFitted=true;geoMap.fitBounds(BOARDS.geo.items.map(function(x){return x.p}),{padding:[30,30]});}
-  else if(!plan&&!geoFitted){geoMap.setView([27.34,-82.53],13);}
+  if(!plan&&BOARDS.geo.items.length){geoMap.fitBounds(BOARDS.geo.items.map(function(x){return x.p}),{padding:[30,30],maxZoom:19});}   // every time: land on the community
+  else if(!plan){geoMap.setView([27.34,-82.53],13);}
   render();
 }
 
 fetch("{% url 'map_api' %}").then(r=>r.json()).then(function(d){
  HOMES=d.homes;
  ["plan","geo"].forEach(function(k){var B=BOARDS[k];HOMES.forEach(function(h){var p=B.toPoint(h);if(p)B.items.push({h:h,p:p,m:makeMarker(h,p,B.box)});});});
- $("lbl-address").checked=remember("lbl-address")==="1";
+ $("lbl-address").checked=remember("lbl-address")==="1";$("lbl-name").checked=remember("lbl-name")==="1";
  var lot=remember("lbl-lot");$("lbl-lot").checked=(lot===null||lot==="1");   // lot numbers on by default: it reads like the plat
  document.querySelectorAll(".stage,#days,#show-empty").forEach(function(el){el.addEventListener("change",render);});
- document.querySelectorAll("#lbl-address,#lbl-lot").forEach(function(el){el.addEventListener("change",function(){remember(el.id,el.checked?"1":"0");
-   if(el.id==="lbl-address"&&el.checked){var B=curView==="plan"?BOARDS.plan:BOARDS.geo;if(B.map.getZoom()<B.labelMinZoom)B.map.setZoom(B.labelMinZoom);}  // zoom in so the labels can be read
+ document.querySelectorAll("#lbl-address,#lbl-lot,#lbl-name").forEach(function(el){el.addEventListener("change",function(){remember(el.id,el.checked?"1":"0");
+   if(el.id!=="lbl-lot"&&el.checked){var B=curView==="plan"?BOARDS.plan:BOARDS.geo;if(B.map.getZoom()<B.labelMinZoom)B.map.setZoom(B.labelMinZoom);}  // zoom in so the labels can be read
    render();});});
  document.querySelectorAll("input[name=view]").forEach(function(r){r.addEventListener("change",function(){setView(r.value);});});
  var sizeBoxes=function(){$("plan").classList.toggle("zoomed",planMap.getZoom()>=0.75);};planMap.on("zoomend",function(){sizeBoxes();updateLabels(BOARDS.plan);});sizeBoxes();geoMap.on("zoomend",function(){updateLabels(BOARDS.geo);});

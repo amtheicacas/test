@@ -34,6 +34,41 @@
   var $ = function (id) { return document.getElementById(id); };
   var q = $("pq"), cat = $("pcat"), box = $("presults"), note = $("pnote");
   var desc = $("id_description"), cure = $("id_cure_required"), days = $("id_cure_days"), sel = $("id_vtype");
+  // ---- find the owner by typing part of an address, name or lot ("7316" pulls up that address) ----
+  var own = $("id_owner");
+  if (own) {
+    var opts = [].slice.call(own.options).filter(function (o) { return o.value; }).map(function (o) { return { v: o.value, t: o.text }; });
+    var wrap = document.createElement("div"); wrap.style.cssText = "position:relative;margin:0 0 6px";
+    wrap.innerHTML = '<input type="search" id="oq" placeholder="Type an address, name or lot to find the owner, e.g. 7316" autocomplete="off">' +
+      '<div id="olist" style="display:none;position:absolute;left:0;right:0;z-index:20;max-height:240px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.18)"></div>';
+    own.parentNode.insertBefore(wrap, own);
+    var oq = wrap.querySelector("#oq"), olist = wrap.querySelector("#olist"), hi = -1, shown = [];
+    function draw() {
+      var q = oq.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      shown = q.length ? opts.filter(function (o) { var t = o.t.toLowerCase(); return q.every(function (w) { return t.indexOf(w) >= 0; }); }).slice(0, 12) : [];
+      hi = shown.length ? 0 : -1;
+      olist.innerHTML = shown.length ? shown.map(function (o, i) { return '<div data-i="' + i + '" style="padding:7px 10px;cursor:pointer">' + esc(o.t) + '</div>'; }).join("")
+        : (q.length ? '<div style="padding:7px 10px" class="mut">No matching owner or address.</div>' : "");
+      olist.style.display = (q.length ? "block" : "none"); mark();
+    }
+    function mark() { [].forEach.call(olist.children, function (el, i) { el.style.background = i === hi ? "var(--bg)" : ""; }); }
+    function pick(i) {
+      var o = shown[i]; if (!o) return;
+      own.value = o.v; oq.value = o.t; olist.style.display = "none";
+      own.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    oq.addEventListener("input", draw);
+    oq.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown") { hi = Math.min(hi + 1, shown.length - 1); mark(); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { hi = Math.max(hi - 1, 0); mark(); e.preventDefault(); }
+      else if (e.key === "Enter" && olist.style.display === "block") { pick(hi); e.preventDefault(); }
+      else if (e.key === "Escape") olist.style.display = "none";
+    });
+    olist.addEventListener("mousedown", function (e) { var el = e.target.closest("[data-i]"); if (el) { e.preventDefault(); pick(+el.getAttribute("data-i")); } });
+    oq.addEventListener("blur", function () { setTimeout(function () { olist.style.display = "none"; }, 120); });
+    own.addEventListener("change", function () { if (own.value) { var o = opts.filter(function (x) { return x.v === own.value; })[0]; if (o) oq.value = o.t; } });
+    if (own.value) own.dispatchEvent(new Event("change"));
+  }
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
 
   function show(items, aiOn) {

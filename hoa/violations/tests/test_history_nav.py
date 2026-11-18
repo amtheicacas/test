@@ -165,3 +165,23 @@ def test_committee_and_homeowner_menus_have_counts_too(client):
 
 def test_logged_out_pages_have_no_menu(client):
     assert 'class="nav"' not in client.get("/accounts/login/").content.decode()
+
+
+def test_map_has_resident_label_and_form_has_owner_finder(client, django_user_model):
+    from violations import accounts  # noqa: F401
+    u = django_user_model.objects.create_user("mgr2", password="x")
+    from violations.models import Profile
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    html = client.get("/map/").content.decode()
+    assert 'id="lbl-name"' in html and "a box per house" not in html
+    form = client.get("/violations/new/").content.decode()
+    assert 'id="oq"' in form
+
+
+def test_label_text_includes_resident_name():
+    import json, subprocess, pathlib
+    js = pathlib.Path(__file__).parents[1] / "static/violations/mapfilter.js"
+    out = subprocess.run(["node", "-e", f"const F=require({json.dumps(str(js))});console.log(F.labelText({{address:'1 A St',lot:'4',owner:'Pat Lee'}},{{address:true,lot:false,name:true}}))"],
+                         capture_output=True, text=True).stdout.strip()
+    assert out == "1 A St · Pat Lee"

@@ -54,12 +54,13 @@
     return t.trim();
   }
 
-  /* Text beside a home when the Address and/or Lot no. toggles are on ("" when neither is, or the data is missing).
+  /* Text beside a home when the Address, Lot no. and/or Resident name toggles are on ("" when neither is, or the data is missing).
      o.short gives the compact address used on the site plan. */
   function labelText(home, o) {
     var parts = [];
     if (o.lot && home.lot) parts.push("Lot " + home.lot);
     if (o.address && home.address) parts.push(o.short ? shortAddress(home.address, home.lot) : home.address);
+    if (o.name && home.owner) parts.push(home.owner);
     return parts.join(" · ");
   }
 
