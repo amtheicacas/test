@@ -609,3 +609,29 @@ def test_board_cannot_raise_a_fine_above_the_hearing_notice(db, django_user_mode
         services.board_review_item(a, cu, "modify", amount="500")
     with pytest.raises(services.WorkflowError):
         services.committee_record(a, "waive", cu, findings="late")                       # already submitted
+
+
+def test_new_violation_page_script_runs_without_errors_and_search_lists_weeds(db, client, django_user_model):
+    """Guards against a script error (it once stopped the violation search box from working)."""
+    import shutil, subprocess, re, tempfile, os, json
+    from django.core.management import call_command
+    from violations.models import Owner, Profile
+    if not shutil.which("node"):
+        import pytest; pytest.skip("node not installed")
+    call_command("load_standards")
+    Owner.objects.create(name="Pat", property_address="1 Js Way", email="p@example.com")
+    u = django_user_model.objects.create_user("mg11", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    html = client.get("/violations/new/").content.decode()
+    scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.S)
+    main = max(scripts, key=len)
+    stub = ("const els={};const mk=()=>({value:'',style:{},textContent:'',innerHTML:'',classList:{add(){},remove(){}},addEventListener(){},dispatchEvent(){},"
+            "setAttribute(){},appendChild(){},insertBefore(){},querySelector:()=>mk(),children:[],options:[],selectedIndex:0,parentNode:{insertBefore(){}},scrollIntoView(){},focus(){}});"
+            "global.document={getElementById:(id)=>{if(id==='catalog-data')return{textContent:'[]'};if(id==='owner-info')return{textContent:'{}'};return els[id]||(els[id]=mk())},createElement:()=>mk(),querySelectorAll:()=>[]};"
+            "global.fetch=()=>Promise.resolve({json:()=>({results:[]})});global.DataTransfer=function(){this.items={add(){}};this.files=[]};global.Event=function(){};global.URL={createObjectURL:()=>''};")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(stub + main)
+    r = subprocess.run(["node", f.name], capture_output=True, text=True)
+    os.unlink(f.name)
+    assert r.returncode == 0, r.stderr[-400:]

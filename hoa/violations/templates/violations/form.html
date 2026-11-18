@@ -37,6 +37,7 @@
   var CAT = JSON.parse(document.getElementById("catalog-data").textContent);
   var byId = {}; CAT.forEach(function (c) { byId[c.id] = c; });
   var $ = function (id) { return document.getElementById(id); };
+  var INFO = JSON.parse($("owner-info").textContent);   // must be set before anything below runs
   var q = $("pq"), cat = $("pcat"), box = $("presults"), note = $("pnote");
   var desc = $("id_description"), cure = $("id_cure_required"), days = $("id_cure_days"), sel = $("id_vtype");
   // ---- find the owner by typing part of an address, name or lot ("7316" pulls up that address) ----
@@ -124,7 +125,6 @@
   if ($("pai")) $("pai").addEventListener("click", function () { note.textContent = "Asking AI…"; search(true); });
 
   // the owner's address is already known, so "[location]" / "[address]" fill themselves in
-  var INFO = JSON.parse($("owner-info").textContent);
   function fillAddress() {
     var o = $("id_owner"), i = o && INFO[o.value];
     if (!i) return;
