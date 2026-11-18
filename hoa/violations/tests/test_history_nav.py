@@ -650,3 +650,18 @@ def test_committee_sees_cases_after_the_board_vote_and_login_command(db, client,
     assert "Waiting to be scheduled" in html and "20 Wait Way" in html
     assert client.get(f"/committee/cases/{waiting.pk}/").status_code == 200           # visible once the Board has voted
     assert client.get(f"/committee/cases/{early.pk}/").status_code == 403             # not before
+
+
+def test_backdate_meeting_lets_the_committee_decide_now(db, django_user_model):
+    from django.core.management import call_command
+    from violations import services
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    from datetime import timedelta
+    from django.utils import timezone
+    m.starts_at = timezone.now() + timedelta(days=20); m.save(); a.hearing_date = m.starts_at; a.save()
+    import pytest
+    with pytest.raises(services.WorkflowError):
+        services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="x")
+    call_command("backdate_meeting", str(m.pk))
+    a.refresh_from_db()
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="x")
