@@ -389,6 +389,8 @@ class Violation(models.Model):
             return ("In Cure Period", "yellow")
         if self.status == St.PENDING_BOARD:
             return ("Sent to Board for Fine", "orange")
+        if self.status == St.HEARING_SCHEDULED:
+            return (self.get_status_display(), "red")
         return (self.get_status_display(), "")
 
     @property

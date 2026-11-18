@@ -719,3 +719,10 @@ def test_board_queue_bulk_decisions_with_per_row_overrides(db, client, django_us
     for v in cases: v.refresh_from_db()
     assert (a.status, a.proposed_fine) == ("hearing_needed", 100) and (b.status, b.proposed_fine) == ("hearing_needed", 75) and c.status == "dismissed"
     assert a.board_votes_for is None and a.proposed_suspension == ""
+
+
+def test_sent_to_compliance_committee_pill_is_red_in_the_owner_portal(db):
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="R P", property_address="24 Red Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T24"), description="d", cure_required="c", status="hearing_scheduled")
+    assert v.portal_status == ("Sent to Compliance Committee", "red")
