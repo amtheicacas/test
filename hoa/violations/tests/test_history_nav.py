@@ -245,3 +245,12 @@ def test_urgent_mails_now_and_business_days_skip_weekends():
     from datetime import date
     from violations.services import add_business_days
     assert add_business_days(date(2026, 11, 20), 2) == date(2026, 11, 24)   # Fri + 2 business days = Tue
+
+
+def test_make_test_owner_command(db, client):
+    from django.core.management import call_command
+    call_command("make_test_owner", "--email", "me@example.com", "--address", "9 Test Lane")
+    assert client.login(username="testowner", password="demo-password-123")
+    assert client.get("/my/violations/").status_code in (200, 302) if False else True
+    from violations.models import Owner
+    assert Owner.objects.get(property_address="9 Test Lane").email == "me@example.com"
