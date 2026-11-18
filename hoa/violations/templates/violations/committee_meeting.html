@@ -1,9 +1,31 @@
 {% extends "violations/base.html" %}{% block title %}Meeting{% endblock %}{% block content %}
-<p><a href="{% url 'committee_home' %}">← Meetings</a></p>
-<h1>{{ m.starts_at|date:"l, F j, Y g:i A" }}</h1><p class="mut">{{ m.place }}</p>
+<p><a href="{% if ROLE == 'committee' %}{% url 'committee_home' %}{% else %}{% url 'meetings' %}{% endif %}">&larr; Meetings</a></p>
+<h1>{{ m.starts_at|date:"l, F j, Y g:i A" }} <span class="pill">{{ m.get_results_status_display }}</span></h1><p class="mut">{{ m.place }}</p>
 {% if m.zoom_link %}<p><a class="btn" href="{{ m.zoom_link }}" target="_blank" rel="noopener">Join Zoom</a></p>{% endif %}
-<div class="card"><table><tr><th>Property<th>Violation<th>Board proposed<th>Status</tr>
-{% for v in cases %}<tr><td><a href="{% url 'committee_case' v.pk %}">{{ v.owner.property_address }}</a><br><span class="mut">{{ v.owner.name }}</span>
-<td>{{ v.vtype }}<td>{% if v.proposed_fine %}${{ v.proposed_fine }}{% endif %} {{ v.proposed_suspension }}
-<td><span class="pill">{% if v.status == "hearing_scheduled" %}Awaiting decision{% elif v.status == "fine_rejected" %}Rejected{% else %}Approved{% endif %}</span></tr>
-{% empty %}<tr><td colspan=4 class="mut">No cases assigned yet.</tr>{% endfor %}</table></div>{% endblock %}
+{% if not can_edit %}<div class="msg success">Results were submitted to the Board{% if m.submitted_at %} on {{ m.submitted_at|date:"M j, Y" }}{% endif %}. They are now read-only here; the Board reviews and processes them.</div>{% endif %}
+
+<form class="card" method="post" action="{% url 'committee_meeting_save' m.pk %}" enctype="multipart/form-data"><h2>Meeting details</h2>{% csrf_token %}
+<label>Committee members present</label><textarea name="attendees" rows="2" {% if not can_edit %}disabled{% endif %} placeholder="One name per line">{{ m.attendees }}</textarea>
+<label>Notes about the meeting</label><textarea name="notes" rows="3" {% if not can_edit %}disabled{% endif %}>{{ m.notes }}</textarea>
+<label>Meeting minutes</label>{% if m.minutes %}<p style="margin:2px 0"><a href="{% url 'meeting_minutes' m.pk %}" target="_blank">View the uploaded minutes</a></p>{% endif %}
+{% if can_edit %}<input type="file" name="minutes" accept=".pdf,.doc,.docx,.txt,image/*"><button style="margin-top:8px">Save meeting details</button>{% elif not m.minutes %}<p class="mut">No minutes uploaded.</p>{% endif %}</form>
+
+<h2 style="margin:18px 0 6px">Violations for this meeting <span class="mut" style="font-weight:400;font-size:.9rem">&middot; {{ sum.n }} case{{ sum.n|pluralize }}, {{ sum.undecided }} still to decide</span></h2>
+{% for r in rows %}{% with v=r.v %}<div class="card" id="case-{{ v.pk }}">
+<div class="row" style="align-items:flex-start;gap:14px"><div style="flex:2 1 280px"><h3 style="margin:0;font-size:1.05rem"><a href="{% url 'committee_case' v.pk %}">{{ v.owner.property_address }}</a></h3>
+<div class="mut">{{ v.owner.display_name }}</div><div style="margin-top:4px"><b>{{ v.vtype.name }}</b></div><div class="mut" style="margin-top:2px">{{ v.description|truncatechars:140 }}</div>
+<div style="margin-top:6px">Board proposed: <b>{% if v.proposed_fine %}${{ v.proposed_fine }}{% endif %}{% if v.proposed_suspension %} {{ v.proposed_suspension }} ({{ v.proposed_suspension_days }} days){% endif %}</b></div></div>
+<div style="flex:3 1 340px">
+{% if v.committee_outcome %}<p style="margin-top:0"><span class="pill flag">Decision: {{ v.get_committee_outcome_display }}{% if v.committee_outcome == "amend" %} &middot; ${{ v.committee_amended_fine }}{% endif %}</span>{% if v.committee_votes_for is not None %} <span class="mut">vote {{ v.committee_votes_for }}&ndash;{{ v.committee_votes_against }}</span>{% endif %}</p><p class="mut" style="margin-top:0">{{ v.committee_findings }}</p>{% endif %}
+{% if r.editable %}<form method="post" action="{% url 'committee_case_record' v.pk %}">{% csrf_token %}
+<div>{% for val,label in r.outcomes %}<label style="font-weight:400;margin:2px 0"><input type="radio" name="outcome" value="{{ val }}" {% if v.committee_outcome == val %}checked{% endif %}> {{ label }}</label>{% endfor %}</div>
+<div class="row" style="margin-top:6px"><div><label>New fine amount (if changed)</label><input name="amount" type="number" step="0.01" min="0" value="{{ v.committee_amended_fine|default_if_none:'' }}"></div>
+<div><label>Votes in favor</label><input name="votes_for" type="number" min="0" value="{{ v.committee_votes_for|default_if_none:'' }}"></div><div><label>Votes against</label><input name="votes_against" type="number" min="0" value="{{ v.committee_votes_against|default_if_none:'' }}"></div></div>
+<label>Findings / note (quoted in the decision letter)</label><textarea name="findings" rows="2" required>{{ v.committee_findings }}</textarea>
+<button class="sec" style="margin-top:6px">Save decision</button></form>{% elif not v.committee_outcome %}<p class="mut">{{ v.get_status_display }}</p>{% endif %}</div></div></div>{% endwith %}
+{% empty %}<div class="card mut">No cases assigned yet.</div>{% endfor %}
+
+{% if can_edit and rows %}<form class="card" method="post" action="{% url 'committee_submit' m.pk %}" style="border-color:var(--acc)"><h2>Submit to the Board</h2>{% csrf_token %}
+<p class="mut" style="margin-top:0">When every violation has a decision, send the results to the Board to verify and process. Nothing is imposed until the Board reviews it.</p>
+<button {% if not ready %}disabled style="opacity:.5"{% endif %} onclick="return confirm('Submit these results to the Board?')">Submit results to the Board</button>{% if not ready %} <span class="mut">{{ sum.undecided }} still need a decision.</span>{% endif %}</form>{% endif %}
+{% endblock %}

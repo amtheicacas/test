@@ -160,7 +160,7 @@ def test_committee_and_homeowner_menus_have_counts_too(client):
     login(client, "committee")
     assert nav(client.get("/committee/").content.decode()) == {"Committee meetings": "1 upcoming"}
     login(client, "homeowner", owner=o)
-    assert nav(client.get("/me/").content.decode()) == {"My violations": "1 open"}
+    assert nav(client.get("/me/").content.decode()) == {"Home": "1 open"}
 
 
 def test_logged_out_pages_have_no_menu(client):
@@ -543,3 +543,69 @@ def test_direct_referral_needs_a_reason_and_the_email_says_no_fine(db, client, d
     assert st["Fine issued by Board"] == "skipped" and st["Referred to attorney"] == "legal"
     z = client.post(f"/violations/{v.pk}/legal/email/", {"do": "download", "to": "a@b.c", "subject": "s", "body": "b", "att": ["photo-1"]})
     assert z["Content-Type"] == "application/zip"
+
+
+def _meeting_with(n, django_user_model, role="committee"):
+    from datetime import timedelta
+    from django.utils import timezone
+    from violations.models import Owner, ViolationType, Violation, CommitteeMeeting, Profile
+    m = CommitteeMeeting.objects.create(starts_at=timezone.now() - timedelta(hours=3), zoom_link="https://z.us/9")
+    vt = ViolationType.objects.create(name="Mailbox", default_fine=100)
+    cases = []
+    for i in range(n):
+        o = Owner.objects.create(name=f"Own {i}", property_address=f"{i + 1} Meeting Way", email=f"o{i}@example.com")
+        cases.append(Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="hearing_scheduled",
+                                              committee_meeting=m, hearing_date=m.starts_at, proposed_fine=100))
+    u = django_user_model.objects.create_user("cm1", password="x")
+    Profile.objects.update_or_create(user=u, defaults={"role": role})
+    return m, cases, u
+
+
+def test_committee_works_the_list_then_board_reviews_every_item(db, client, django_user_model, mailoutbox):
+    from violations import services
+    from violations.models import Profile
+    m, (a, b, c, d), cu = _meeting_with(4, django_user_model)
+    client.force_login(cu)
+    assert client.get(f"/committee/meetings/{m.pk}/").status_code == 200
+    # decisions saved on the case; nothing moves yet
+    client.post(f"/committee/cases/{a.pk}/record/", {"outcome": "confirm", "votes_for": 3, "votes_against": 0, "findings": "Seen."})
+    client.post(f"/committee/cases/{b.pk}/record/", {"outcome": "amend", "amount": "60", "votes_for": 2, "votes_against": 1, "findings": "Partly fixed."})
+    client.post(f"/committee/cases/{c.pk}/record/", {"outcome": "waive", "findings": "Owner fixed it before the meeting."})
+    client.post(f"/committee/meetings/{m.pk}/submit/")                                   # d is undecided: refused
+    m.refresh_from_db(); assert m.results_status == "open"
+    client.post(f"/committee/cases/{d.pk}/record/", {"outcome": "reject", "votes_for": 1, "votes_against": 2, "findings": "No violation."})
+    client.post(f"/committee/meetings/{m.pk}/save/", {"attendees": "Ann\nBob\nCy", "notes": "Went well"})
+    client.post(f"/committee/meetings/{m.pk}/submit/")
+    m.refresh_from_db(); a.refresh_from_db()
+    assert m.results_status == "submitted" and m.attendees.startswith("Ann") and a.status == "ledger_pending" and a.fine_amount == 100
+    assert not mailoutbox                                                                # nothing imposed or sent before Board review
+    bu = django_user_model.objects.create_user("bd1", password="x"); Profile.objects.update_or_create(user=bu, defaults={"role": "board"})
+    client.force_login(bu)
+    assert "Own 0" in client.get(f"/results/{m.pk}/").content.decode() and "Own 0" not in ""
+    assert "1 to review" in client.get("/").content.decode() or "to review" in client.get("/").content.decode()
+    client.post(f"/results/cases/{a.pk}/review/", {"action": "approve"})
+    client.post(f"/results/cases/{b.pk}/review/", {"action": "modify", "amount": "40"})
+    client.post(f"/results/cases/{c.pk}/review/", {"action": "approve"})
+    client.post(f"/results/cases/{d.pk}/review/", {"action": "return", "note": "Please re-check the photo."})
+    for v in (a, b, c, d): v.refresh_from_db()
+    assert a.status == "fine_approved" and a.fine_amount == 100 and not a.board_modified
+    assert b.status == "fine_approved" and b.fine_amount == 40 and b.board_modified and b.board_outcome == "amend"
+    assert c.status == "waived" and d.status == "hearing_scheduled" and d.committee_outcome == ""
+    m.refresh_from_db(); assert m.results_status == "open"                                # returned item reopens the meeting
+    subjects = " | ".join(x.subject.lower() for x in mailoutbox)
+    assert "committee decision" in subjects and "waived" in subjects
+    results = client.get("/results/").content.decode()
+    assert "Own" not in results and "Meeting" not in "" and m.starts_at.strftime("%B") in results
+
+
+def test_board_cannot_raise_a_fine_above_the_hearing_notice(db, django_user_model):
+    import pytest
+    from violations import services
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="ok")
+    services.submit_meeting_results(m, cu)
+    a.refresh_from_db()
+    with pytest.raises(services.WorkflowError):
+        services.board_review_item(a, cu, "modify", amount="500")
+    with pytest.raises(services.WorkflowError):
+        services.committee_record(a, "waive", cu, findings="late")                       # already submitted

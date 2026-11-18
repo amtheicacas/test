@@ -168,6 +168,18 @@ class CommitteeMeeting(models.Model):
     zoom_dial_in = models.TextField(blank=True, help_text="'One tap mobile' lines from the Zoom invitation, one per line.")
     location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
     notes = models.TextField(blank=True)
+    attendees = models.TextField(blank=True, help_text="Committee members present.")
+    minutes = models.FileField(upload_to="minutes/", blank=True, help_text="The meeting minutes (PDF or Word).")
+
+    class Results(models.TextChoices):
+        OPEN = "open", "Committee working"
+        SUBMITTED = "submitted", "Awaiting Board review"
+        PROCESSED = "processed", "Board reviewed"
+
+    results_status = models.CharField(max_length=10, choices=Results.choices, default=Results.OPEN)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    processed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -194,7 +206,8 @@ class Violation(models.Model):
         HEARING_NEEDED = "hearing_needed", "Board approved — schedule hearing"
         HEARING_SCHEDULED = "hearing_scheduled", "Sent to Compliance Committee"
         ON_HOLD = "on_hold", "On hold"
-        LEDGER_PENDING = "ledger_pending", "Committee approved — awaiting approval to post to ledger"
+        LEDGER_PENDING = "ledger_pending", "Committee decided: awaiting Board review"
+        WAIVED = "waived", "Waived by the Committee (closed)"
         FINE_APPROVED = "fine_approved", "Imposed by committee — awaiting payment / cure"
         FINE_REJECTED = "fine_rejected", "Rejected by committee"
         REFERRED_LEGAL = "referred_legal", "Referred to attorney"
@@ -246,6 +259,15 @@ class Violation(models.Model):
     hearing_location = models.CharField(max_length=250, blank=True)
     committee_votes_for = models.PositiveSmallIntegerField(null=True, blank=True)
     committee_votes_against = models.PositiveSmallIntegerField(null=True, blank=True)
+    OUTCOMES = [("confirm", "Fine confirmed (as proposed)"), ("amend", "Fine confirmed, amount changed"),
+                ("waive", "Waived / resolved: close the violation"), ("reject", "Fine rejected")]
+    committee_outcome = models.CharField(max_length=8, blank=True, choices=OUTCOMES)
+    committee_amended_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    board_outcome = models.CharField(max_length=8, blank=True, choices=OUTCOMES, help_text="What the Board finally did with the committee's recommendation.")
+    board_final_fine = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
+    board_review_note = models.TextField(blank=True)
+    board_reviewed_on = models.DateField(null=True, blank=True)
+    board_modified = models.BooleanField(default=False)
     committee_findings = models.TextField(blank=True, help_text="Brief written findings of fact; quoted in the Notice of committee decision.")
     committee_cure_by = models.DateField(null=True, blank=True, help_text="If the violation is cured by this date, no fine or suspension is imposed.")
     fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text="Imposed amount (set when committee approves).")
@@ -298,7 +320,7 @@ class Violation(models.Model):
         St = self.Status
         cur = self.stage_index()
         legal = self.status == St.REFERRED_LEGAL
-        ended = self.status in (St.REFERRED_LEGAL, St.CURED, St.DISMISSED, St.FINE_REJECTED, St.CLOSED)
+        ended = self.status in (St.REFERRED_LEGAL, St.CURED, St.DISMISSED, St.FINE_REJECTED, St.CLOSED, St.WAIVED)
         evidence = {
             2: bool(self.board_votes_for is not None or self.board_meeting_date or self.proposed_fine or self.proposed_suspension),
             3: bool(self.committee_votes_for is not None or self.committee_meeting_id),

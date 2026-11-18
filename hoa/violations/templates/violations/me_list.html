@@ -16,7 +16,8 @@
 @media(max-width:620px){.vcard{flex-direction:column}.vcard .ph{flex-basis:auto;height:190px}}
 .past a{text-decoration:none}
 </style>
-<div class="welcome"><h1>Hello{% if first_name %}, {{ first_name }}{% endif %}</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}</div>
+<div class="welcome"><h1>Welcome{% if RESIDENT_NAME %}, {{ RESIDENT_NAME }}{% endif %}</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}
+<p style="margin-top:8px;max-width:62ch">Use this portal as your single place to review and update your violations. Click into each one to see the details and the letters we sent, and to send us your progress, photos and questions. Your message goes to the Board.</p></div>
 
 {% if updates %}<div class="card updates"><h2>What&rsquo;s new</h2><ul>{% for u in updates %}<li class="{% if u.fresh %}fresh{% endif %}"><span class="dot"></span><a href="{% url 'my_violation' u.v.pk %}">{{ u.text }}</a>{% if u.fresh %} <span class="chip soon">New</span>{% endif %}<span class="when">{{ u.when|date:"M j" }}</span></li>{% endfor %}</ul></div>{% endif %}
 

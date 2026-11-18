@@ -331,7 +331,9 @@ def _decision_letter(notice, v, to_name, block, dated):
         s.append(_p(f"Copy also sent to {'the owner, ' + v.owner.display_name if to_name == v.owner.tenant_name else 'the tenant, ' + v.owner.tenant_name}. "
                     "Owners are responsible for the actions of their tenants and guests.", SMALL))
     s += [_p(f"On {hdate}, the Fining Committee held a hearing on the proposed {what} described in the Association's notice dated {hn_date}."),
-          Paragraph(f"<b>Committee decision:</b> The Committee <b>{word}</b> the proposed {what} by a vote of {vote}.", BODY),
+          Paragraph(f"<b>Committee decision:</b> The Committee <b>{word}</b> the proposed {what}"
+                    + (f", with the fine amended to ${v.fine_amount:,.2f}," if v.committee_outcome == "amend" and v.fine_amount else "")
+                    + f" by a vote of {vote}.", BODY),
           Paragraph("<b>Findings:</b> " + escape(v.committee_findings or "(findings of fact)").replace("\n", "<br/>"), BODY)]
     if confirmed:
         items = [f"<b>How to cure:</b> {escape(v.cure_required)}"]

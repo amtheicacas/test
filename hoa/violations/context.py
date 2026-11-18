@@ -23,6 +23,7 @@ def _staff_counts():
             "board_tip": f"{c['board']} awaiting a Board vote, {c['hearing']} waiting for a hearing, {c['ledger']} awaiting approval to post",
             "meetings": upcoming, "homes": Owner.objects.filter(active=True).count(),
             "reinspect": Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count(),
+            "results": Violation.objects.filter(status=S.LEDGER_PENDING, committee_meeting__results_status="submitted").count(),
             "attention": waiting_on_board + asks + Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()
             + Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).count()}
 
@@ -40,4 +41,6 @@ def hoa(request):
         if o:
             from .models import Violation
             ctx["NAV"] = {"mine": o.violations.exclude(status="draft").filter(status__in=Violation.OPEN).count()}
+        u = request.user
+        ctx["RESIDENT_NAME"] = (u.get_full_name() or (o.display_name if o else "") or u.first_name or u.get_username()).strip()
     return ctx

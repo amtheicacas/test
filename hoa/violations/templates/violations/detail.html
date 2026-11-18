@@ -54,7 +54,10 @@
 <form method="post" action="{% url 'violation_action' v.pk 'assign' %}" class="row">{% csrf_token %}{{ assign_form.meeting }}<button>Send to committee</button></form></div>{% endif %}
 {% if v.status == S.HEARING_SCHEDULED %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
 
-{% if v.status == S.LEDGER_PENDING %}<div class="card" style="border-color:var(--warn)"><h2>Committee decision awaiting your approval</h2>
+{% if v.status == S.LEDGER_PENDING and v.committee_outcome %}<div class="card" style="border-color:var(--warn)"><h2>Committee result awaiting Board review</h2>
+<p>The committee decided: <b>{{ v.get_committee_outcome_display }}</b>{% if v.committee_outcome == "amend" %} (${{ v.committee_amended_fine }}){% endif %}. {{ v.committee_findings }}</p>
+<p style="margin-bottom:0"><a class="btn" href="{% url 'results_detail' v.committee_meeting_id %}#case-{{ v.pk }}">Review it with the rest of that meeting</a></p></div>
+{% elif v.status == S.LEDGER_PENDING %}<div class="card" style="border-color:var(--warn)"><h2>Committee decision awaiting your approval</h2>
 {% if v.decision_letter_due %}<p><b>The written findings letter (Letter 3) must go out by {{ v.decision_letter_due|date:"F j, Y" }}</b>, within {{ DECISION_LETTER_DAYS }} days of the hearing. Approving below sends it by email and certified mail. The fine is due 30 days after delivery.</p>{% endif %}
 <p>The Compliance Committee approved this ({{ v.committee_votes_for }}–{{ v.committee_votes_against }}):
 {% if v.fine_amount %}<b>fine ${{ v.fine_amount }}</b>{% endif %}{% if v.suspension %} <b>suspension of {{ v.suspension }} for {{ v.suspension_days }} days</b>{% endif %}.</p>

@@ -741,12 +741,141 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
     return send_notice(v, Notice.Kind.FINE, user)
 
 
+# ---- Compliance Committee meeting results: the committee works the list, the Board reviews and processes it ----
+def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings=""):
+    """The committee's decision on one case at its meeting (saved; the case does not move until the meeting's results are submitted).
+    A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes."""
+    _require(v, S.HEARING_SCHEDULED)
+    m = v.committee_meeting
+    if m is None or m.results_status != CommitteeMeeting.Results.OPEN:
+        raise WorkflowError("This meeting's results are not open for changes.")
+    if outcome not in dict(Violation.OUTCOMES):
+        raise WorkflowError("Choose what the committee decided.")
+    if not (findings or "").strip():
+        raise WorkflowError("Add a short note or findings of fact for this case.")
+    if outcome != "waive":
+        if v.hearing_date and v.hearing_date > timezone.now():
+            raise WorkflowError("The hearing has not happened yet. (A case that is already resolved can be waived before then.)")
+        if votes_for is None or votes_against is None or votes_for + votes_against < 3:
+            raise WorkflowError("Enter the committee's votes: at least 3 members must vote.")
+        if outcome in ("confirm", "amend") and votes_for <= votes_against:
+            raise WorkflowError("A fine needs a majority of the committee in favor.")
+        if outcome == "reject" and votes_against < votes_for:
+            raise WorkflowError("Rejecting the fine means the committee did not vote in favor of it.")
+    if outcome == "amend":
+        amount = Decimal(amount or 0)
+        if amount <= 0:
+            raise WorkflowError("Enter the new fine amount.")
+        if fine_problems(v, amount):
+            raise WorkflowError(" ".join(fine_problems(v, amount)))
+    v.committee_outcome = outcome
+    v.committee_amended_fine = Decimal(amount) if outcome == "amend" else None
+    if outcome == "waive":
+        v.committee_votes_for = v.committee_votes_against = None
+    else:
+        v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
+    v.committee_findings = findings.strip()
+    v.save()
+    log(v, f"Committee recorded: {dict(Violation.OUTCOMES)[outcome]}" + (f" (${v.committee_amended_fine})" if outcome == "amend" else ""), user)
+
+
+@transaction.atomic
+def submit_meeting_results(m, user=None):
+    """The committee is done: every case needs a decision. Cases move to 'awaiting Board review'; nothing is imposed yet."""
+    if m.results_status != CommitteeMeeting.Results.OPEN:
+        raise WorkflowError("These results were already submitted.")
+    cases = list(m.violations.filter(status=S.HEARING_SCHEDULED))
+    if not cases:
+        raise WorkflowError("There are no cases waiting for a decision at this meeting.")
+    undecided = [v for v in cases if not v.committee_outcome]
+    if undecided:
+        raise WorkflowError(f"Record a decision for every case first ({len(undecided)} still open).")
+    for v in cases:
+        if v.committee_outcome in ("confirm", "amend"):
+            v.fine_amount = v.committee_amended_fine if v.committee_outcome == "amend" else v.proposed_fine
+            v.suspension, v.suspension_days = v.proposed_suspension, v.proposed_suspension_days
+        else:
+            v.fine_amount, v.suspension, v.suspension_days = None, "", None
+        v.status = S.LEDGER_PENDING
+        v.save()
+        log(v, f"Committee results submitted to the Board for review: {dict(Violation.OUTCOMES)[v.committee_outcome]}", user)
+    m.results_status, m.submitted_at, m.submitted_by = CommitteeMeeting.Results.SUBMITTED, timezone.now(), user
+    m.save()
+    return cases
+
+
+def board_review_item(v, user, action, final_outcome="", amount=None, note="", method="manual", reference=""):
+    """Board / manager reviews one committee result. action: 'approve' (as recommended), 'modify' (lower the fine, or waive it instead)
+    or 'return' (send it back to the committee). Approving a fine posts it to the ledger and sends the decision letter (Letter 3)."""
+    _require(v, S.LEDGER_PENDING)
+    m = v.committee_meeting
+    if m is None or m.results_status != CommitteeMeeting.Results.SUBMITTED or not v.committee_outcome:
+        raise WorkflowError("This case is not waiting on a committee result.")
+    committee = v.committee_outcome
+    today = date.today()
+    if action == "return":
+        if not (note or "").strip():
+            raise WorkflowError("Say what the committee should look at again.")
+        v.status, v.committee_outcome, v.board_review_note = S.HEARING_SCHEDULED, "", note.strip()
+        v.committee_findings = (v.committee_findings + f"\n[Returned by the Board: {note.strip()}]").strip()
+        v.save()
+        m.results_status, m.submitted_at, m.processed_at = CommitteeMeeting.Results.OPEN, None, None
+        m.save()
+        log(v, f"Board returned the committee result for another look: {note.strip()}", user)
+        return None
+    if action == "approve":
+        final = committee
+        fine = v.fine_amount
+    elif action == "modify":
+        if final_outcome == "waive":
+            final, fine = "waive", None
+        elif committee in ("confirm", "amend"):
+            fine = Decimal(amount or 0)
+            if fine <= 0:
+                raise WorkflowError("Enter the new fine amount (or choose to waive it).")
+            if v.proposed_fine and fine > v.proposed_fine:
+                raise WorkflowError(f"The Board can reduce the fine but not raise it above ${v.proposed_fine}, the amount in the hearing notice.")
+            if fine_problems(v, fine):
+                raise WorkflowError(" ".join(fine_problems(v, fine)))
+            final = "amend" if fine != v.proposed_fine else "confirm"
+        else:
+            raise WorkflowError("The Board can only lower a fine the committee confirmed, or waive it. To impose one, return it to the committee.")
+    else:
+        raise WorkflowError("Choose approve, modify or return.")
+    v.board_outcome, v.board_final_fine, v.board_review_note = final, fine, (note or "").strip()
+    v.board_reviewed_on, v.board_modified = today, (action == "modify")
+    result = None
+    if final in ("confirm", "amend"):
+        v.fine_amount = fine
+        v.save()
+        result = finalize_imposition(v, user, method, reference)
+    elif final == "waive":
+        v.status, v.fine_amount, v.suspension = S.WAIVED, None, ""
+        v.save()
+        cancel_held_mailings(v, "waived by the Compliance Committee")
+        _email_owner(v, f"Violation waived: {v.owner.property_address}",
+                     f"The Compliance Committee reviewed the {v.vtype.name.lower()} violation at {v.owner.property_address} and waived it. "
+                     "No fine or suspension will be imposed and this matter is closed. Thank you for your attention to it.")
+        log(v, "Board processed: violation waived and closed" + (f" ({note.strip()})" if note and note.strip() else ""), user)
+    else:   # the committee rejected the fine
+        v.status, v.fine_amount, v.suspension = S.FINE_REJECTED, None, ""
+        v.save()
+        log(v, "Board processed: committee rejected the fine; nothing imposed. Notice of committee decision sent.", user)
+        result = send_notice(v, Notice.Kind.FINE, user)
+    if not m.violations.filter(status=S.LEDGER_PENDING).exists():
+        m.results_status, m.processed_at = CommitteeMeeting.Results.PROCESSED, timezone.now()
+        m.save()
+    return result
+
+
 def finalize_imposition(v, user=None, method="manual", reference="", today=None):
     """Board member / manager approves the Committee's decision: post the fine to the owner's ledger (Vantaca API, or record that
     it was posted by hand), then send the Notice of Imposition to the owner (and tenant). The fine is due FINE_PAYMENT_DAYS days
     after the letter date. The Committee's approval is what imposes the fine (no new Board vote); this step is the administrative
     review and posting. Safe to retry: a fine already posted is never posted twice."""
     _require(v, S.LEDGER_PENDING)
+    if v.committee_outcome in ("waive", "reject"):
+        raise WorkflowError("This committee result is a waiver or rejection: process it from the committee results page.")
     today = today or date.today()
     if v.fine_amount and not v.ledger_posted_on:
         if method == "api":

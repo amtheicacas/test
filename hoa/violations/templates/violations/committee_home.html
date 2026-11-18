@@ -1,5 +1,5 @@
 {% extends "violations/base.html" %}{% block title %}Committee{% endblock %}{% block content %}
 <h1>Compliance Committee meetings</h1>
 {% for m in upcoming %}<div class="card"><h2><a href="{% url 'committee_meeting' m.pk %}">{{ m.starts_at|date:"l, F j, Y g:i A" }}</a> — {{ m.n }} case{{ m.n|pluralize }}</h2>
-<p class="mut">{{ m.place }}</p></div>{% empty %}<div class="card mut">No upcoming meetings.</div>{% endfor %}
-{% if past %}<h2>Recent meetings</h2>{% for m in past %}<div class="card"><a href="{% url 'committee_meeting' m.pk %}">{{ m.starts_at|date:"F j, Y" }}</a> — {{ m.n }} case{{ m.n|pluralize }}</div>{% endfor %}{% endif %}{% endblock %}
+<p class="mut">{{ m.place }}</p><p style="margin:0"><span class="pill{% if m.results_status == 'open' and m.done < m.n %} flag{% endif %}">{{ m.get_results_status_display }}</span> {% if m.results_status == 'open' %}<b>{{ m.done }} of {{ m.n }}</b> decided{% endif %} <a class="btn" style="margin-left:8px" href="{% url 'committee_meeting' m.pk %}">Open the meeting list</a></p></div>{% empty %}<div class="card mut">No upcoming meetings.</div>{% endfor %}
+{% if past %}<h2>Recent meetings</h2>{% for m in past %}<div class="card"><a href="{% url 'committee_meeting' m.pk %}">{{ m.starts_at|date:"F j, Y" }}</a> — {{ m.n }} case{{ m.n|pluralize }} &middot; <span class="pill">{{ m.get_results_status_display }}</span></div>{% endfor %}{% endif %}{% endblock %}

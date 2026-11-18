@@ -47,10 +47,11 @@ details summary{cursor:pointer;text-decoration:underline}
 <a class="nav" href="{% url 'violation_list' %}?status=open" title="{{ NAV.open }} open of {{ NAV.total }} violations in all"><span>Violations</span><small>{{ NAV.open }} open</small></a>
 <a class="nav" href="{% url 'board_queue' %}" title="{{ NAV.board_tip }}"><span>Board queue</span><small class="{% if NAV.board %}hot{% endif %}">{{ NAV.board }}</small></a>
 <a class="nav" href="{% url 'meetings' %}" title="Upcoming Compliance Committee meetings"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
+<a class="nav" href="{% url 'results_list' %}" title="Compliance Committee results, meeting by meeting"><span>Committee results</span><small class="{% if NAV.results %}hot{% endif %}">{% if NAV.results %}{{ NAV.results }} to review{% else %}all meetings{% endif %}</small></a>
 <a class="nav" href="{% url 'map' %}" title="Active homes"><span>Map</span><small>{{ NAV.homes }} homes</small></a>
 <a class="nav" href="{% url 'violation_create' %}"><span>+ New</span><small>&nbsp;</small></a>
 <form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Saved replies</a>{% if ROLE == "manager" %}<a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'admin:index' %}">Admin</a>{% endif %}
 {% elif ROLE == "committee" %}<a class="nav" href="{% url 'committee_home' %}"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
-{% elif ROLE == "homeowner" %}<a class="nav" href="{% url 'my_violations' %}"><span>My violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{% url 'my_household' %}">Household</a><a href="{% url 'security_setup' %}">Two-step login</a>{% endif %}
+{% elif ROLE == "homeowner" %}<span style="font-weight:600" title="Signed in as {{ RESIDENT_NAME }}">Welcome, {{ RESIDENT_NAME }}</span><a class="nav" href="{% url 'my_violations' %}"><span>Home</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{% url 'my_household' %}">Household</a><a href="{% url 'security_setup' %}">Two-step login</a>{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
 <main class="{% block mainclass %}{% endblock %}">{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>

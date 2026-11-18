@@ -9,6 +9,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Exists, OuterRef, Q, Sum
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
@@ -19,7 +20,7 @@ from .pdf import render_notice_pdf
 S = Violation.Status
 MAX_UPLOAD = 10 * 1024 * 1024
 STAFF = ("manager", "board")
-COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL)
+COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL, S.WAIVED)
 
 
 def role_required(*roles):
@@ -143,6 +144,7 @@ def home(request):
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
+        "results_waiting": CommitteeMeeting.objects.filter(results_status="submitted").annotate(n=Count("violations", filter=Q(violations__status=S.LEDGER_PENDING))),
         "legal_drafts": Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).select_related("owner", "vtype"),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
@@ -617,17 +619,130 @@ def meeting_assign_all(request, pk):
 @staff_or_committee
 def committee_home(request):
     now = timezone.now()
-    ms = CommitteeMeeting.objects.annotate(n=Count("violations"))
+    ms = CommitteeMeeting.objects.annotate(n=Count("violations"), done=Count("violations", filter=~Q(violations__committee_outcome="")))
     return render(request, "violations/committee_home.html", {
         "upcoming": ms.filter(starts_at__gte=now - timedelta(hours=12)).order_by("starts_at"),
         "past": ms.filter(starts_at__lt=now - timedelta(hours=12))[:6]})
 
 
+def _meeting_summary(m):
+    """Counts and dollars for a committee meeting, from the Board's final decision where there is one, else the committee's."""
+    cases = list(m.violations.select_related("owner", "vtype").order_by("owner__property_address"))
+    fines = waived = rejected = pending = 0
+    total = 0
+    for v in cases:
+        out = v.board_outcome or v.committee_outcome
+        amt = v.board_final_fine if v.board_outcome else (v.committee_amended_fine if v.committee_outcome == "amend" else v.proposed_fine)
+        if not out:
+            pending += 1
+        elif out in ("confirm", "amend"):
+            fines += 1
+            total += amt or 0
+        elif out == "waive":
+            waived += 1
+        else:
+            rejected += 1
+    return {"cases": cases, "n": len(cases), "fines": fines, "waived": waived, "rejected": rejected, "undecided": pending, "total": total}
+
+
 @staff_or_committee
 def committee_meeting(request, pk):
+    """The committee's working page for a meeting: meeting details and minutes, then one decision per violation."""
     m = get_object_or_404(CommitteeMeeting, pk=pk)
-    cases = m.violations.select_related("owner", "vtype").order_by("owner__property_address")
-    return render(request, "violations/committee_meeting.html", {"m": m, "cases": cases, "S": S})
+    summary = _meeting_summary(m)
+    can_edit = m.results_status == CommitteeMeeting.Results.OPEN
+    rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED} for v in summary["cases"]]
+    return render(request, "violations/committee_meeting.html", {"m": m, "rows": rows, "S": S, "sum": summary, "can_edit": can_edit,
+                                                                  "ready": can_edit and summary["n"] and not summary["undecided"]})
+
+
+@staff_or_committee
+@require_POST
+def committee_meeting_save(request, pk):
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    if m.results_status != CommitteeMeeting.Results.OPEN:
+        messages.error(request, "This meeting's results were already submitted.")
+        return redirect("committee_meeting", pk=pk)
+    m.attendees, m.notes = request.POST.get("attendees", "").strip(), request.POST.get("notes", "").strip()
+    f = request.FILES.get("minutes")
+    if f:
+        if f.size > MAX_UPLOAD or not f.name.lower().endswith((".pdf", ".doc", ".docx", ".txt", ".png", ".jpg", ".jpeg")):
+            messages.error(request, "Upload the minutes as a PDF, Word document or image under 10 MB.")
+        else:
+            m.minutes = f
+    m.save()
+    messages.success(request, "Meeting details saved.")
+    return redirect("committee_meeting", pk=pk)
+
+
+@staff_or_committee
+@require_POST
+def committee_case_record(request, pk):
+    v = get_object_or_404(Violation, pk=pk)
+    if not can_view(request.user, v):
+        raise PermissionDenied
+    P = request.POST
+
+    def num(k):
+        try:
+            return int(P.get(k)) if P.get(k) not in (None, "") else None
+        except ValueError:
+            return None
+    amount = P.get("amount") or None
+    _run(request, services.committee_record, v, P.get("outcome", ""), request.user, amount, num("votes_for"), num("votes_against"),
+         P.get("findings", ""), ok=f"Saved decision for {v.owner.property_address}.")
+    return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
+
+
+@staff_or_committee
+@require_POST
+def committee_submit(request, pk):
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    cases = _run(request, services.submit_meeting_results, m, request.user)
+    if cases:
+        messages.success(request, f"Submitted {len(cases)} result(s) to the Board for review.")
+    return redirect("committee_meeting", pk=pk)
+
+
+@staff_or_committee
+def meeting_minutes(request, pk):
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    if not m.minutes:
+        raise Http404
+    return FileResponse(m.minutes.open("rb"), as_attachment=False, filename=m.minutes.name.rsplit("/", 1)[-1])
+
+
+@staff_only
+def results_list(request):
+    """Board / manager: every Compliance Committee meeting and what came of it, newest first."""
+    rows = []
+    for m in CommitteeMeeting.objects.all():
+        rows.append({"m": m, **_meeting_summary(m)})
+    return render(request, "violations/committee_results_list.html", {"rows": rows})
+
+
+@staff_only
+def results_detail(request, pk):
+    """The single record of a committee meeting: details, minutes, and for each violation the original fine, the committee's
+    recommendation and the Board's final decision. Where results are waiting, the Board reviews each item here."""
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    summary = _meeting_summary(m)
+    return render(request, "violations/committee_results.html", {"m": m, "sum": summary, "S": S,
+                                                                  "review": m.results_status == CommitteeMeeting.Results.SUBMITTED,
+                                                                  "impose_form": forms.ImposeForm()})
+
+
+@staff_only
+@require_POST
+def results_review(request, pk):
+    v = get_object_or_404(Violation, pk=pk)
+    P = request.POST
+    res = _run(request, services.board_review_item, v, request.user, P.get("action", ""), P.get("final", ""), P.get("amount") or None,
+               P.get("note", ""), P.get("method", "manual"), P.get("reference", ""))
+    v.refresh_from_db()
+    if v.status in (S.FINE_APPROVED, S.WAIVED, S.FINE_REJECTED, S.HEARING_SCHEDULED) and v.board_reviewed_on or v.status == S.HEARING_SCHEDULED:
+        messages.success(request, f"{v.owner.property_address}: {v.get_status_display()}.")
+    return redirect("results_detail", pk=v.committee_meeting_id)
 
 
 @staff_or_committee
@@ -767,7 +882,7 @@ def resident_photo(request, token, pk):
 
 
 # ---------- map ----------
-RESOLVED = (S.CURED, S.CLOSED, S.DISMISSED, S.FINE_REJECTED)
+RESOLVED = (S.CURED, S.CLOSED, S.DISMISSED, S.FINE_REJECTED, S.WAIVED)
 SERIOUS = (S.PENDING_BOARD, S.HEARING_NEEDED, S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.REFERRED_LEGAL)
 
 # Stages offered as map filters (same steps as the progress tracker, plus the two flags).
@@ -776,7 +891,7 @@ MAP_STAGES = [("cure", "Notice issued / cure period"), ("board", "Board review /
               ("hold", "On hold"), ("legal", "Sent to legal"), ("resolved", "Resolved / closed")]
 STAGE_OF = {S.NOTICE_SENT: "cure", S.PENDING_BOARD: "board", S.HEARING_NEEDED: "board", S.HEARING_SCHEDULED: "committee",
             S.LEDGER_PENDING: "imposed", S.FINE_APPROVED: "imposed", S.ON_HOLD: "hold", S.REFERRED_LEGAL: "legal",
-            S.CURED: "resolved", S.CLOSED: "resolved", S.DISMISSED: "resolved", S.FINE_REJECTED: "resolved"}
+            S.CURED: "resolved", S.CLOSED: "resolved", S.DISMISSED: "resolved", S.FINE_REJECTED: "resolved", S.WAIVED: "resolved"}
 
 
 def _issued_on(v):
