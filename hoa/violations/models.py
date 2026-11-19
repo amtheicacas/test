@@ -224,6 +224,9 @@ class Violation(models.Model):
             Status.HEARING_SCHEDULED, Status.LEDGER_PENDING,
             Status.FINE_APPROVED, Status.ON_HOLD]
 
+    # What the owner portal groups under "Closed": everything that has run its course, including a fine that has been imposed.
+    OWNER_CLOSED = [Status.CURED, Status.CLOSED, Status.DISMISSED, Status.FINE_REJECTED, Status.WAIVED, Status.FINE_APPROVED]
+
     owner = models.ForeignKey(Owner, on_delete=models.PROTECT, related_name="violations")
     vtype = models.ForeignKey(ViolationType, on_delete=models.PROTECT, verbose_name="violation type")
     observed_on = models.DateField(default=date.today)
@@ -381,6 +384,10 @@ class Violation(models.Model):
             out.append({"label": label, "state": state, "icon": icon, "date": d if state != "skipped" else None, "note": note})
             idx += 1
         return out
+
+    @property
+    def owner_closed(self):
+        return self.status in self.OWNER_CLOSED
 
     @property
     def portal_status(self):

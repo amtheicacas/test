@@ -40,7 +40,7 @@ def hoa(request):
         o = accounts.owner_of(request.user)
         if o:
             from .models import Violation
-            ctx["NAV"] = {"mine": o.violations.exclude(status="draft").filter(status__in=Violation.OPEN).count()}
+            ctx["NAV"] = {"mine": o.violations.exclude(status="draft").filter(status__in=Violation.OPEN).exclude(status__in=Violation.OWNER_CLOSED).count()}
         u = request.user
         ctx["RESIDENT_NAME"] = (u.get_full_name() or (o.display_name if o else "") or u.first_name or u.get_username()).strip()
     return ctx

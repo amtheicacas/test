@@ -836,3 +836,24 @@ def test_owner_front_page_has_four_tiles_with_status_icons(db, client, django_us
     v.status = "hearing_scheduled"; v.save()
     assert "With the Compliance Committee" in client.get("/me/").content.decode() and "tilebox red" in client.get("/me/").content.decode()
     assert client.get("/me/violations/").status_code == 200
+
+
+def test_owner_violations_page_has_a_closed_toggle_and_groups_by_the_owner_definition(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="C T", property_address="32 Closed Way")
+    vt = ViolationType.objects.create(name="T32")
+    Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="OpenOne"), description="d", cure_required="c", status="notice_sent", cure_deadline=date.today() + timedelta(days=9))
+    for i, st in enumerate(["cured", "closed", "dismissed", "fine_rejected", "waived", "fine_approved"]):
+        Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name=f"Done{i}"), description="d", cure_required="c", status=st,
+                                 fine_amount=100 if st == "fine_approved" else None, fine_due_on=date.today() + timedelta(days=30))
+    u = django_user_model.objects.create_user("own9", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    html = client.get("/me/violations/").content.decode()
+    assert 'id="show-closed"' in html and "Show closed violations" in html and 'id="closed-section"' in html
+    assert html.count('class="vcard muted"') == 6 and html.count('class="vcard"') == 1                  # an imposed fine counts as closed
+    assert "1 open" in client.get("/me/").content.decode()
+    # only imposed fine left: the tile still tells the owner there is a fine to pay
+    Violation.objects.filter(status="notice_sent").delete()
+    home = client.get("/me/").content.decode()
+    assert "1 fine to pay" in home and "Fine due" in home and "All clear" not in home

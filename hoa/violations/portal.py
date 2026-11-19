@@ -35,8 +35,16 @@ _SEVERITY = [
 
 
 def violations_tile(user, owner):
-    open_cases = list(owner.violations.exclude(status=S.DRAFT).filter(status__in=Violation.OPEN)) if owner else []
+    open_cases = list(owner.violations.exclude(status=S.DRAFT).filter(status__in=Violation.OPEN).exclude(status__in=Violation.OWNER_CLOSED)) if owner else []
     t = Tile("violations", "Violations", "\U0001f4cb", "Notices, letters and your responses.", reverse("my_violations"))
+    if not open_cases:
+        unpaid = list(owner.violations.filter(status=S.FINE_APPROVED, fine_amount__gt=0, fine_paid_on__isnull=True)) if owner else []
+        if unpaid:   # a fine has been imposed: the case counts as closed in the list, but the owner still has something to do
+            due = min((v.fine_due_on for v in unpaid if v.fine_due_on), default=None)
+            t.state, t.status_icon = "orange", "$"
+            t.status_text = f"Fine due {due:%b} {due.day}" if due else "Fine to pay"
+            t.detail = f"{len(unpaid)} fine{'s' if len(unpaid) != 1 else ''} to pay"
+            return t
     if not open_cases:
         t.state, t.status_icon, t.status_text, t.detail = "green", "✔", "All clear", "No open violations."
         return t

@@ -878,8 +878,10 @@ def my_violations(request):
         left = (v.cure_deadline - today).days if v.cure_deadline and v.status == S.NOTICE_SENT else None
         cards.append({"v": v, "photo": photo, "issued": (first.created_at if first else v.created_at).date(), "left": left,
                       "open": v.status in Violation.OPEN})
-    open_cards = sorted([c for c in cards if c["open"]], key=lambda c: (c["v"].cure_deadline is None, c["v"].cure_deadline or today, c["v"].pk))
-    past = sorted([c for c in cards if not c["open"]], key=lambda c: c["issued"], reverse=True)
+    for c in cards:
+        c["closed"] = c["v"].owner_closed
+    open_cards = sorted([c for c in cards if not c["closed"]], key=lambda c: (c["v"].cure_deadline is None, c["v"].cure_deadline or today, c["v"].pk))
+    past = sorted([c for c in cards if c["closed"]], key=lambda c: c["issued"], reverse=True)
     return render(request, "violations/me_list.html", {"owner": o, "open_cards": open_cards, "past_cards": past})
 
 
