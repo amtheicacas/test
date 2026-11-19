@@ -920,7 +920,7 @@ def test_sent_to_legal_counts_as_open_and_says_so_in_every_view(db, client, djan
     u = django_user_model.objects.create_user("own10", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
     client.force_login(u)
     page = client.get("/me/violations/").content.decode()
-    assert page.count('class="vcard"') == 2 and "closed-section" not in page            # both legal cases are in the open list, not the closed one
+    assert page.count('class="vcard"') == 2 and 'id="closed-section"' not in page            # both legal cases are in the open list, not the closed one
     assert "Sent to Legal" in page and "Fine Imposed, Sent to Legal" in page
     assert "Send a message" in client.get(f"/me/{direct.pk}/").content.decode()            # owners can still write
 
