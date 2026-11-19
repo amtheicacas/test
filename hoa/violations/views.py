@@ -882,6 +882,21 @@ def my_violation(request, pk):
 
 
 @homeowner_only
+def my_password(request):
+    """Optional: an owner can set a password to sign in with, as well as the emailed link. They can also reset it themselves
+    ('Forgot your password?' on the sign-in page). Changing the *email* is not possible here: that comes from the management company."""
+    from django.contrib.auth import update_session_auth_hash
+    from django.contrib.auth.forms import SetPasswordForm
+    form = SetPasswordForm(request.user, request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        update_session_auth_hash(request, request.user)
+        messages.success(request, "Password saved. You can now sign in with your email and this password, or with an emailed link.")
+        return redirect("my_password")
+    return render(request, "violations/me_password.html", {"form": form, "email": request.user.email})
+
+
+@homeowner_only
 @require_GET
 def my_household(request):
     """READ-ONLY. Who has access and the contact details on file. Residents can't change any of it here: corrections go through

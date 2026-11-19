@@ -139,7 +139,7 @@ def test_invite_creates_homeowner_login():
     assert accounts.invite_owner(o, req) is True
     assert accounts.invite_owner(o, req) is False  # already invited
     assert Profile.objects.get().role == "homeowner"
-    assert len(mail.outbox) == 1 and "/accounts/reset/" in mail.outbox[0].body
+    assert len(mail.outbox) == 1 and "/accounts/link/" in mail.outbox[0].body
 
 
 # ---------- hold / legal ----------

@@ -133,6 +133,9 @@ The cure period runs from the day the email goes out. A cure period of 0 makes t
 ## Putting a case on hold
 A hold needs an **On hold until** date. The owner gets an email 7 and 2 days before it ends (`REMINDER_DAYS`) telling them to take action. On that date (checked by `daily_jobs` and whenever a manager opens the dashboard) the hold lifts itself: the case shows **Off hold: cure period restarted**, the cure period starts over from that day (earlier extensions are cleared) and the owner is emailed the new deadline. "Lift hold now" does the same early. Only holds placed before a hearing is set restart the cure period; a case held at the committee or imposition stage goes back to where it was.
 
+## How owners sign in
+Owners don't need a password. On the sign-in page they enter the email address on file (any email in the Vantaca Email field, the co-owner's, or the tenant's while the lease is active); the app emails a one-time link that is good for 15 minutes. The link opens a page with a **Sign in** button (so email scanners can't use it up), and the owner then stays signed in on that device for 30 days. The page gives the same answer whether or not the email is on file. An owner who wants a password can set one under **Sign-in options**, and can reset it themselves with **Forgot your password?** (emailed link, good for 24 hours); nobody at the office has to reset anything. Owners can't change their email: it comes from the management company (Vantaca), and when it changes the old address stops working and the new one works. Board, manager and committee sign in with a password and the two-step code. Email must be set up for any of this to work for real people (see README, email).
+
 ## Testing as an owner
 `python manage.py owner_login --address "7316 Great Egret"` gives that existing owner a portal login (default password `demo-password-123`). `make_test_owner --email you@example.com` creates a throwaway test owner instead. Testing only.
 

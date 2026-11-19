@@ -5,6 +5,8 @@ import qrcode
 import qrcode.image.svg
 from django import forms
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
+from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.shortcuts import redirect, render
@@ -80,8 +82,22 @@ def _throttled(key, limit=3, window=3600):
     return n >= limit
 
 
+def signin_link(request, token):
+    """The page an emailed link opens. Signing in needs a click on the button (a POST), so an email scanner that merely
+    opens the link can't use it up."""
+    ll = accounts.link_user(token)
+    if ll is None:
+        return render(request, "violations/signin_link_invalid.html", status=410)
+    if request.method == "POST":
+        ll.used_at = timezone.now()
+        ll.save(update_fields=["used_at"])
+        auth_login(request, ll.user, backend="django.contrib.auth.backends.ModelBackend")
+        return redirect("dashboard")
+    return render(request, "violations/signin_link_confirm.html", {"who": ll.user.first_name or "your account"})
+
+
 def get_access(request):
-    """Self-serve sign-up / password reset. Only emails already on a Vantaca-synced owner record get a link,
+    """Owner sign-in by emailed link. Only emails already on a Vantaca-synced owner record get a link,
     and the response is identical either way so it can't be used to discover who lives where."""
     form = AccessForm(request.POST or None)
     done = False

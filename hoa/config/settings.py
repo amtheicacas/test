@@ -69,8 +69,9 @@ AXES_RESET_ON_SUCCESS = True
 # Roles that MUST use an authenticator app (TOTP) after their password. Homeowners may opt in.
 MFA_REQUIRED_ROLES = tuple(r for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r)
 OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", "Heron Landing HOA")
-SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600
-PASSWORD_RESET_TIMEOUT = 3 * 24 * 3600                          # invitation / reset links last 3 days
+SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600   # staff; owners get 30 days (see signals.py)
+PASSWORD_RESET_TIMEOUT = 86400
+# (password reset links last one day: PASSWORD_RESET_TIMEOUT above)
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/New_York"
 USE_I18N = True

@@ -14,6 +14,8 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] Try **Immediate: urgent**, **Draft**, 0 cure days, and **Point in time** (goes straight to the Board queue).
 
 ## 2. Owner side
+- [ ] Sign-in page: enter the owner's email, then find the link in the black window (or your inbox). Opening it shows a **Sign in** button; clicking it signs in. Reusing the link says it expired.
+- [ ] **Sign-in options**: set a password, sign out, sign in with it. **Forgot your password?** sends a reset link.
 - [ ] Welcome name, "What's new", card with photo and cure date, yellow "In Cure Period".
 - [ ] Open the case: tracker on top, the letter shown, correspondence, message box. The extension-days box appears only after ticking "I need more time".
 - [ ] Reply "it's fixed" with a photo. As manager an envelope shows on the Violations list; open the case, **Mark for re-inspection**.

@@ -618,6 +618,14 @@ class ImportMapping(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class LoginLink(models.Model):
+    """A one-time sign-in link emailed to an owner. Only a hash of the token is stored; it is good for a few minutes and works once."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="login_links")
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+
 class CannedReply(models.Model):
     """A saved reply the board and manager can insert when answering an owner. Everyone on the board/management team shares them."""
     title = models.CharField(max_length=80)
