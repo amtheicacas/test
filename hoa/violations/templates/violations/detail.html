@@ -23,7 +23,8 @@
 <form method="post" action="{% url 'violation_action' v.pk 'send_notice' %}" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="timing" value="urgent"><button class="bad" style="margin-right:6px">Issue immediately - urgent (email + US Mail now)</button></form>
 <form method="post" action="{% url 'violation_action' v.pk 'send_notice' %}" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="timing" value="standard"><button>Issue - standard (email now, mail after 2 business days; {% if v.cure_days == 0 %}no cure period, letter says "immediately"{% else %}starts {{ v.cure_days }}-day cure period{% endif %}, emails the owner)</button></form></div>{% endif %}
 
-<div class="card"><h2>Correspondence sent to the owner <a href="{% url 'owner_correspondence' v.owner.pk %}" style="font-size:.85rem;font-weight:400;margin-left:8px">all correspondence for this owner</a></h2>{% include "violations/_correspondence.html" %}</div>
+<div class="card"><h2>Correspondence sent to the owner <a href="{% url 'owner_correspondence' v.owner.pk %}" style="font-size:.85rem;font-weight:400;margin-left:8px">all correspondence for this owner</a>
+<form method="post" action="{% url 'violation_action' v.pk 'refresh_tracking' %}" style="display:inline;margin-left:8px">{% csrf_token %}<button class="sec" style="padding:2px 10px;font-size:.8rem">Refresh tracking</button></form></h2>{% include "violations/_correspondence.html" %}</div>
 {% if v.notices.all %}<div class="card"><h2>Mailing log and print copies</h2><table><tr><th>Notice<th>Email<th>Mailed</tr>
 {% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<br><a href="{% url 'notice_pdf' n.pk %}" target="_blank">Print{% if v.owner.has_separate_mailing %} (owner, mailing address){% elif v.owner.has_tenant %} (owner){% endif %}</a>{% if v.owner.has_separate_mailing %} · <a href="{% url 'notice_pdf' n.pk %}?to=owner_property" target="_blank">Print (owner, property address)</a>{% endif %}{% if v.owner.has_tenant %} · <a href="{% url 'notice_pdf' n.pk %}?to=tenant" target="_blank">Print (tenant)</a>{% endif %}
 <td>{% if n.emailed_at %}{{ n.emailed_at|date:"M j" }} → {{ n.emailed_to }}{% else %}<span class="mut">not emailed</span>{% endif %}
@@ -52,7 +53,7 @@
 {% if v.status == S.HEARING_NEEDED %}<div class="card"><h2>Send to Compliance Committee</h2>
 <p class="mut">Pick an upcoming meeting (create one under <a href="{% url 'meetings' %}">Committee meetings</a>; you can also send every waiting case at once there). Needs at least 14 days' notice. The Notice of Hearing, with the Zoom link, proposed amount and a copy of the Notice of Violation, is emailed and sent for certified + regular mail.</p>
 <form method="post" action="{% url 'violation_action' v.pk 'assign' %}" class="row">{% csrf_token %}{{ assign_form.meeting }}<button>Send to committee</button></form></div>{% endif %}
-{% if v.status == S.HEARING_SCHEDULED %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
+{% if v.status == S.HEARING_SCHEDULED and v.committee_meeting_id %}<p class="mut">Sent to committee: {{ v.committee_meeting }} — <a href="{% url 'committee_meeting' v.committee_meeting_id %}">agenda</a></p>{% endif %}
 
 {% if v.status == S.LEDGER_PENDING and v.committee_outcome %}<div class="card" style="border-color:var(--warn)"><h2>Committee result awaiting Board review</h2>
 <p>The committee decided: <b>{{ v.get_committee_outcome_display }}</b>{% if v.committee_outcome == "amend" %} (${{ v.committee_amended_fine }}){% endif %}. {{ v.committee_findings }}</p>

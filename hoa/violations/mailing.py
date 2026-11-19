@@ -15,7 +15,9 @@ from datetime import date
 
 from django.conf import settings
 
-from .models import Notice
+from django.utils import timezone
+
+from .models import MailPiece, Notice
 
 K = Notice.Kind
 
@@ -63,6 +65,67 @@ def lob_send(to, pdf, description, extra_service=None):
         return json.load(resp)
 
 
+def lob_get(letter_id):
+    """Fetch one letter from Lob, including its USPS tracking events (certified mail)."""
+    token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
+    req = urllib.request.Request(f"https://api.lob.com/v1/letters/{letter_id}", headers={"Authorization": f"Basic {token}"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.load(resp)
+
+
+PROBLEM_WORDS = ("returned", "re-routed", "rerouted", "undeliverable", "return to sender", "notice left", "pick up", "no such", "refused", "vacant")
+
+
+def apply_tracking(piece, r, mark_checked=True):
+    """Copy a Lob letter response onto the piece: tracking number, expected delivery, events, latest status, delivered date, problems.
+    Returns True if anything changed."""
+    before = (piece.tracking_number, piece.status, piece.delivered_on, piece.problem, len(piece.events or []))
+    piece.tracking_number = r.get("tracking_number") or piece.tracking_number
+    exp = r.get("expected_delivery_date")
+    if exp:
+        try:
+            piece.expected_delivery_on = date.fromisoformat(str(exp)[:10])
+        except ValueError:
+            pass
+    events = []
+    for e in r.get("tracking_events") or []:
+        events.append({"name": e.get("name") or "", "location": e.get("location") or "", "time": e.get("time") or e.get("date_created") or ""})
+    events.sort(key=lambda e: e["time"])
+    if events:
+        piece.events = events
+        piece.status = events[-1]["name"]
+        for e in events:
+            if e["name"].lower().startswith("delivered") and not piece.delivered_on:
+                try:
+                    piece.delivered_on = date.fromisoformat(e["time"][:10])
+                except ValueError:
+                    piece.delivered_on = date.today()
+        piece.problem = any(w in e["name"].lower() for e in events for w in PROBLEM_WORDS) and not piece.delivered_on
+    if mark_checked:
+        piece.checked_at = timezone.now()
+    piece.save()
+    n = piece.notice
+    if piece.is_certified:
+        changed = False
+        if piece.tracking_number and not n.tracking_number:
+            n.tracking_number, changed = piece.tracking_number, True
+        if piece.delivered_on and not n.return_receipt_on:
+            n.return_receipt_on, changed = piece.delivered_on, True
+        if changed:
+            n.save()
+    return before != (piece.tracking_number, piece.status, piece.delivered_on, piece.problem, len(piece.events or []))
+
+
+def refresh_piece(piece):
+    """Ask the provider for the latest tracking on one piece. Never raises: a provider hiccup just leaves the old status."""
+    if settings.MAIL_PROVIDER != "lob" or not piece.provider_id:
+        return False
+    try:
+        return apply_tracking(piece, lob_get(piece.provider_id))
+    except Exception:
+        return False
+
+
 def dispatch(notice, render):
     """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
     while the lease is active the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
@@ -85,7 +148,11 @@ def dispatch(notice, render):
             try:
                 r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
                 ids.append(r.get("id", "?"))
-                tracking = tracking or r.get("tracking_number") or ""
+                if svc == "certified":
+                    tracking = tracking or r.get("tracking_number") or ""
+                piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
+                                                 tracking_number=r.get("tracking_number") or "")
+                apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
             except Exception as e:  # never block the workflow on the provider
                 errors.append(f"{label}/{svc}: {e}")
     notice.provider, notice.provider_ids = "lob", ",".join(ids)[:500]

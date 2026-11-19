@@ -15,7 +15,7 @@ from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import EmailLog, Event, Notice, Reminder, Response, Violation
+from .models import EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
 from . import ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
@@ -58,11 +58,25 @@ def correspondence(v, staff=False):
     items = []
     for n in v.notices.all():
         items.append({"when": n.created_at, "kind": "letter", "title": n.get_kind_display(), "notice": n,
-                      "lines": n.delivery_lines(staff), "emails": [e for e in n.email_logs.all()]})
+                      "lines": n.delivery_lines(staff), "emails": [e for e in n.email_logs.all()],
+                      "pieces": [p for p in n.pieces.all() if p.is_certified or p.tracking_number]})
     for e in v.emails.filter(notice__isnull=True):
         items.append({"when": e.sent_at, "kind": "email", "title": e.subject, "email": e, "lines": []})
     items.sort(key=lambda i: i["when"])
     return items
+
+
+def refresh_mail_tracking(force_for=None, hours=6):
+    """Pull the latest USPS tracking for certified pieces that haven't been delivered yet (daily job; also a button on the case).
+    Returns how many pieces changed."""
+    from . import mailing
+    qs = MailPiece.objects.filter(service="certified", delivered_on__isnull=True).exclude(provider_id="")
+    if force_for is not None:
+        qs = qs.filter(notice__violation=force_for)
+    else:
+        qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=90))
+        qs = qs.filter(checked_at__isnull=True) | qs.filter(checked_at__lt=timezone.now() - timedelta(hours=hours))
+    return sum(1 for p in qs.select_related("notice__violation") if mailing.refresh_piece(p))
 
 
 def add_business_days(start, n):

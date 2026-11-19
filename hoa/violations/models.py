@@ -527,11 +527,53 @@ class Notice(models.Model):
             out.append("US Mail copy not sent (the violation was corrected first)")
         if self.mailed_on:
             how = self.get_method_display() or "Mailed"
-            out.append(f"{how} by US Mail {short_date(self.mailed_on)}" + (f", tracking number {self.tracking_number}" if self.tracking_number else ""))
+            pieces = list(self.pieces.all())
+            out.append(f"{how} by US Mail {short_date(self.mailed_on)}" + (f", tracking number {self.tracking_number}" if self.tracking_number and not pieces else ""))
+            out += [p.summary for p in pieces if p.is_certified or p.tracking_number]
             if self.return_receipt_on:
                 out.append(f"Return receipt received {short_date(self.return_receipt_on)}")
         if staff and self.provider:
             out.append(f"Print/mail provider: {self.provider} {self.provider_ids}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))
+        return out
+
+
+class MailPiece(models.Model):
+    """One physical letter handed to the print/mail provider (a notice can be several: owner mailing address, property address, tenant;
+    certified and/or first class). Certified pieces carry a USPS tracking number whose progress is pulled in from the provider."""
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="pieces")
+    provider_id = models.CharField(max_length=80, blank=True)
+    label = models.CharField(max_length=60, blank=True, help_text="Who it was addressed to, e.g. owner mailing address.")
+    service = models.CharField(max_length=12, default="first_class", help_text="certified or first_class")
+    tracking_number = models.CharField(max_length=60, blank=True)
+    status = models.CharField(max_length=80, blank=True, help_text="Latest tracking event, e.g. In Transit, Delivered.")
+    events = models.JSONField(default=list, blank=True)
+    expected_delivery_on = models.DateField(null=True, blank=True)
+    delivered_on = models.DateField(null=True, blank=True)
+    problem = models.BooleanField(default=False, help_text="Returned, re-routed or otherwise not delivered as planned.")
+    checked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    @property
+    def is_certified(self):
+        return self.service == "certified"
+
+    @property
+    def usps_url(self):
+        return f"https://tools.usps.com/go/TrackConfirmAction?tLabels={self.tracking_number}" if self.tracking_number else ""
+
+    @property
+    def summary(self):
+        kind = "Certified" if self.is_certified else "First class"
+        out = f"{kind} to {self.label}" if self.label else kind
+        if self.tracking_number:
+            out += f", tracking number {self.tracking_number}"
+        if self.delivered_on:
+            out += f": delivered {short_date(self.delivered_on)}"
+        elif self.status:
+            out += f": {self.status}"
         return out
 
 

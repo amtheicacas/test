@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
-from .models import short_date, CannedReply, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from .models import short_date, CannedReply, MailPiece, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -145,6 +145,7 @@ def home(request):
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
         "results_waiting": CommitteeMeeting.objects.filter(results_status="submitted").annotate(n=Count("violations", filter=Q(violations__status=S.LEDGER_PENDING))),
+        "mail_problems": MailPiece.objects.filter(problem=True, delivered_on__isnull=True).select_related("notice__violation__owner"),
         "legal_drafts": Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).select_related("owner", "vtype"),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
@@ -441,6 +442,10 @@ def violation_action(request, pk, action):
     elif action == "send_notice":
         _run(request, services.issue_first_notice, v, u, timing=P.get("timing") or None,
              ok="Notice issued: emailed now; the mailed copy follows per the chosen timing.")
+    elif action == "refresh_tracking":
+        n = services.refresh_mail_tracking(force_for=v)
+        messages.success(request, f"Tracking checked: {n} update{'s' if n != 1 else ''}." if settings.MAIL_PROVIDER == "lob"
+                         else "Tracking updates need the print/mail provider (Lob) turned on. Until then, log tracking numbers by hand under Mailing log.")
     elif action == "mail_now":
         n = get_object_or_404(Notice, pk=P.get("notice"), violation=v)
         _run(request, services.mail_now, n, u, ok="Mailed copy released.")
