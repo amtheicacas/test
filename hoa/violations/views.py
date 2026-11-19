@@ -415,7 +415,7 @@ def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     v.responses.filter(from_resident=True, read_at__isnull=True).update(read_at=timezone.now())   # opening the case marks owner messages as read
     ctx = {
-        "v": v, "S": S, "steps": v.stage_steps(), "mail": services.correspondence(v, staff=True),
+        "v": v, "S": S, "mail": services.correspondence(v, staff=True),
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(), "canned": CannedReply.objects.all(),
         "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
         "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
@@ -800,7 +800,7 @@ def committee_case(request, pk):
     if not can_view(request.user, v):
         raise PermissionDenied
     return render(request, "violations/committee_case.html", {
-        "v": v, "S": S, "steps": v.stage_steps(), "committee_form": forms.CommitteeForm(), "history": services.owner_history(v),
+        "v": v, "S": S, "committee_form": forms.CommitteeForm(), "history": services.owner_history(v),
         "can_vote": v.status == S.HEARING_SCHEDULED and v.hearing_date and v.hearing_date <= timezone.now()})
 
 
@@ -894,7 +894,7 @@ def my_violation(request, pk):
     if request.method == "POST" and form.is_valid():
         _handle_owner_post(request, v, form)
         return redirect("my_violation", pk=pk)
-    return render(request, "violations/me_detail.html", {"v": v, "steps": v.stage_steps(), "form": form, "S": S,
+    return render(request, "violations/me_detail.html", {"v": v, "form": form, "S": S,
                                                          "notices": v.notices.all(), "mail": services.correspondence(v),
                                                          "latest_letter": next((n for n in reversed(list(v.notices.all())) if n.kind in ("violation", "second")), None),
                                                          "state_url": f"/me/{pk}/state/"})
@@ -951,7 +951,7 @@ def resident(request, token):
     if request.method == "POST" and form.is_valid():
         _handle_owner_post(request, v, form)
         return redirect("resident", token=token)
-    return render(request, "violations/resident.html", {"v": v, "form": form, "steps": v.stage_steps()})
+    return render(request, "violations/resident.html", {"v": v, "form": form})
 
 
 def resident_photo(request, token, pk):
@@ -1043,10 +1043,9 @@ def map_api(request):
 
 
 # ---------- importing the owner list, and putting homes on the map ----------
-manager_only = role_required("manager")
 
 
-@manager_only
+@staff_only
 def import_owners(request):
     """Import owners: 1) upload, 2) match columns, 3) preview, 4) import. The uploaded rows wait in the session between steps."""
     from .models import ImportMapping
@@ -1103,7 +1102,7 @@ def import_owners(request):
     return render(request, "violations/import.html", ctx)
 
 
-@manager_only
+@staff_only
 def import_template(request):
     cols = ["Homeowner ID", "Account Number", "Homeowner(s)", "Address", "Mailing Address", "Street No", "Address 1", "City", "State",
             "Zip", "First Name", "Last Name", "Second Owner First Name", "Second Owner Last Name", "Mailing Address 1", "Lot No",
@@ -1118,7 +1117,7 @@ def import_template(request):
                         headers={"Content-Disposition": 'attachment; filename="heron-landing-owner-template.csv"'})
 
 
-@manager_only
+@staff_only
 @require_POST
 def locate_homes(request):
     try:

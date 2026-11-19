@@ -1,6 +1,6 @@
 {% extends "violations/base.html" %}{% load hoa_tags %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
 <h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
-<div class="card">{% include "violations/_steps.html" %}
+<div class="card">{% include "violations/_staff_steps.html" %}
 <p><b>{{ v.owner.display_name }}</b> · {{ v.owner.property_address }}{% if v.owner.lot_no %} (Lot {{ v.owner.lot_no }}){% endif %} · {{ v.owner.all_emails|join:", "|default:"no email (mail only)" }}</p>
 {% if v.owner.has_separate_mailing %}<p class="mut">Mailing address: {{ v.owner.mailing_address|linebreaksbr }}. US Mail goes there <b>and</b> to the property address.</p>{% endif %}
 <p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>

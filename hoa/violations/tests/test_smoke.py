@@ -72,8 +72,7 @@ def test_every_staff_screen_opens(client, world, role):
     client.force_login(world["users"][role])
     for url in staff_pages(world):
         r = client.get(url, follow=True)
-        expected = 403 if (role == "board" and url.startswith("/import/")) else 200      # importing owners is the manager's job
-        assert r.status_code == expected, (url, r.status_code)
+        assert r.status_code == 200, (url, r.status_code)            # managers and board members have the same access
 
 
 def test_committee_screens_and_limits(client, world):

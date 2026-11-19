@@ -194,9 +194,9 @@ def walk(client, data, overrides=None, apply=True, invite=False):
     return client.post("/import/", {"action": "apply", **post, **({"invite": "on"} if invite else {})})
 
 
-def test_import_is_manager_only_and_template_downloads(client):
-    u = U.objects.create_user("board", password=PW)
-    Profile.objects.create(user=u, role="board")
+def test_import_is_staff_only_and_template_downloads(client):
+    u = U.objects.create_user("cmte", password=PW)
+    Profile.objects.create(user=u, role="committee")
     client.force_login(u)
     assert client.get("/import/").status_code == 403 and client.get("/import/template.csv").status_code == 403
     manager(client)
@@ -243,11 +243,11 @@ def test_units_in_one_building_get_separate_dots_and_search_data(client):
     assert "msearch" in page
 
 
-def test_locate_button_is_manager_only_and_uses_the_geocoder(client, monkeypatch):
+def test_locate_button_is_staff_only_and_uses_the_geocoder(client, monkeypatch):
     Owner.objects.create(name="A", property_address="12 Heron Way", zip_code="34241")
     monkeypatch.setattr(geocoding, "_post", lambda rows: f'"{rows[0][0]}","x","Match","Exact","x","-82.4,27.3","1","L"\n')
-    u = U.objects.create_user("board", password=PW)
-    Profile.objects.create(user=u, role="board")
+    u = U.objects.create_user("cmte", password=PW)
+    Profile.objects.create(user=u, role="committee")
     client.force_login(u)
     assert client.post("/map/locate/").status_code == 403
     manager(client)
@@ -392,9 +392,9 @@ def test_apply_with_invitations_and_cancel(client):
     assert client.post("/import/", {"action": "apply"}).status_code == 302  # nothing waiting: sent back to upload
 
 
-def test_matching_steps_are_manager_only(client):
-    u = U.objects.create_user("board", password=PW)
-    Profile.objects.create(user=u, role="board")
+def test_matching_steps_are_staff_only(client):
+    u = U.objects.create_user("cmte", password=PW)
+    Profile.objects.create(user=u, role="committee")
     client.force_login(u)
     assert upload(client, CSV).status_code == 403
     assert client.post("/import/", {"action": "apply"}).status_code == 403

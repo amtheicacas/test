@@ -4,7 +4,7 @@
 <p class="mut" style="margin:0 0 8px"><span style="color:#d92d20">●</span> board / committee / fine / legal &nbsp; <span style="color:#f79009">●</span> cure period or on hold &nbsp; <span style="color:#12b76a">●</span> resolved &nbsp; <span style="color:#98a2b3">●</span> no violations (in this view). Hover a home for details; click for cases.
 {% if missing %} {{ missing }} home(s) are not on the street / satellite maps yet.{% endif %}</p>
 <div class="row" style="margin-bottom:8px;align-items:center"><input id="msearch" type="search" placeholder="Find an address, owner or lot…" style="max-width:340px">
-{% if ROLE == "manager" and missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
+{% if missing %}<form method="post" action="{% url 'locate_homes' %}" style="flex:0 0 auto">{% csrf_token %}<button>Locate {{ missing }} home{{ missing|pluralize }} on the map</button></form>{% endif %}</div>
 
 <details class="card" id="filters" open style="padding:8px 14px"><summary style="cursor:pointer;font-weight:600">View, labels &amp; filters</summary>
   <div class="row" style="margin:10px 0;align-items:center">

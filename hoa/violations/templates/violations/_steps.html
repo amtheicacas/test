@@ -1,2 +1,3 @@
-<ol class="steps">{% for s in v.tracker %}<li class="{{ s.state }}"><span class="ic">{{ s.icon }}</span>{{ s.label }}{% if s.state == "skipped" %}<small>Bypassed</small>{% elif s.date %}<small>{{ s.note }} {{ s.date|date:"M j, Y" }}</small>{% elif s.state == "current" %}<small>In progress</small>{% endif %}</li>{% endfor %}</ol>
-{% if v.stage_flag %}<p><span class="pill flag">{{ v.stage_flag }}</span>{% if v.status == "on_hold" and v.hold_reason %} <span class="mut">{{ v.hold_reason }}</span>{% endif %}</p>{% endif %}
+<ol class="steps">{% for s in v.progress %}<li class="{{ s.state }}"><span class="ic">{{ s.icon }}</span>{{ s.title }}{% if s.state == "skipped" %}<small>Not needed</small>{% elif s.date %}<small>{{ s.date|date:"M j, Y" }}</small>{% elif s.state == "current" %}<small>In progress</small>{% endif %}</li>{% endfor %}</ol>
+{% for s in v.progress %}{% if s.text %}<p style="margin:8px 0 0"><b>{{ s.title }}.</b> {{ s.text }}</p>{% endif %}{% endfor %}
+{% if v.status == "on_hold" %}<p style="margin:8px 0 0"><span class="pill flag">On hold{% if v.hold_until %} until {{ v.hold_until|date:"M j, Y" }}{% endif %}</span></p>{% endif %}

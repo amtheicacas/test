@@ -167,9 +167,9 @@ def test_send_to_legal_from_open_stage():
 
 def test_stage_tracker():
     v = make_case("1 A St", status=S.HEARING_SCHEDULED)
-    assert [st for _, st in v.stage_steps()] == ["done", "done", "done", "current", "todo", "todo"]
+    assert [s["state"] for s in v.progress] == ["done", "done", "done", "current", "todo", "todo"]
     v.status = S.CLOSED
-    assert v.stage_steps()[-1][1] == "done"
+    assert v.progress[-1]["state"] == "done"
 
 
 # ---------- committee batches ----------

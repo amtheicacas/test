@@ -240,9 +240,12 @@ def test_photo_taken_time_comes_from_exif():
     assert views._taken_at(png()) is None
 
 
+@pytest.mark.django_db
 def test_progress_step_labels():
-    v = Violation()
-    labels = [s for s, _ in v.stage_steps()]
+    from violations.models import Owner, ViolationType
+    v = Violation.objects.create(owner=Owner.objects.create(name="L", property_address="1 Label Way"), vtype=ViolationType.objects.create(name="L"),
+                                 description="d", cure_required="c")
+    labels = [s["title"] for s in v.progress]
     assert labels[2] == "Fine issued by Board"
     assert labels[3] == "Violation sent to Compliance Committee / Homeowner Hearing"
     assert labels[4] == "Fine Imposed & Posted to Ledger"

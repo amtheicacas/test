@@ -2,7 +2,7 @@
 <p>{% if v.committee_meeting_id %}<a href="{% url 'committee_meeting' v.committee_meeting_id %}">&larr; Meeting list</a>{% else %}<a href="{% url 'committee_home' %}">&larr; Committee meetings</a>{% endif %}</p>
 <h1>{{ v.owner.property_address }} — {{ v.vtype }} {% include "violations/_pit_badge.html" %}</h1>
 <p class="mut" style="margin-top:-6px"><b>{{ history.occurrence }}{{ history.occurrence|ordinal_suffix }}</b> time for this violation type &middot; {{ history.open_others|length }} other open &middot; ${{ history.fines_total|floatformat:"0g" }} in prior fines &middot; <b style="color:#6f5fc4">{{ history.pit_count }} prior point-in-time violation{{ history.pit_count|pluralize }}</b></p>
-<div class="card">{% include "violations/_steps.html" %}
+<div class="card">{% include "violations/_staff_steps.html" %}
 <p><b>Owner:</b> {{ v.owner.display_name }}{% if v.owner.has_tenant %} · tenant {{ v.owner.tenant_name }}{% endif %}</p>
 <p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
 <p><b>Cure required:</b> {{ v.cure_required }} · deadline {{ v.cure_deadline|date:"M j, Y" }}</p>

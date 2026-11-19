@@ -312,94 +312,45 @@ class Violation(models.Model):
             return (self.cure_deadline - date.today()).days
         return None
 
-    STEPS = ["Notice issued", "Cure period", "Fine issued by Board",
-             "Violation sent to Compliance Committee / Homeowner Hearing", "Fine Imposed & Posted to Ledger", "Closed"]
-
-    def stage_index(self):
-        St = self.Status
-        st = self.held_from if self.status == St.ON_HOLD and self.held_from else self.status
-        return {St.DRAFT: -1, St.NOTICE_SENT: 1, St.PENDING_BOARD: 2, St.HEARING_NEEDED: 2, St.HEARING_SCHEDULED: 3,
-                St.LEDGER_PENDING: 4, St.FINE_APPROVED: 4, St.REFERRED_LEGAL: 4}.get(st, 5)
-
-    def stage_steps(self):
-        """[(label, 'done'|'current'|'todo'|'skipped'|'legal')] for the progress tracker shown to owners and staff.
-        'skipped' marks a step the case never went through (cured early, or sent straight to the attorney); a case referred to
-        legal also gets a 'Referred to attorney' step showing where it stands."""
-        St = self.Status
-        cur = self.stage_index()
-        legal = self.status == St.REFERRED_LEGAL
-        ended = self.status in (St.REFERRED_LEGAL, St.CURED, St.DISMISSED, St.FINE_REJECTED, St.CLOSED, St.WAIVED)
-        evidence = {
-            2: bool(self.board_votes_for is not None or self.board_meeting_date or self.proposed_fine or self.proposed_suspension),
-            3: bool(self.committee_votes_for is not None or self.committee_meeting_id),
-            4: bool(self.fine_due_on or self.ledger_posted_on or self.suspension or (self.fine_amount and self.status in (St.FINE_APPROVED, St.CLOSED))),
-        }
-        out = []
-        for i, label in enumerate(self.STEPS):
-            if legal and i == 5:
-                out.append(("Referred to attorney", "legal"))
-            if i == 1 and self.non_curable and self.status != St.DRAFT:
-                state = "skipped"     # a point-in-time violation has no cure period
-            elif i == cur and not ended:
-                state = "current"
-            elif i < cur or (cur == 5 and i == 5 and not legal):
-                state = "skipped" if (ended and i in evidence and not evidence[i]) else "done"
-            elif ended and i in evidence and i >= 2 and not evidence[i]:
-                state = "skipped"
-            else:
-                state = "todo"
-            if legal and i < 5 and i >= 2 and not evidence[i]:
-                state = "skipped"
-            if legal and i == 4 and evidence[4]:
-                state = "done"
-            if self.status == St.FINE_REJECTED and i == 4:
-                state = "skipped"
-            out.append((label, state))
-        return out
-
-    ICONS = ["\u2709", "\u23f3", "\u2611", "\U0001f465", "$", "\u2714"]   # notice, cure period, board, committee, fine, closed
+    @property
+    def progress(self):
+        """The owner's progress tracker (the Association's six steps with a date and, for the current one, a plain sentence)."""
+        from . import progress
+        return progress.stages(self)
 
     @property
-    def tracker(self):
-        """stage_steps() plus an icon and a date for each box: [{label, state, icon, date, note}]."""
-        steps = self.stage_steps()
-        first = next((n for n in self.notices.all() if n.kind == "violation"), None)
-        dates = {
-            0: (first.created_at.date() if first else self.created_at.date(), "Issued"),
-            1: (self.cure_deadline, "Cure by"),
-            2: (self.board_meeting_date, "Voted"),
-            3: (self.hearing_date.date() if self.hearing_date else None, "Hearing"),
-            4: (self.ledger_posted_on or self.suspension_effective_on, "Imposed"),
-            5: (self.cured_on or self.fine_paid_on, "Closed"),
-        }
-        out, idx = [], 0
-        for label, state in steps:
-            if state == "legal":
-                out.append({"label": label, "state": state, "icon": "\u2696",
-                            "date": (self.legal_sent_on.date() if self.legal_sent_on else self.legal_referred_on),
-                            "note": "Sent to attorney" if self.legal_sent_on else "Referred, email not sent"})
-                continue
-            d, note = dates[idx]
-            icon = "\u21b7" if state == "skipped" else self.ICONS[idx]
-            out.append({"label": label, "state": state, "icon": icon, "date": d if state != "skipped" else None, "note": note})
-            idx += 1
-        return out
+    def staff_progress(self):
+        """The same steps with sub-steps, for the Board / Manager."""
+        from . import progress
+        return progress.staff_stages(self)
 
     @property
     def owner_closed(self):
         return self.status in self.OWNER_CLOSED
 
+    # What the owner portal calls each status: short, plain and consistent. (label, color)
+    PORTAL_LABELS = {
+        "notice_sent": ("In Cure Period", "yellow"),
+        "pending_board": ("Sent to Board for Fine", "orange"),
+        "hearing_needed": ("Hearing Being Scheduled", "orange"),
+        "hearing_scheduled": ("Sent to Compliance Committee", "red"),
+        "ledger_pending": ("Committee Decision Pending", "red"),
+        "fine_approved": ("Fine Imposed", "red"),
+        "fine_rejected": ("Closed: No Fine", ""),
+        "waived": ("Closed: Waived", ""),
+        "cured": ("Closed: Corrected", ""),
+        "closed": ("Closed", ""),
+        "dismissed": ("Closed: Dismissed", ""),
+        "on_hold": ("On Hold", ""),
+        "referred_legal": ("Referred to Association Attorney", "red"),
+    }
+
     @property
     def portal_status(self):
-        """(label, color) for the status pill the owner sees. Only some stages are color coded."""
-        St = self.Status
-        if self.status == St.NOTICE_SENT:
-            return ("In Cure Period", "yellow")
-        if self.status == St.PENDING_BOARD:
-            return ("Sent to Board for Fine", "orange")
-        if self.status == St.HEARING_SCHEDULED:
-            return (self.get_status_display(), "red")
-        return (self.get_status_display(), "")
+        """(label, color) for the status pill the owner sees."""
+        if self.needs_reinspection:
+            return ("Verifying Your Correction", "yellow")
+        return self.PORTAL_LABELS.get(self.status, (self.get_status_display(), ""))
 
     @property
     def needs_reinspection(self):
@@ -644,8 +595,8 @@ class Event(models.Model):
 class Profile(models.Model):
     """Role for a login. Superusers/staff without a profile are treated as managers."""
     class Role(models.TextChoices):
-        MANAGER = "manager", "Manager (full access)"
-        BOARD = "board", "Board member (sees everything)"
+        MANAGER = "manager", "Manager (full access, same as Board)"
+        BOARD = "board", "Board member (full access, same as Manager)"
         COMMITTEE = "committee", "Compliance Committee (assigned hearings only)"
         HOMEOWNER = "homeowner", "Homeowner (own violations)"
 
@@ -658,6 +609,12 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user} ({self.role})"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Managers and board members have the same access, including the admin screens (turn off with STAFF_ADMIN_ACCESS=0).
+        if self.role in (self.Role.MANAGER, self.Role.BOARD) and settings.STAFF_ADMIN_ACCESS and not (self.user.is_staff and self.user.is_superuser):
+            type(self.user).objects.filter(pk=self.user_id).update(is_staff=True, is_superuser=True)
 
 
 class ImportMapping(models.Model):

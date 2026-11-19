@@ -432,31 +432,57 @@ def test_committee_decision_sends_letter_3_and_rejection_notifies_owner(db, mail
     assert v.committee_findings == "No violation found."
 
 
+def states(v):
+    return {s["title"]: s["state"] for s in v.progress}
+
+
 def test_tracker_marks_bypassed_steps_and_shows_the_legal_stage(db):
     from violations.models import Owner, ViolationType, Violation
     o = Owner.objects.create(name="L O", property_address="15 Legal Way")
     vt = ViolationType.objects.create(name="T15")
     legal = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="referred_legal")
-    st = dict(legal.stage_steps())
+    st = states(legal)
     assert st["Fine issued by Board"] == "skipped" and st["Violation sent to Compliance Committee / Homeowner Hearing"] == "skipped"
-    assert st["Referred to attorney"] == "legal" and st["Notice issued"] == "done" and st["Cure period"] == "done"
+    assert st["Fine Imposed & Posted to Ledger"] == "skipped" and st["Referred to the attorney"] == "current" and st["Closed"] == "todo"
+    assert st["Notice issued"] == "done" and st["Cure period"] == "done"
     cured = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="cured")
-    assert [s for _, s in cured.stage_steps()] == ["done", "done", "skipped", "skipped", "skipped", "done"]
+    assert [s["state"] for s in cured.progress] == ["done", "done", "skipped", "skipped", "skipped", "done"]
     normal = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board")
-    assert [s for _, s in normal.stage_steps()] == ["done", "done", "current", "todo", "todo", "todo"]
+    assert [s["state"] for s in normal.progress] == ["done", "done", "current", "todo", "todo", "todo"]
+    sched = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="hearing_scheduled")
+    assert [s["state"] for s in sched.progress] == ["done", "done", "done", "current", "todo", "todo"]
 
 
-def test_tracker_boxes_carry_icons_and_dates(db):
+def test_tracker_boxes_carry_icons_dates_and_an_owner_sentence(db):
     from datetime import date
     from violations.models import Owner, ViolationType, Violation
     o = Owner.objects.create(name="T O", property_address="16 Track Way")
     v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T16"), description="d", cure_required="c",
                                  status="notice_sent", cure_deadline=date(2026, 12, 18))
-    t = v.tracker
-    assert t[0]["icon"] and t[0]["date"] is not None and t[1]["date"] == date(2026, 12, 18) and t[1]["state"] == "current"
+    t = v.progress
+    assert [s["title"] for s in t] == ["Notice issued", "Cure period", "Fine issued by Board",
+                                       "Violation sent to Compliance Committee / Homeowner Hearing", "Fine Imposed & Posted to Ledger", "Closed"]
+    assert t[0]["icon"] and t[1]["date"] == date(2026, 12, 18) and t[1]["state"] == "current"
+    assert t[1]["text"] == "Please correct this by Dec 18, 2026. You can reply, upload a photo of the fix, or ask for more time."
+    v.status = "fine_approved"; v.fine_amount = 100; v.fine_due_on = date(2027, 1, 5); v.save()
+    assert dict((s["title"], s["text"]) for s in v.progress)["Fine Imposed & Posted to Ledger"] == "A fine of $100.00 was imposed, due Jan 5, 2027. Please see your decision letter."
     legal = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T17"), description="d", cure_required="c", status="referred_legal")
-    assert any(s["state"] == "legal" and s["icon"] == "⚖" for s in legal.tracker)
-    assert any(s["state"] == "skipped" and s["date"] is None for s in legal.tracker)
+    assert any(s["state"] == "current" and s["icon"] == "\u2696" for s in legal.progress)
+    assert any(s["state"] == "skipped" and s["date"] is None for s in legal.progress)
+
+
+def test_staff_steps_have_sub_steps_for_the_current_stage(db):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Notice, Response
+    o = Owner.objects.create(name="S O", property_address="17 Sub Way")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T18b"), description="d", cure_required="c", status="notice_sent",
+                                 cure_deadline=date.today() + timedelta(days=5), extended_days=3, reinspect_on=date.today())
+    Notice.objects.create(violation=v, kind="violation", mail_hold_until=date.today() + timedelta(days=2))
+    Response.objects.create(violation=v, message="fixed", from_resident=True)
+    subs = {s["key"]: {u["label"]: u["state"] for u in s["subs"]} for s in v.staff_progress}
+    assert subs["notice"]["US Mail copy"] == "current"
+    assert subs["cure"]["Owner replied"] == "done" and subs["cure"]["Extension granted"] == "done" and subs["cure"]["Re-inspect"] == "current"
+    assert subs["board"]["Waiting for Board vote"] == "todo"
 
 
 def test_reinspect_flag_ages_shows_in_lists_and_resolves(db, client, django_user_model):
@@ -538,8 +564,8 @@ def test_direct_referral_needs_a_reason_and_the_email_says_no_fine(db, client, d
     v.refresh_from_db(); assert v.status == "referred_legal" and v.legal_path == "direct" and not mailoutbox
     body = services.legal_email_draft(v)["body"]
     assert "referring it directly" in body and "no fine has been imposed" in body and "Structural hazard" in body and "safety issue" in body
-    st = dict(v.stage_steps())
-    assert st["Fine issued by Board"] == "skipped" and st["Referred to attorney"] == "legal"
+    st = states(v)
+    assert st["Fine issued by Board"] == "skipped" and st["Referred to the attorney"] == "current"
     z = client.post(f"/violations/{v.pk}/legal/email/", {"do": "download", "to": "a@b.c", "subject": "s", "body": "b", "att": ["photo-1"]})
     assert z["Content-Type"] == "application/zip"
 
@@ -751,7 +777,7 @@ def test_point_in_time_goes_straight_to_the_board_queue_and_stands_out(db, clien
     services.issue_first_notice(v)
     v.refresh_from_db()
     assert v.status == "pending_board" and mailoutbox                                         # notice emailed, then straight to the Board
-    assert dict(v.stage_steps())["Cure period"] == "skipped"
+    assert states(v)["Cure period"] == "skipped"
     assert services.owner_history(v)["pit_count"] == 1
     u = django_user_model.objects.create_user("bd3", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "board"})
     client.force_login(u)
@@ -857,3 +883,16 @@ def test_owner_violations_page_has_a_closed_toggle_and_groups_by_the_owner_defin
     Violation.objects.filter(status="notice_sent").delete()
     home = client.get("/me/").content.decode()
     assert "1 fine to pay" in home and "Fine due" in home and "All clear" not in home
+
+
+def test_manager_and_board_have_identical_access(db, client, django_user_model):
+    from violations.models import Profile
+    pages = ["/", "/violations/", "/board/", "/results/", "/import/", "/map/", "/replies/", "/admin/"]
+    seen = {}
+    for role in ("manager", "board"):
+        u = django_user_model.objects.create_user(f"same-{role}", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": role})
+        u.refresh_from_db()
+        assert u.is_staff and u.is_superuser                                              # the same admin access too
+        client.force_login(u)
+        seen[role] = [client.get(p, follow=True).status_code for p in pages]
+    assert seen["manager"] == seen["board"] == [200] * len(pages)

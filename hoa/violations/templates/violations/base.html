@@ -43,6 +43,12 @@ ol.steps li.current{background:#2563c9;color:#fff;border-color:#2563c9;font-weig
 @media(prefers-color-scheme:dark){ol.steps li.current{background:#3b82e6;border-color:#3b82e6}ol.steps li.current .ic{color:#3b82e6}}
 ol.steps li.skipped{border-style:dashed;background:transparent;color:var(--mut);opacity:.85}ol.steps li.skipped .ic{border-style:dashed}
 ol.steps li.legal{background:var(--warn);color:#fff;border-color:var(--warn);font-weight:600}ol.steps li.legal .ic{background:#fff;color:var(--warn);border-color:#fff}
+details.x{}
+.substeps{margin-top:10px}.substeps details{border-top:1px solid var(--line);padding:6px 0}.substeps summary{cursor:pointer;text-decoration:none;font-size:.92rem}
+.substeps summary.current b{color:#2563c9}.substeps summary.done b{color:var(--ok)}.substeps summary.skipped b,.substeps summary.todo b{color:var(--mut)}
+.substeps ul{list-style:none;margin:6px 0 2px;padding:0 0 0 4px}.substeps li{display:grid;grid-template-columns:20px minmax(150px,260px) 1fr;gap:6px;padding:2px 0;font-size:.9rem}
+.substeps li i{font-style:normal;text-align:center}.substeps li em{font-style:normal;color:var(--mut)}
+.substeps li.done i{color:var(--ok)}.substeps li.current i{color:#2563c9}.substeps li.todo,.substeps li.skipped{color:var(--mut)}
 ol.steps li small{display:block;font-size:.7rem;margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
 details summary{cursor:pointer;text-decoration:underline}
 @media(max-width:600px){th{display:none}header .brandname{display:none}}
@@ -57,7 +63,7 @@ details summary{cursor:pointer;text-decoration:underline}
 <a class="nav" href="{% url 'results_list' %}" title="Compliance Committee results, meeting by meeting"><span>Committee results</span><small class="{% if NAV.results %}hot{% endif %}">{% if NAV.results %}{{ NAV.results }} to review{% else %}all meetings{% endif %}</small></a>
 <a class="nav" href="{% url 'map' %}" title="Active homes"><span>Map</span><small>{{ NAV.homes }} homes</small></a>
 <a class="nav" href="{% url 'violation_create' %}"><span>+ New</span><small>&nbsp;</small></a>
-<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Saved replies</a>{% if ROLE == "manager" %}<a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'admin:index' %}">Admin</a>{% endif %}
+<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Saved replies</a><a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'admin:index' %}">Admin</a>
 {% elif ROLE == "committee" %}<a class="nav" href="{% url 'committee_home' %}"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
 {% elif ROLE == "homeowner" %}<span style="font-weight:600" title="Signed in as {{ RESIDENT_NAME }}">Welcome, {{ RESIDENT_NAME }}</span><a class="nav" href="{% url 'my_home' %}"><span>Home</span><small>&nbsp;</small></a><a class="nav" href="{% url 'my_violations' %}"><span>Violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{{ HOA_DOCUMENTS_URL }}" target="_blank" rel="noopener">HOA Documents</a><a href="{% url 'my_household' %}">Account</a>{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
