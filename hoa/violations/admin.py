@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
 from . import accounts
-from .models import CommitteeMeeting, Owner, Profile, ViolationType
+from .models import CannedReply, CommitteeMeeting, Owner, Profile, Violation, ViolationType
 
 
 @admin.action(description="Send portal invitation (creates homeowner login)")
@@ -21,6 +21,17 @@ class OwnerAdmin(admin.ModelAdmin):
 
 admin.site.register(ViolationType, list_display=["name", "reference", "default_cure_days", "default_fine"])
 admin.site.register(CommitteeMeeting, list_display=["starts_at", "zoom_link"])
+admin.site.register(CannedReply, list_display=["title", "created_by", "created_at"])
+
+
+@admin.register(Violation)
+class ViolationAdmin(admin.ModelAdmin):
+    """For cleaning up test data. Deleting a violation also deletes its letters, emails, messages, photo records and history."""
+    list_display = ["id", "owner", "vtype", "status", "observed_on", "created_at"]
+    list_filter = ["status"]
+    search_fields = ["owner__name", "owner__property_address", "vtype__name", "description"]
+    list_select_related = ["owner", "vtype"]
+    date_hierarchy = "created_at"
 
 
 class ProfileInline(admin.StackedInline):

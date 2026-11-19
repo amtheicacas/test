@@ -793,3 +793,23 @@ def test_unread_owner_message_shows_an_envelope_until_staff_open_the_case(db, cl
     assert "Unread message from the owner" in client.get("/violations/").content.decode()
     client.get(f"/violations/{v.pk}/")
     assert "Unread message from the owner" not in client.get("/violations/").content.decode()
+
+
+def test_clear_test_data_needs_confirmation_and_keeps_owners(db):
+    import pytest
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="K O", property_address="30 Keep Way")
+    Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T30"), description="d", cure_required="c")
+    with pytest.raises(CommandError):
+        call_command("clear_test_data")
+    assert Violation.objects.count() == 1
+    call_command("clear_test_data", "--yes")
+    assert Violation.objects.count() == 0 and Owner.objects.filter(pk=o.pk).exists() and ViolationType.objects.exists()
+
+
+def test_violations_are_in_the_admin(db, client, django_user_model):
+    u = django_user_model.objects.create_superuser("root1", "r@example.com", "x")
+    client.force_login(u)
+    assert client.get("/admin/violations/violation/").status_code == 200
