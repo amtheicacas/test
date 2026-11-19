@@ -1,5 +1,5 @@
 {% extends "violations/base.html" %}{% block title %}{{ v.vtype }}{% endblock %}{% block content %}
-<p><a href="{% url 'my_violations' %}">← My violations</a></p>
+<p><a href="{% url 'my_violations' %}">&larr; Violations</a></p>
 <h1>{{ v.vtype }} <span class="pill {{ v.portal_status.1 }}">{{ v.portal_status.0 }}</span></h1>
 <div class="card tracker">{% include "violations/_steps.html" %}</div>
 <div class="card">

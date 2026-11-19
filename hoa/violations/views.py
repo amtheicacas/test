@@ -124,7 +124,7 @@ def home(request):
         return redirect_to_login("/")
     role = accounts.role_of(request.user)
     if role == "homeowner":
-        return redirect("my_violations")
+        return redirect("my_home")
     if role == "committee":
         return redirect("committee_home")
     if role not in STAFF:
@@ -834,21 +834,8 @@ def _handle_owner_post(request, v, form):
     messages.success(request, "Thank you — your message has been sent to the association.")
 
 
-@homeowner_only
-def my_violations(request):
-    """The owner's simple home screen: what's new, then each open violation (photo, issued date, cure date; nearest cure date first)."""
-    o = accounts.owner_of(request.user)
-    vs = list(Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype").prefetch_related("photos", "notices")) if o else []
-    today = date.today()
-    cards = []
-    for v in vs:
-        photo = next((p for p in v.photos.all() if not p.from_resident), None)
-        first = next((n for n in v.notices.all() if n.kind == "violation"), None)
-        left = (v.cure_deadline - today).days if v.cure_deadline and v.status == S.NOTICE_SENT else None
-        cards.append({"v": v, "photo": photo, "issued": (first.created_at if first else v.created_at).date(), "left": left,
-                      "open": v.status in Violation.OPEN})
-    open_cards = sorted([c for c in cards if c["open"]], key=lambda c: (c["v"].cure_deadline is None, c["v"].cure_deadline or today, c["v"].pk))
-    past = sorted([c for c in cards if not c["open"]], key=lambda c: c["issued"], reverse=True)
+def _owner_updates(vs):
+    """Recent things for the owner to notice (new notices, messages from the Association), newest first."""
     updates = []
     for v in vs:
         for n in v.notices.all():
@@ -861,9 +848,34 @@ def my_violations(request):
     cutoff = timezone.now() - timedelta(days=7)
     for u in updates:
         u["fresh"] = u["when"] >= cutoff
-    first_name = (request.user.first_name or (o.display_name.split()[0] if o else "")).strip()
-    return render(request, "violations/me_list.html", {"owner": o, "open_cards": open_cards, "past_cards": past,
-                                                       "updates": updates[:6], "first_name": first_name})
+    return updates[:6]
+
+
+@homeowner_only
+def my_home(request):
+    """The owner's front page: a tile for each part of the portal, plus what's new."""
+    from . import portal
+    o = accounts.owner_of(request.user)
+    vs = list(Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype").prefetch_related("notices", "responses")) if o else []
+    return render(request, "violations/me_home.html", {"owner": o, "tiles": portal.owner_tiles(request.user, o), "updates": _owner_updates(vs)})
+
+
+@homeowner_only
+def my_violations(request):
+    """The owner's violations: each open one with its photo, issued date and cure date, nearest cure date first."""
+    o = accounts.owner_of(request.user)
+    vs = list(Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype").prefetch_related("photos", "notices")) if o else []
+    today = date.today()
+    cards = []
+    for v in vs:
+        photo = next((p for p in v.photos.all() if not p.from_resident), None)
+        first = next((n for n in v.notices.all() if n.kind == "violation"), None)
+        left = (v.cure_deadline - today).days if v.cure_deadline and v.status == S.NOTICE_SENT else None
+        cards.append({"v": v, "photo": photo, "issued": (first.created_at if first else v.created_at).date(), "left": left,
+                      "open": v.status in Violation.OPEN})
+    open_cards = sorted([c for c in cards if c["open"]], key=lambda c: (c["v"].cure_deadline is None, c["v"].cure_deadline or today, c["v"].pk))
+    past = sorted([c for c in cards if not c["open"]], key=lambda c: c["issued"], reverse=True)
+    return render(request, "violations/me_list.html", {"owner": o, "open_cards": open_cards, "past_cards": past})
 
 
 @homeowner_only

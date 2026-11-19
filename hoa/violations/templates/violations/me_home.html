@@ -1,0 +1,28 @@
+{% extends "violations/base.html" %}{% block title %}Home{% endblock %}{% block content %}
+<style>
+.welcome{margin:4px 0 18px}.welcome h1{font-size:1.7rem;margin:0}.welcome p{margin:2px 0 0;color:var(--mut)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-bottom:18px}
+.tilebox{display:flex;flex-direction:column;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;text-decoration:none;color:inherit;box-shadow:0 1px 2px rgba(0,0,0,.04);transition:box-shadow .15s,transform .15s;min-height:190px}
+.tilebox:hover{box-shadow:0 10px 26px rgba(0,0,0,.13);transform:translateY(-2px)}
+.tilebox .big{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.7rem;background:var(--bg);border:1px solid var(--line)}
+.tilebox h2{margin:6px 0 0;font-size:1.2rem}.tilebox .blurb{color:var(--mut);margin:0}.tilebox .detail{margin:2px 0 0;font-weight:600}
+.tilebox .st{margin-top:auto;display:flex;align-items:center;gap:8px;font-weight:600;font-size:.92rem}
+.tilebox .st i{font-style:normal;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.9rem;background:var(--bg);border:1px solid var(--line)}
+.tilebox.green .st{color:var(--ok)}.tilebox.green .st i{background:var(--ok);color:var(--card);border-color:var(--ok)}
+.tilebox.yellow .st{color:#8a6a00}.tilebox.yellow .st i{background:#fdf0b8;border-color:#e6c53a}
+.tilebox.orange .st{color:#a14a00}.tilebox.orange .st i{background:#ffd9b0;border-color:#f08a24}
+.tilebox.red .st{color:var(--bad)}.tilebox.red .st i{background:#fbd5d1;border-color:#e0584a}
+.tilebox.warn .st{color:var(--warn)}.tilebox.warn .st i{background:#ffe9c7;border-color:var(--warn)}
+@media(prefers-color-scheme:dark){.tilebox.yellow .st{color:#ffe680}.tilebox.yellow .st i{background:#5a4a00;border-color:#a88a00;color:#ffe680}.tilebox.orange .st{color:#ffc58a}.tilebox.orange .st i{background:#6b3000;border-color:#c46a10}.tilebox.red .st i{background:#6e1a12;border-color:#c4483a}}
+.updates ul{list-style:none;margin:0;padding:0}.updates li{display:flex;gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)}.updates li:last-child{border:0}
+.updates .dot{flex:0 0 9px;height:9px;border-radius:50%;background:var(--line);transform:translateY(-1px)}.updates .fresh .dot{background:var(--warn)}
+.updates a{text-decoration:none;font-weight:600}.updates .when{margin-left:auto;color:var(--mut);font-size:.85rem;white-space:nowrap}
+.chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.78rem;font-weight:600;background:var(--bg);border:1px solid var(--line)}.chip.soon{color:var(--warn);border-color:var(--warn)}
+</style>
+<div class="welcome"><h1>Welcome{% if RESIDENT_NAME %}, {{ RESIDENT_NAME }}{% endif %}</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}
+<p style="margin-top:8px;max-width:62ch">Use this portal as your single place to review and update your violations and your account. Choose a section below. In Violations, click into each one to see the details and the letters we sent, and to send us your progress, photos and questions. Your message goes to the Board.</p></div>
+<div class="tiles">{% for t in tiles %}<a class="tilebox {{ t.state }}" href="{{ t.url }}"{% if t.external %} target="_blank" rel="noopener"{% endif %}>
+<span class="big">{{ t.icon }}</span><h2>{{ t.title }}</h2><p class="blurb">{{ t.blurb }}</p>{% if t.detail %}<p class="detail">{{ t.detail }}</p>{% endif %}
+{% if t.status_text %}<span class="st"><i>{{ t.status_icon }}</i>{{ t.status_text }}</span>{% endif %}</a>{% endfor %}</div>
+{% if updates %}<div class="card updates"><h2>What&rsquo;s new</h2><ul>{% for u in updates %}<li class="{% if u.fresh %}fresh{% endif %}"><span class="dot"></span><a href="{% url 'my_violation' u.v.pk %}">{{ u.text }}</a>{% if u.fresh %} <span class="chip soon">New</span>{% endif %}<span class="when">{{ u.when|date:"M j" }}</span></li>{% endfor %}</ul></div>{% endif %}
+{% endblock %}

@@ -16,12 +16,7 @@
 @media(max-width:620px){.vcard{flex-direction:column}.vcard .ph{flex-basis:auto;height:190px}}
 .past a{text-decoration:none}
 </style>
-<div class="welcome"><h1>Welcome{% if RESIDENT_NAME %}, {{ RESIDENT_NAME }}{% endif %}</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}
-<p style="margin-top:8px;max-width:62ch">Use this portal as your single place to review and update your violations. Click into each one to see the details and the letters we sent, and to send us your progress, photos and questions. Your message goes to the Board.</p></div>
-
-<a class="card" href="{{ HOA_DOCUMENTS_URL }}" target="_blank" rel="noopener" style="display:flex;gap:12px;align-items:center;text-decoration:none;color:inherit"><span style="font-size:1.6rem">&#128196;</span><span><b>HOA documents</b><br><span class="mut">The Declaration, Community Standards and other governing documents. Opens in a new tab and may ask you to sign in.</span></span><span style="margin-left:auto;font-weight:600">Open &rarr;</span></a>
-{% if updates %}<div class="card updates"><h2>What&rsquo;s new</h2><ul>{% for u in updates %}<li class="{% if u.fresh %}fresh{% endif %}"><span class="dot"></span><a href="{% url 'my_violation' u.v.pk %}">{{ u.text }}</a>{% if u.fresh %} <span class="chip soon">New</span>{% endif %}<span class="when">{{ u.when|date:"M j" }}</span></li>{% endfor %}</ul></div>{% endif %}
-
+<div class="welcome"><h1>Violations</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}</div>
 {% if open_cards %}<h2 style="margin:18px 0 8px">Open violations <span class="mut" style="font-weight:400;font-size:.9rem">&middot; nearest cure date first</span></h2>
 <div class="vgrid">{% for c in open_cards %}<a class="vcard" href="{% url 'my_violation' c.v.pk %}">
 <div class="ph"{% if c.photo %} style="background-image:url('{% url 'photo' c.photo.pk %}')"{% endif %}>{% if not c.photo %}No photo{% endif %}</div>

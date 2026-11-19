@@ -57,7 +57,7 @@ def test_two_logins_see_the_same_violations_and_each_others_messages(client):
     login(client, pat)
     page = client.get(f"/me/{v.pk}/").content.decode()
     assert "Sam: confirming." in page and ">Sam<" in page and ">You<" in page
-    assert client.get("/me/").content.decode().count(f"/me/{v.pk}/") >= 1
+    assert client.get("/me/violations/").content.decode().count(f"/me/{v.pk}/") >= 1
 
 
 def test_a_second_household_cannot_see_the_first(client):

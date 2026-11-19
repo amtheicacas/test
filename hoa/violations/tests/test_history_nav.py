@@ -160,7 +160,7 @@ def test_committee_and_homeowner_menus_have_counts_too(client):
     login(client, "committee")
     assert nav(client.get("/committee/").content.decode()) == {"Committee meetings": "1 upcoming"}
     login(client, "homeowner", owner=o)
-    assert nav(client.get("/me/").content.decode()) == {"Home": "1 open"}
+    assert nav(client.get("/me/").content.decode()) == {"Home": "", "Violations": "1 open"}
 
 
 def test_logged_out_pages_have_no_menu(client):
@@ -393,7 +393,7 @@ def test_owner_home_lists_cases_nearest_cure_date_first_with_photo(db, client, d
     u = django_user_model.objects.create_user("own2", password="x")
     Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
     client.force_login(u)
-    html = client.get("/me/").content.decode()
+    html = client.get("/me/violations/").content.decode()
     assert html.index("SoonerOne") < html.index("LaterOne")
     assert "steps" not in html.split("<main")[1]                          # no stage tracker on the home screen
     assert "background-image" in html and "Cure by" in html
@@ -687,7 +687,7 @@ def test_owner_portal_status_pills_are_color_coded_with_friendly_wording(db, cli
     u = django_user_model.objects.create_user("own3", password="x")
     Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
     client.force_login(u)
-    html = client.get("/me/").content.decode()
+    html = client.get("/me/violations/").content.decode()
     assert 'class="pill yellow">In Cure Period' in html and 'class="pill orange">Sent to Board for Fine' in html
     assert "Cure period running" not in html and "Awaiting board vote" not in html
     assert "In Cure Period" in client.get(f"/me/{a.pk}/").content.decode()
@@ -735,7 +735,7 @@ def test_owner_home_shows_when_the_cure_period_ended_for_later_stages(db, client
                              cure_deadline=date(2026, 11, 3))
     u = django_user_model.objects.create_user("own4", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
     client.force_login(u)
-    html = client.get("/me/").content.decode()
+    html = client.get("/me/violations/").content.decode()
     assert "Cure period ended" in html and "Nov 3, 2026" in html
 
 
@@ -768,7 +768,7 @@ def test_owner_portal_links_to_hoa_documents(db, client, django_user_model):
     o = Owner.objects.create(name="D L", property_address="27 Docs Way")
     u = django_user_model.objects.create_user("own5", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
     client.force_login(u)
-    html = client.get("/me/").content.decode()
+    html = client.get("/me/violations/").content.decode()
     assert "https://home.sunstatemanagement.com/login" in html and "HOA Documents" in html
 
 
@@ -812,3 +812,27 @@ def test_violations_are_in_the_admin(db, client, django_user_model):
     u = django_user_model.objects.create_superuser("root1", "r@example.com", "x")
     client.force_login(u)
     assert client.get("/admin/violations/violation/").status_code == 200
+
+
+def test_owner_front_page_has_four_tiles_with_status_icons(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="Tile Owner", property_address="31 Tile Way", email="t@example.com")
+    u = django_user_model.objects.create_user("own7", password="x", first_name="Tilly")
+    Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    assert client.get("/").url == "/me/"
+    html = client.get("/me/").content.decode()
+    assert html.count('class="tilebox') == 4 and "Welcome, Tilly" in html
+    for title in ("Violations", "Account details", "HOA documents", "Sign-in options"):
+        assert title in html
+    assert "All clear" in html and 'tilebox green' in html                                   # nothing open
+    vt = ViolationType.objects.create(name="Tile type")
+    v = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="notice_sent", cure_deadline=date.today() + timedelta(days=20))
+    html = client.get("/me/").content.decode()
+    assert "In cure period" in html and "1 open" in html and "tilebox yellow" in html
+    v.cure_deadline = date.today() + timedelta(days=2); v.save()
+    assert "Due in 2 days" in client.get("/me/").content.decode()
+    v.status = "hearing_scheduled"; v.save()
+    assert "With the Compliance Committee" in client.get("/me/").content.decode() and "tilebox red" in client.get("/me/").content.decode()
+    assert client.get("/me/violations/").status_code == 200
