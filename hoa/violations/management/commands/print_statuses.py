@@ -50,7 +50,8 @@ class Command(BaseCommand):
                     cur_step = next((s for s in steps if s["state"] == "current"), steps[-1])
                     cur, text = cur_step["title"], cur_step["text"]
                     owner_view = v.portal_status[0]
-                    sp = next(s for s in v.staff_progress if s["key"] == cur_step["key"])
+                    staff_steps = v.staff_progress
+                    sp = next((s for s in staff_steps if s["state"] == "current"), None) or next(s for s in staff_steps if s["key"] == cur_step["key"])
                     staff = "**" + sp["title"] + "**: " + "; ".join(f"{u['label']} ({u['state']})" for u in sp["subs"])
                 out.append(f"| {key} | {label} | {owner_view} | {cur} | {text} | {staff} |")
             out.append("")

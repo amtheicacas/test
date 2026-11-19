@@ -669,6 +669,7 @@ def committee_home(request):
     ms = CommitteeMeeting.objects.annotate(n=Count("violations"), done=Count("violations", filter=~Q(violations__committee_outcome="")))
     return render(request, "violations/committee_home.html", {
         "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner", "vtype").order_by("board_meeting_date", "pk"),
+        "minutes_waiting": CommitteeMeeting.objects.filter(minutes_status="draft", starts_at__lt=now).order_by("starts_at"),
         "upcoming": ms.filter(starts_at__gte=now - timedelta(hours=12)).order_by("starts_at"),
         "past": ms.filter(starts_at__lt=now - timedelta(hours=12))[:6]})
 
@@ -693,6 +694,39 @@ def _meeting_summary(m):
     return {"cases": cases, "n": len(cases), "fines": fines, "waived": waived, "rejected": rejected, "undecided": pending, "total": total}
 
 
+def _minutes_waiting(m):
+    """Earlier meetings whose draft minutes this meeting can approve."""
+    return list(CommitteeMeeting.objects.filter(starts_at__lt=m.starts_at, minutes_status=CommitteeMeeting.Minutes.DRAFT)
+                .exclude(pk=m.pk).filter(starts_at__lt=timezone.now()).order_by("starts_at"))
+
+
+@staff_or_committee
+def committee_minutes(request, pk):
+    """The minutes the app wrote from the committee's entries (HTML, or ?pdf=1)."""
+    from . import minutes
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    if request.GET.get("pdf"):
+        return HttpResponse(minutes.render_pdf(m), content_type="application/pdf",
+                            headers={"Content-Disposition": f'inline; filename="committee-minutes-{timezone.localtime(m.starts_at):%Y-%m-%d}.pdf"'})
+    return render(request, "violations/committee_minutes.html", {"m": m, "sections": minutes.build(m)})
+
+
+@staff_or_committee
+@require_POST
+def minutes_approve(request, pk):
+    """Approve the draft minutes of meeting `pk` at a later meeting (`at`)."""
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    at = get_object_or_404(CommitteeMeeting, pk=request.POST.get("at") or 0)
+    if m.minutes_status == CommitteeMeeting.Minutes.APPROVED or at.starts_at <= m.starts_at:
+        messages.error(request, "These minutes can't be approved here.")
+    else:
+        m.minutes_status, m.minutes_approved_on = CommitteeMeeting.Minutes.APPROVED, timezone.localdate()
+        m.minutes_approved_by, m.minutes_approved_at = request.user, at
+        m.save()
+        messages.success(request, f"Minutes of the {timezone.localtime(m.starts_at):%b} {timezone.localtime(m.starts_at).day} meeting approved.")
+    return redirect("committee_meeting", pk=at.pk)
+
+
 @staff_or_committee
 def committee_meeting(request, pk):
     """The committee's working page for a meeting: meeting details and minutes, then one decision per violation."""
@@ -702,17 +736,31 @@ def committee_meeting(request, pk):
     rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED,
              "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count()} for v in summary["cases"]]
     return render(request, "violations/committee_meeting.html", {"m": m, "rows": rows, "S": S, "sum": summary, "can_edit": can_edit,
+                                                                  "waiting_minutes": _minutes_waiting(m),
+                                                                  "minutes_open": m.minutes_status == CommitteeMeeting.Minutes.DRAFT,
                                                                   "ready": can_edit and summary["n"] and not summary["undecided"]})
+
+
+def _parse_time(s):
+    from datetime import time
+    try:
+        h, mi = (s or "").split(":")[:2]
+        return time(int(h), int(mi))
+    except ValueError:
+        return None
 
 
 @staff_or_committee
 @require_POST
 def committee_meeting_save(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
-    if m.results_status != CommitteeMeeting.Results.OPEN:
-        messages.error(request, "This meeting's results were already submitted.")
+    if m.minutes_status == CommitteeMeeting.Minutes.APPROVED:
+        messages.error(request, "These minutes were already approved, so the entries are locked.")
         return redirect("committee_meeting", pk=pk)
-    m.attendees, m.notes = request.POST.get("attendees", "").strip(), request.POST.get("notes", "").strip()
+    P = request.POST
+    m.attendees, m.notes = P.get("attendees", "").strip(), P.get("notes", "").strip()
+    m.members_absent, m.guests = P.get("members_absent", "").strip(), P.get("guests", "").strip()
+    m.called_to_order, m.adjourned = _parse_time(P.get("called_to_order")), _parse_time(P.get("adjourned"))
     f = request.FILES.get("minutes")
     if f:
         if f.size > MAX_UPLOAD or not f.name.lower().endswith((".pdf", ".doc", ".docx", ".txt", ".png", ".jpg", ".jpeg")):
@@ -739,7 +787,7 @@ def committee_case_record(request, pk):
             return None
     amount = P.get("amount") or None
     _run(request, services.committee_record, v, P.get("outcome", ""), request.user, amount, num("votes_for"), num("votes_against"),
-         P.get("findings", ""), ok=f"Saved decision for {v.owner.property_address}.")
+         P.get("findings", ""), bool(P.get("owner_present")), ok=f"Saved decision for {v.owner.property_address}.")
     return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
 
 
@@ -749,7 +797,7 @@ def committee_submit(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     cases = _run(request, services.submit_meeting_results, m, request.user)
     if cases:
-        messages.success(request, f"Submitted {len(cases)} result(s) to the Board for review.")
+        messages.success(request, f"Submitted {len(cases)} result(s) for administrative review.")
     return redirect("committee_meeting", pk=pk)
 
 

@@ -253,7 +253,7 @@ def refer_to_attorney(v, user=None, note=""):
     """Mark the case as referred to the attorney. A fine imposed but the violation still not corrected is the normal path ('after_fine');
     anything else is a direct referral because of the nature of the violation ('direct'), which bypasses the Board / Committee steps.
     This sends nothing: the email to the attorney is drafted for review (legal_email_draft) and only sent when someone clicks Send."""
-    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.LEDGER_PENDING)])
+    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.LEDGER_PENDING, S.REFERRED_LEGAL)])
     v.legal_path = "after_fine" if v.status == S.FINE_APPROVED else "direct"
     v.status, v.legal_referred_on, v.legal_reason, v.legal_sent_on, v.legal_sent_to = S.REFERRED_LEGAL, date.today(), (note or "").strip(), None, ""
     v.save()
@@ -378,7 +378,7 @@ def send_legal_email(v, to, subject, body, keys, user=None, cc=""):
 
 @transaction.atomic
 def put_on_hold(v, reason, until, user=None):
-    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.ON_HOLD)])
+    _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.ON_HOLD, S.REFERRED_LEGAL)])
     if not reason.strip():
         raise WorkflowError("Give a reason for the hold.")
     if not until or until <= date.today():
@@ -761,7 +761,7 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
 
 
 # ---- Compliance Committee meeting results: the committee works the list, the Board reviews and processes it ----
-def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings=""):
+def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings="", owner_present=False):
     """The committee's decision on one case at its meeting (saved; the case does not move until the meeting's results are submitted).
     A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes."""
     _require(v, S.HEARING_SCHEDULED)
@@ -794,13 +794,14 @@ def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_a
     else:
         v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
     v.committee_findings = findings.strip()
+    v.committee_owner_present = bool(owner_present)
     v.save()
     log(v, f"Committee recorded: {dict(Violation.OUTCOMES)[outcome]}" + (f" (${v.committee_amended_fine})" if outcome == "amend" else ""), user)
 
 
 @transaction.atomic
 def submit_meeting_results(m, user=None):
-    """The committee is done: every case needs a decision. Cases move to 'awaiting Board review'; nothing is imposed yet."""
+    """The committee is done: every case needs a decision. Cases move to administrative review; nothing is imposed yet."""
     if m.results_status != CommitteeMeeting.Results.OPEN:
         raise WorkflowError("These results were already submitted.")
     cases = list(m.violations.filter(status=S.HEARING_SCHEDULED))
@@ -817,7 +818,7 @@ def submit_meeting_results(m, user=None):
             v.fine_amount, v.suspension, v.suspension_days = None, "", None
         v.status = S.LEDGER_PENDING
         v.save()
-        log(v, f"Committee results submitted to the Board for review: {dict(Violation.OUTCOMES)[v.committee_outcome]}", user)
+        log(v, f"Committee results submitted for administrative review: {dict(Violation.OUTCOMES)[v.committee_outcome]}", user)
     m.results_status, m.submitted_at, m.submitted_by = CommitteeMeeting.Results.SUBMITTED, timezone.now(), user
     m.save()
     return cases

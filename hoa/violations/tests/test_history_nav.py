@@ -443,7 +443,7 @@ def test_tracker_marks_bypassed_steps_and_shows_the_legal_stage(db):
     legal = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="referred_legal")
     st = states(legal)
     assert st["Fine issued by Board"] == "skipped" and st["Violation sent to Compliance Committee / Homeowner Hearing"] == "skipped"
-    assert st["Fine Imposed & Posted to Ledger"] == "skipped" and st["Referred to the attorney"] == "current" and st["Closed"] == "todo"
+    assert st["Fine Imposed & Posted to Ledger"] == "skipped" and st["Sent to legal"] == "current" and st["Closed"] == "todo"
     assert st["Notice issued"] == "done" and st["Cure period"] == "done"
     cured = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="cured")
     assert [s["state"] for s in cured.progress] == ["done", "done", "skipped", "skipped", "skipped", "done"]
@@ -482,7 +482,7 @@ def test_staff_steps_have_sub_steps_for_the_current_stage(db):
     subs = {s["key"]: {u["label"]: u["state"] for u in s["subs"]} for s in v.staff_progress}
     assert subs["notice"]["US Mail copy"] == "current"
     assert subs["cure"]["Owner replied"] == "done" and subs["cure"]["Extension granted"] == "done" and subs["cure"]["Re-inspect"] == "current"
-    assert subs["board"]["Waiting for Board vote"] == "todo"
+    assert subs["vote"]["Waiting for the Board vote"] == "todo"
 
 
 def test_reinspect_flag_ages_shows_in_lists_and_resolves(db, client, django_user_model):
@@ -565,7 +565,7 @@ def test_direct_referral_needs_a_reason_and_the_email_says_no_fine(db, client, d
     body = services.legal_email_draft(v)["body"]
     assert "referring it directly" in body and "no fine has been imposed" in body and "Structural hazard" in body and "safety issue" in body
     st = states(v)
-    assert st["Fine issued by Board"] == "skipped" and st["Referred to the attorney"] == "current"
+    assert st["Fine issued by Board"] == "skipped" and st["Sent to legal"] == "current"
     z = client.post(f"/violations/{v.pk}/legal/email/", {"do": "download", "to": "a@b.c", "subject": "s", "body": "b", "att": ["photo-1"]})
     assert z["Content-Type"] == "application/zip"
 
@@ -896,3 +896,83 @@ def test_manager_and_board_have_identical_access(db, client, django_user_model):
         client.force_login(u)
         seen[role] = [client.get(p, follow=True).status_code for p in pages]
     assert seen["manager"] == seen["board"] == [200] * len(pages)
+
+
+def test_sent_to_legal_counts_as_open_and_says_so_in_every_view(db, client, django_user_model):
+    import pytest
+    from datetime import date, timedelta
+    from violations import services
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="Lg O", property_address="33 Legal Way", email="l@example.com")
+    vt = ViolationType.objects.create(name="T33")
+    direct = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="notice_sent")
+    after = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="fine_approved", fine_amount=100,
+                                     fine_due_on=date.today() + timedelta(days=30))
+    services.refer_to_attorney(direct, note="Hazard")
+    services.refer_to_attorney(after)
+    direct.refresh_from_db(); after.refresh_from_db()
+    assert direct.is_open and after.is_open
+    assert direct.get_status_display() == "Sent to legal" and direct.portal_status[0] == "Sent to Legal"
+    assert after.get_status_display() == "Fine imposed — sent to legal" and after.portal_status[0] == "Fine Imposed, Sent to Legal"
+    assert "sent to the Association's attorney" in after.progress[-2]["text"]
+    with pytest.raises(services.WorkflowError):
+        services.put_on_hold(direct, "x", date.today() + timedelta(days=5))               # a case at legal can't be paused
+    u = django_user_model.objects.create_user("own10", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": o})
+    client.force_login(u)
+    page = client.get("/me/violations/").content.decode()
+    assert page.count('class="vcard"') == 2 and "closed-section" not in page            # both legal cases are in the open list, not the closed one
+    assert "Sent to Legal" in page and "Fine Imposed, Sent to Legal" in page
+    assert "Send a message" in client.get(f"/me/{direct.pk}/").content.decode()            # owners can still write
+
+
+def test_staff_see_the_board_vote_and_fine_issued_as_two_steps_owners_see_one(db):
+    from violations.models import Owner, ViolationType, Violation
+    o = Owner.objects.create(name="Sp O", property_address="34 Split Way")
+    vt = ViolationType.objects.create(name="T34")
+    pend = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="pending_board")
+    need = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="hearing_needed", board_meeting_date=__import__("datetime").date.today(), proposed_fine=100)
+    st = lambda v: {s["title"]: s["state"] for s in v.staff_progress}
+    assert st(pend)["Awaiting Board vote"] == "current" and st(pend)["Fine issued by Board"] == "todo"
+    assert st(need)["Awaiting Board vote"] == "done" and st(need)["Fine issued by Board"] == "current"
+    assert len(pend.staff_progress) == 7 and len(pend.progress) == 6
+    assert "Awaiting Board vote" not in [s["title"] for s in pend.progress]
+
+
+def test_committee_minutes_are_written_from_entries_drafted_then_approved_at_the_next_meeting(db, client, django_user_model):
+    from datetime import time, timedelta
+    from django.utils import timezone
+    from violations import minutes, services
+    from violations.models import CommitteeMeeting, Profile
+    m, (a, b), cu = _meeting_with(2, django_user_model)
+    client.force_login(cu)
+    client.post(f"/committee/meetings/{m.pk}/save/", {"attendees": "Ann\nBob\nCy", "members_absent": "Dee", "guests": "Owner of 1 Meeting Way",
+                                                       "called_to_order": "18:05", "adjourned": "19:10", "notes": "Discussed the schedule."})
+    client.post(f"/committee/cases/{a.pk}/record/", {"outcome": "amend", "amount": "60", "votes_for": 3, "votes_against": 0, "findings": "Partly fixed.", "owner_present": "on"})
+    client.post(f"/committee/cases/{b.pk}/record/", {"outcome": "waive", "findings": "Already fixed."})
+    m.refresh_from_db()
+    text = " ".join(p for _, paras in minutes.build(m) for p in paras)
+    assert "6:05 PM" in text and "7:10 PM" in text and "Ann, Bob, Cy" in text and "Committee members absent: Dee" in text
+    assert "The owner or a representative attended" in text and "The owner did not attend" in text
+    assert "confirmed the fine in a changed amount ($60.00), by a vote of 3 to 0" in text and "waived the violation" in text
+    assert "DRAFT" in text and m.minutes_status == "draft"
+    assert minutes.render_pdf(m)[:4] == b"%PDF"
+    assert client.get(f"/committee/meetings/{m.pk}/written-minutes/").status_code == 200
+    assert client.get(f"/committee/meetings/{m.pk}/written-minutes/?pdf=1")["Content-Type"] == "application/pdf"
+    # the next meeting shows them for approval
+    nxt = CommitteeMeeting.objects.create(starts_at=timezone.now() + timedelta(days=30), zoom_link="https://z.us/2")
+    assert "Minutes to approve at this meeting" in client.get(f"/committee/meetings/{nxt.pk}/").content.decode()
+    assert "Minutes waiting for approval" in client.get("/committee/").content.decode()
+    client.post(f"/committee/meetings/{m.pk}/approve-minutes/", {"at": m.pk})            # not at itself
+    m.refresh_from_db(); assert m.minutes_status == "draft"
+    client.post(f"/committee/meetings/{m.pk}/approve-minutes/", {"at": nxt.pk})
+    m.refresh_from_db(); assert m.minutes_status == "approved" and m.minutes_approved_at_id == nxt.pk
+    assert "were approved" in " ".join(p for _, ps in minutes.build(nxt) for p in ps)
+    client.post(f"/committee/meetings/{m.pk}/save/", {"attendees": "Changed"})           # approved minutes are locked
+    m.refresh_from_db(); assert m.attendees.startswith("Ann")
+
+
+def test_administrative_review_wording(db):
+    from violations.models import Violation, CommitteeMeeting
+    assert Violation.Status.LEDGER_PENDING.label == "Committee decided: administrative review"
+    assert Violation.Status.FINE_APPROVED.label == "Fine imposed — awaiting payment / cure"
+    assert CommitteeMeeting.Results.SUBMITTED.label == "Awaiting administrative review"

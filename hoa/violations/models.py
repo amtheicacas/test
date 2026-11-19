@@ -174,12 +174,26 @@ class CommitteeMeeting(models.Model):
     location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
     notes = models.TextField(blank=True)
     attendees = models.TextField(blank=True, help_text="Committee members present.")
-    minutes = models.FileField(upload_to="minutes/", blank=True, help_text="The meeting minutes (PDF or Word).")
+    members_absent = models.TextField(blank=True)
+    guests = models.TextField(blank=True, help_text="Others present (owners, representatives, management).")
+    called_to_order = models.TimeField(null=True, blank=True)
+    adjourned = models.TimeField(null=True, blank=True)
+    minutes = models.FileField(upload_to="minutes/", blank=True, help_text="Optional: minutes uploaded as a file. The app also writes minutes from the entries.")
+
+    class Minutes(models.TextChoices):
+        DRAFT = "draft", "Draft: awaiting approval"
+        APPROVED = "approved", "Approved"
+
+    minutes_status = models.CharField(max_length=10, choices=Minutes.choices, default=Minutes.DRAFT)
+    minutes_approved_on = models.DateField(null=True, blank=True)
+    minutes_approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    minutes_approved_at = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="minutes_approved_here",
+                                            help_text="The later meeting at which these minutes were approved.")
 
     class Results(models.TextChoices):
         OPEN = "open", "Committee working"
-        SUBMITTED = "submitted", "Awaiting Board review"
-        PROCESSED = "processed", "Board reviewed"
+        SUBMITTED = "submitted", "Awaiting administrative review"
+        PROCESSED = "processed", "Reviewed and processed"
 
     results_status = models.CharField(max_length=10, choices=Results.choices, default=Results.OPEN)
     submitted_at = models.DateTimeField(null=True, blank=True)
@@ -211,18 +225,18 @@ class Violation(models.Model):
         HEARING_NEEDED = "hearing_needed", "Board approved — schedule hearing"
         HEARING_SCHEDULED = "hearing_scheduled", "Sent to Compliance Committee"
         ON_HOLD = "on_hold", "On hold"
-        LEDGER_PENDING = "ledger_pending", "Committee decided: awaiting Board review"
+        LEDGER_PENDING = "ledger_pending", "Committee decided: administrative review"
         WAIVED = "waived", "Waived by the Committee (closed)"
-        FINE_APPROVED = "fine_approved", "Imposed by committee — awaiting payment / cure"
+        FINE_APPROVED = "fine_approved", "Fine imposed — awaiting payment / cure"
         FINE_REJECTED = "fine_rejected", "Rejected by committee"
-        REFERRED_LEGAL = "referred_legal", "Referred to attorney"
+        REFERRED_LEGAL = "referred_legal", "Sent to legal"
         CLOSED = "closed", "Closed (cured and paid)"
         CURED = "cured", "Cured"
         DISMISSED = "dismissed", "Dismissed"
 
     OPEN = [Status.DRAFT, Status.NOTICE_SENT, Status.PENDING_BOARD, Status.HEARING_NEEDED,
             Status.HEARING_SCHEDULED, Status.LEDGER_PENDING,
-            Status.FINE_APPROVED, Status.ON_HOLD]
+            Status.FINE_APPROVED, Status.ON_HOLD, Status.REFERRED_LEGAL]
 
     # What the owner portal groups under "Closed": everything that has run its course, including a fine that has been imposed.
     OWNER_CLOSED = [Status.CURED, Status.CLOSED, Status.DISMISSED, Status.FINE_REJECTED, Status.WAIVED, Status.FINE_APPROVED]
@@ -276,6 +290,7 @@ class Violation(models.Model):
     board_review_note = models.TextField(blank=True)
     board_reviewed_on = models.DateField(null=True, blank=True)
     board_modified = models.BooleanField(default=False)
+    committee_owner_present = models.BooleanField(default=False, help_text="The owner or a representative attended the hearing.")
     committee_findings = models.TextField(blank=True, help_text="Brief written findings of fact; quoted in the Notice of committee decision.")
     committee_cure_by = models.DateField(null=True, blank=True, help_text="If the violation is cured by this date, no fine or suspension is imposed.")
     fine_amount = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True, help_text="Imposed amount (set when committee approves).")
@@ -334,7 +349,7 @@ class Violation(models.Model):
         "pending_board": ("Sent to Board for Fine", "orange"),
         "hearing_needed": ("Hearing Being Scheduled", "orange"),
         "hearing_scheduled": ("Sent to Compliance Committee", "red"),
-        "ledger_pending": ("Committee Decision Pending", "red"),
+        "ledger_pending": ("Decision Being Processed", "red"),
         "fine_approved": ("Fine Imposed", "red"),
         "fine_rejected": ("Closed: No Fine", ""),
         "waived": ("Closed: Waived", ""),
@@ -342,7 +357,7 @@ class Violation(models.Model):
         "closed": ("Closed", ""),
         "dismissed": ("Closed: Dismissed", ""),
         "on_hold": ("On Hold", ""),
-        "referred_legal": ("Referred to Association Attorney", "red"),
+        "referred_legal": ("Sent to Legal", "red"),
     }
 
     @property
@@ -350,6 +365,8 @@ class Violation(models.Model):
         """(label, color) for the status pill the owner sees."""
         if self.needs_reinspection:
             return ("Verifying Your Correction", "yellow")
+        if self.status == self.Status.REFERRED_LEGAL and self.legal_path == "after_fine":
+            return ("Fine Imposed, Sent to Legal", "red")
         return self.PORTAL_LABELS.get(self.status, (self.get_status_display(), ""))
 
     @property
@@ -361,6 +378,8 @@ class Violation(models.Model):
         return (date.today() - self.reinspect_on).days if self.reinspect_on else None
 
     def get_status_display(self):
+        if self.status == self.Status.REFERRED_LEGAL and self.legal_path == "after_fine":
+            return "Fine imposed — sent to legal"
         if self.needs_reinspection:
             return "Re-inspect"
         if self.status == self.Status.NOTICE_SENT and self.off_hold_on:

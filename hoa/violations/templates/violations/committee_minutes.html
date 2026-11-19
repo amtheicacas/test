@@ -1,0 +1,5 @@
+{% extends "violations/base.html" %}{% block title %}Minutes{% endblock %}{% block content %}
+<p><a href="{% url 'committee_meeting' m.pk %}">&larr; Back to the meeting</a></p>
+<div class="card"><h1 style="margin-top:0">Compliance Committee minutes</h1><p class="mut" style="margin-top:-6px">{{ m.starts_at|date:"F j, Y" }} &middot; <span class="pill{% if m.minutes_status == 'draft' %} flag{% endif %}">{{ m.get_minutes_status_display }}</span></p>
+{% for head, paras in sections %}<h2 style="margin-top:16px">{{ head }}</h2>{% for p in paras %}<p style="margin:4px 0">{{ p }}</p>{% endfor %}{% endfor %}
+<p style="margin-top:18px"><a class="btn" href="?pdf=1" target="_blank">Download the minutes (PDF)</a></p></div>{% endblock %}

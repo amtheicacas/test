@@ -89,7 +89,7 @@ def stages(v):
         out.append({"key": key, "title": title, "icon": "↷" if state == "skipped" else icon, "state": state,
                     "date": dates[key] if state in ("done", "current") else None, "text": ""})
     if legal:   # referred to the attorney: its own step, just before Closed
-        out.insert(len(out) - 1, {"key": "legal", "title": "Referred to the attorney", "icon": "\u2696", "state": "current",
+        out.insert(len(out) - 1, {"key": "legal", "title": "Sent to legal", "icon": "\u2696", "state": "current",
                                   "date": v.legal_sent_on or v.legal_referred_on, "text": ""})
     cur_stage = next((x for x in out if x["state"] == "current"), None)
     if cur_stage is None and ended:
@@ -123,7 +123,8 @@ def owner_sentence(v):
         return (f"A hearing is set for {_d(v.hearing_date)}. Your hearing notice explains how to attend." if v.hearing_date
                 else "A hearing is being scheduled.") + held
     if st == S.LEDGER_PENDING:
-        return "The Committee has decided your case. The Board is finalizing the decision and you will receive a letter."
+        return ("The Committee has decided your case. The Association's office is completing the administrative review. "
+                "You will receive a letter by certified mail, with a copy by email.")
     if st == S.FINE_APPROVED:
         parts = []
         if v.fine_amount:
@@ -142,7 +143,9 @@ def owner_sentence(v):
     if st == S.DISMISSED:
         return "This violation was dismissed. No further action is needed."
     if st == S.REFERRED_LEGAL:
-        return "This matter has been referred to the Association's attorney."
+        if v.legal_path == "after_fine":
+            return "A fine was imposed and the violation has not been corrected, so this matter has been sent to the Association's attorney."
+        return "This matter has been sent to the Association's attorney."
     return ""
 
 
@@ -198,13 +201,17 @@ def substeps(v):
         elif v.off_hold_on:
             cure.append(_sub("Hold ended", "done", v.off_hold_on))
     out["cure"] = cure
-    # with the Board
+    # Board vote (staff only) and fine issued by the Board
     voted = bool(v.board_meeting_date)
+    out["vote"] = [
+        _sub("Cure period ended", "done" if cur >= 2 else "todo", v.cure_deadline),
+        _sub("Waiting for the Board vote", "current" if st == S.PENDING_BOARD else ("done" if cur > 2 or voted else "todo")),
+        _sub("Board voted", "done" if voted else "todo", v.board_meeting_date),
+    ]
     out["board"] = [
-        _sub("Waiting for Board vote", "current" if st == S.PENDING_BOARD else ("done" if cur > 2 or voted else "todo")),
-        _sub("Board voted", "done" if voted else "todo", v.board_meeting_date,
-             "fine $" + f"{v.proposed_fine:,.2f}" if voted and v.proposed_fine else ""),
-        _sub("Assigned to a committee meeting", "current" if st == S.HEARING_NEEDED else ("done" if v.committee_meeting_id else "todo"),
+        _sub("Fine issued", "done" if voted else "todo", v.board_meeting_date, f"${v.proposed_fine:,.2f}" if voted and v.proposed_fine else ""),
+        _sub("Waiting to be put on a committee meeting", "current" if st == S.HEARING_NEEDED else ("done" if v.committee_meeting_id else "todo")),
+        _sub("Assigned to a committee meeting", "done" if v.committee_meeting_id else "todo",
              v.committee_meeting.starts_at if v.committee_meeting_id else None),
     ]
     # Compliance Committee / hearing
@@ -214,12 +221,12 @@ def substeps(v):
         _sub("Hearing notice sent (certified)", "done" if hearing_notice else "todo", hearing_notice.created_at if hearing_notice else None),
         _sub("Hearing held", "done" if held else "todo", v.hearing_date),
         _sub("Committee decision recorded", "done" if v.committee_outcome else "todo", None, v.get_committee_outcome_display() if v.committee_outcome else ""),
-        _sub("Meeting results submitted to the Board", "done" if v.committee_outcome and st != S.HEARING_SCHEDULED else "todo"),
+        _sub("Meeting results submitted for administrative review", "done" if v.committee_outcome and st != S.HEARING_SCHEDULED else "todo"),
     ]
     # fine imposed and posted
     ledger_review = st == S.LEDGER_PENDING
     decision = kinds.get("fine")
-    imp = [_sub("Board review of the Committee's decision", "current" if ledger_review else ("done" if v.board_reviewed_on or (cur > 4 and v.committee_outcome) else "todo"),
+    imp = [_sub("Administrative review of the Committee's decision", "current" if ledger_review else ("done" if v.board_reviewed_on or (cur > 4 and v.committee_outcome) else "todo"),
                 v.board_reviewed_on, "modified" if v.board_modified else "")]
     imp.append(_sub("Decision letter sent (certified)", "done" if decision else "todo", decision.created_at if decision else None))
     if v.fine_amount:
@@ -233,16 +240,31 @@ def substeps(v):
     out["closed"] = [_sub("Closed", "done" if ended else "todo", v.cured_on if ended else None, how)]
     if v.status == S.REFERRED_LEGAL:
         out["legal"] = [
-            _sub("Referred to the attorney", "done", v.legal_referred_on, "direct referral" if v.legal_path == "direct" else "after the fine"),
+            _sub("Sent to legal", "done", v.legal_referred_on, "direct referral" if v.legal_path == "direct" else "after the fine was imposed"),
             _sub("Email to the attorney", "done" if v.legal_sent_on else "current", v.legal_sent_on, v.legal_sent_to if v.legal_sent_on else "not sent yet"),
         ]
     return out
 
 
 def staff_stages(v):
-    """stages() with each step's sub-steps attached."""
+    """stages() with each step's sub-steps attached. Owners see one 'Fine issued by Board' step; the Board / Manager see it as two:
+    waiting for the Board's vote, then the fine issued and waiting for a hearing."""
+    S = _status()
     subs = substeps(v)
     steps = stages(v)
     for st_ in steps:
         st_["subs"] = subs.get(st_["key"], [])
+    idx = next(i for i, x in enumerate(steps) if x["key"] == "board")
+    b = steps[idx]
+    st = v.held_from if v.status == S.ON_HOLD and v.held_from else v.status
+    if b["state"] == "current":
+        vote_state = "current" if st == S.PENDING_BOARD else "done"
+        issued_state = "current" if st == S.HEARING_NEEDED else "todo"
+    else:
+        vote_state = issued_state = b["state"]
+    vote = {"key": "vote", "title": "Awaiting Board vote", "icon": "\U0001f5f3", "state": vote_state, "text": "", "subs": subs["vote"],
+            "date": v.cure_deadline if vote_state in ("done", "current") else None}
+    issued = dict(b, title="Fine issued by Board", icon="$" if False else b["icon"], state=issued_state, text="",
+                  date=v.board_meeting_date if issued_state in ("done", "current") else None)
+    steps[idx:idx + 1] = [vote, issued]
     return steps
