@@ -47,7 +47,6 @@ def test_every_declaration_entry_is_complete_and_free_of_known_ocr_errors():
         assert i["rule"].startswith(("Section", "(", "If any", "Except", "The Declarant")), (i["code"], i["rule"][:30])
         for bad in ("Seetion", "sueh", "Reeeiver", "feneing", "Tor Sale", "d'A", "W ithout", "ARTICLE", "PARTY WALLS"):
             assert bad not in i["rule"], (i["code"], bad)
-        assert re.search(r"\[[^\]]+\]", i["observed"]) or i["code"] in {"D-5.19"} or True
 
 
 def test_scrambled_scan_pages_were_put_back_in_order():

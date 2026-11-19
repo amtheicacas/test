@@ -376,7 +376,6 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
     block = o.address_block("tenant") if to_tenant else o.address_block("property" if recipient == "owner_property" else
                                                                          ("mailing" if o.has_separate_mailing else "property"))
     dated = timezone.localtime(notice.created_at).date()
-    ref = f" ({v.vtype.reference})" if v.vtype.reference else ""
     title = notice.get_kind_display()
 
     if notice.kind == K.HEARING:
@@ -393,7 +392,7 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
                         "Owners are responsible for the actions of their tenants and guests.", SMALL))
         if notice.kind == K.EXTENSION:
             s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to "
-                        f"{v.cure_deadline:%B %d, %Y}."))
+                        f"{v.cure_deadline:%B %d, %Y}." if v.cure_deadline else "a new date; please see your portal for the deadline."))
         s += [_respond_line(v)] + _signoff()
     buf = BytesIO()
     SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.9 * inch, rightMargin=0.9 * inch, topMargin=0.55 * inch,

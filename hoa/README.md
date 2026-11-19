@@ -18,10 +18,23 @@ Add **Owners** (or sync them from Vantaca) and **Violation types** in `/admin/`.
 |---|---|---|
 | Manager (Sunstate staff; also superusers) | everything + admin | all actions |
 | Board member | everything | all case actions: board votes, meetings, hold, legal |
-| Compliance Committee | only cases sent to a committee meeting, for those meetings | read the case file (photos, letters, owner messages) and record the hearing vote. No access to other cases, the dashboard, the map or owner contact details |
+| Compliance Committee | cases the Board has voted on (waiting to be scheduled) and the meetings they are assigned to | read the case file (photos, letters, owner messages); on each meeting's page record attendees, notes, minutes and one decision per violation, then submit the results to the Board. No access to other cases, the dashboard, the map or owner contact details |
 | Homeowner | only their own violations | see stage, photos and letters; message the association; upload cure photos |
 
 Create manager, board and committee logins in `/admin/` under Users (add a **Profile** with the role; they then set up two-step login on first sign-in). Homeowner logins are created by invitation (Admin → Owners → *Send portal invitation*), by the Vantaca sync with `--invite`, or by the owner themselves on the *Get access* page.
+
+## Command reference (run from the `hoa` folder; on Windows use `.venv\Scripts\python manage.py ...`)
+| Command | What it does |
+|---|---|
+| `migrate` | Update the database after pulling new code (the `start-site.bat` file does this for you) |
+| `load_standards` | Load or refresh the violation types (Community Standards + CC&Rs). It overwrites those rows, so run it after pulls, not after you hand-edit types |
+| `daily_jobs` | The daily job: releases held mailings and holds, sends reminders, moves expired cure periods to the Board. Schedule it once a day on the live site |
+| `make_login manager\|board\|committee --username x` | Create/reset a staff login for testing |
+| `owner_login --address "7316 Great Egret"` | Give an existing owner a portal login for testing |
+| `make_test_owner --email you@x.com` | Create a throwaway owner that emails you |
+| `seed_demo` | Demo owners, cases and one login per role. Testing only |
+| `backdate_meeting [id]` | Testing only: pretend a committee meeting already happened |
+| `clear_test_data --yes` | Delete all violations and committee meetings (keeps owners, types, logins) |
 
 Configuration is by environment variables: `HOA_NAME`, `MANAGER_*`, `OFFICE_PHONE`, `SITE_URL` (used in links), `SECRET_KEY` and `DJANGO_DEBUG=0` for production, `EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD` for SMTP (without `EMAIL_HOST`, emails print to the console). Run `python manage.py advance_violations` daily from cron; the dashboard and board queue also do it when opened.
 

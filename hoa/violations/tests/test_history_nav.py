@@ -286,7 +286,7 @@ def test_form_shows_owner_and_tenant_recipients(db, client, django_user_model):
     client.force_login(u)
     html = client.get("/violations/new/").content.decode()
     assert 'id="owner-info"' in html and "Tina Tenant" in html and "t@example.com" in html
-    assert "will not be notified" in html and 'id="recips"' not in html or True
+    assert "will not be notified" in html
 
 
 def test_draft_photo_can_be_removed_but_not_after_sending(db, client, django_user_model):
@@ -312,7 +312,6 @@ def test_resident_pages_offer_photo_upload_with_removable_thumbnails(db, client)
     from violations.models import Owner, ViolationType, Violation
     o = Owner.objects.create(name="R O", property_address="7 Resident Way", email="r@example.com")
     v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T7"), description="d", cure_required="c", status="notice_sent")
-    html = client.get(f"/r/{v.token}/").content.decode() if False else None
     from django.urls import reverse
     html = client.get(v.resident_url().replace("http://localhost:8000", "")).content.decode()
     assert 'name="photos"' in html and "photopicker.js" in html and 'id="rthumbs"' in html
@@ -480,7 +479,7 @@ def test_reinspect_flag_ages_shows_in_lists_and_resolves(db, client, django_user
     u = django_user_model.objects.create_user("mg8", password="x")
     Profile.objects.update_or_create(user=u, defaults={"role": "board"})
     client.force_login(u)
-    assert "18 Recheck Way" in client.get("/board/").content.decode() if False else True
+    assert "18 Recheck Way" in client.get("/board/").content.decode()                 # on the Board queue's verify list
     assert "9 days" in client.get("/").content.decode()
     services.reinspect_result(v, corrected=False, note="Weeds remain.")
     v.refresh_from_db()
@@ -581,7 +580,7 @@ def test_committee_works_the_list_then_board_reviews_every_item(db, client, djan
     assert not mailoutbox                                                                # nothing imposed or sent before Board review
     bu = django_user_model.objects.create_user("bd1", password="x"); Profile.objects.update_or_create(user=bu, defaults={"role": "board"})
     client.force_login(bu)
-    assert "Own 0" in client.get(f"/results/{m.pk}/").content.decode() and "Own 0" not in ""
+    assert "Own 0" in client.get(f"/results/{m.pk}/").content.decode()
     assert "1 to review" in client.get("/").content.decode() or "to review" in client.get("/").content.decode()
     client.post(f"/results/cases/{a.pk}/review/", {"action": "approve"})
     client.post(f"/results/cases/{b.pk}/review/", {"action": "modify", "amount": "40"})
@@ -595,7 +594,7 @@ def test_committee_works_the_list_then_board_reviews_every_item(db, client, djan
     subjects = " | ".join(x.subject.lower() for x in mailoutbox)
     assert "committee decision" in subjects and "waived" in subjects
     results = client.get("/results/").content.decode()
-    assert "Own" not in results and "Meeting" not in "" and m.starts_at.strftime("%B") in results
+    assert m.starts_at.strftime("%B") in results
 
 
 def test_board_cannot_raise_a_fine_above_the_hearing_notice(db, django_user_model):

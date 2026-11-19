@@ -361,7 +361,6 @@ class Violation(models.Model):
         """stage_steps() plus an icon and a date for each box: [{label, state, icon, date, note}]."""
         steps = self.stage_steps()
         first = next((n for n in self.notices.all() if n.kind == "violation"), None)
-        legal_ev = self.events.filter(text__icontains="attorney").order_by("-created_at").first()
         dates = {
             0: (first.created_at.date() if first else self.created_at.date(), "Issued"),
             1: (self.cure_deadline, "Cure by"),
