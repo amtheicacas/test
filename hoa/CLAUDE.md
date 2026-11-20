@@ -24,3 +24,6 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Known gotchas
 Cache-backed throttles are cleared per test (`conftest.py`). `Violation.OPEN` includes `referred_legal`; `OWNER_CLOSED` (owner list grouping) is different. `/` routes by role; staff dashboard is `/workspace/`. `load_standards` overwrites violation-type rows.
+
+## Working with the user
+Non-technical Board member on Windows; screenshots and short wording/layout requests, often mid-task. Plain-language instructions with exact commands; say when `migrate` is needed; be candid about untested integrations. Manager = Board. Current position and next steps: `PROJECT_STATUS.md` sections 9, 12 and 13.
