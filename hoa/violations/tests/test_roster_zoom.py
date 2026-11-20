@@ -155,3 +155,13 @@ def test_zoom_needs_a_host_email(zoom_on, settings):
     settings.ZOOM_HOST_EMAIL = ""
     with pytest.raises(services.WorkflowError, match="ZOOM_HOST_EMAIL"):
         services.create_meeting(timezone.now() + timedelta(days=20), create_zoom=True)
+
+
+def test_zoom_meeting_settings_recording_cameras_and_alternative_hosts(zoom_on, settings):
+    settings.ZOOM_ALTERNATIVE_HOSTS = "alt1@example.org, alt2@example.org"
+    calls = []
+    with mock.patch.object(zoom, "_request", side_effect=fake_zoom(calls)):
+        services.create_meeting(timezone.now() + timedelta(days=21), create_zoom=True)
+    s = calls[1][2]["settings"]
+    assert s["auto_recording"] == "cloud" and s["host_video"] is True and s["participant_video"] is True
+    assert s["alternative_hosts"] == "alt1@example.org,alt2@example.org" and s["waiting_room"] is True

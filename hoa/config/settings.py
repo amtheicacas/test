@@ -137,6 +137,11 @@ ZOOM_CLIENT_ID = env("ZOOM_CLIENT_ID", "")
 ZOOM_CLIENT_SECRET = env("ZOOM_CLIENT_SECRET", "")
 ZOOM_HOST_EMAIL = env("ZOOM_HOST_EMAIL", "")       # the Zoom user who hosts (blank = the app's own user)
 ZOOM_MEETING_MINUTES = int(env("ZOOM_MEETING_MINUTES", "120"))
+ZOOM_AUTO_RECORDING = env("ZOOM_AUTO_RECORDING", "cloud")            # cloud, local or none
+ZOOM_ALTERNATIVE_HOSTS = env("ZOOM_ALTERNATIVE_HOSTS", "")          # comma-separated emails of licensed Zoom users who can also start the meeting
+ZOOM_HOST_VIDEO = env("ZOOM_HOST_VIDEO", "1") == "1"                # camera on when the host joins
+ZOOM_PARTICIPANT_VIDEO = env("ZOOM_PARTICIPANT_VIDEO", "1") == "1"  # camera on when participants join
+ZOOM_WAITING_ROOM = env("ZOOM_WAITING_ROOM", "1") == "1"
 ATTORNEY_NAME = env("ATTORNEY_NAME", "")      # the Association's attorney: pre-fills the "send to legal" email draft
 ATTORNEY_EMAIL = env("ATTORNEY_EMAIL", "")
 DECISION_LETTER_DAYS = int(env("DECISION_LETTER_DAYS", "7"))    # the decision letter must go out within this many days of the hearing

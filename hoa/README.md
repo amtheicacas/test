@@ -171,3 +171,6 @@ Committee members change each year. On the roster you can link a member to their
 
 ### Hearing banner for owners
 When an owner has a case assigned to an upcoming committee meeting, their home page opens with a banner ("You have a homeowner hearing in 9 days", with the date, time and days remaining). It opens a page with the Zoom/location details and only that owner's own violations on the agenda. Owners never see anyone else's items, a count of them, or the full agenda.
+
+### Zoom meeting settings
+Set in `local.env` (see `local.env.example`): `ZOOM_AUTO_RECORDING` (cloud/local/none, default cloud), `ZOOM_ALTERNATIVE_HOSTS` (comma-separated emails of licensed Zoom users), `ZOOM_HOST_VIDEO`, `ZOOM_PARTICIPANT_VIDEO`, `ZOOM_WAITING_ROOM`. Meeting chat is not a per-meeting option in Zoom's scheduling API: turn it off in your Zoom account settings (Settings, In Meeting (Basic), Chat), where it can also be locked.

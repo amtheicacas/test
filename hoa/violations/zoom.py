@@ -48,7 +48,12 @@ def create_meeting(topic, starts_at, minutes=None):
     start = timezone.localtime(starts_at) if timezone.is_aware(starts_at) else starts_at
     body = {"topic": topic[:200], "type": 2, "start_time": start.strftime("%Y-%m-%dT%H:%M:%S"), "timezone": settings.TIME_ZONE,
             "duration": int(minutes or settings.ZOOM_MEETING_MINUTES), "agenda": "Compliance Committee homeowner hearings",
-            "settings": {"join_before_host": False, "waiting_room": True, "mute_upon_entry": True, "approval_type": 2}}
+            "settings": {"join_before_host": False, "waiting_room": settings.ZOOM_WAITING_ROOM, "mute_upon_entry": True, "approval_type": 2,
+                         "host_video": settings.ZOOM_HOST_VIDEO, "participant_video": settings.ZOOM_PARTICIPANT_VIDEO,
+                         "auto_recording": settings.ZOOM_AUTO_RECORDING if settings.ZOOM_AUTO_RECORDING in ("cloud", "local", "none") else "none"}}
+    alts = ",".join(x.strip() for x in settings.ZOOM_ALTERNATIVE_HOSTS.split(",") if x.strip())
+    if alts:
+        body["settings"]["alternative_hosts"] = alts
     host = settings.ZOOM_HOST_EMAIL
     if not host:   # a Server-to-Server app is not a person, so Zoom needs to be told whose meeting this is
         raise ZoomError("Set ZOOM_HOST_EMAIL to the email of the Zoom user who hosts the hearings.")
