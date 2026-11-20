@@ -184,3 +184,7 @@ Add the `site-visits/` prefix (committee drive-through photographs) next to `sen
 
 ## Addendum: `minutes/` is part of the file backups
 Uploaded minutes (PDF/.docx) live under `minutes/`; keep that prefix in the nightly file copy next to `sent-letters/` and `site-visits/`. Older versions of replaced minutes are kept on purpose and must be backed up too.
+
+
+## Addendum: the file copy is built (`backup_files`)
+Replaces the `rclone copy` idea for files: `python manage.py backup_files` copies every uploaded file from the live bucket to the backup bucket, never overwrites or deletes, verifies each new copy by fingerprint, and checks that every file the database refers to is in the backup. Run it nightly as a Render cron job (after the database dump) with `BACKUP_HEARTBEAT_URL` set. Quarterly restore test is unchanged (restore one saved letter and compare its SHA-256).

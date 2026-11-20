@@ -187,3 +187,7 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [x] Live bucket `heron-landing-files` created private + encrypted; restricted key (no deleteFiles) passes `check_storage` (first real run).
 - [ ] In the B2 console confirm "show all versions" lists the earlier version of a file the key "deleted" (proves the delete-marker behaviour).
 - [ ] Master application key regenerated and not stored anywhere; `local.live.env` removed from the PC once the key is in the host's secret settings.
+
+- [ ] `backup_files` run for real from the PC (dry run first); R2 shows the same folders; a second run copies nothing.
+- [ ] `backup_files` scheduled nightly on the host with its own R2 token and `BACKUP_HEARTBEAT_URL`; a deliberately failed run produces an alert.
+- [ ] The R2 backup token is NOT the same as any other key and is not available to the website process.

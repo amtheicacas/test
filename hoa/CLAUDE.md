@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 573 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 594 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -30,6 +30,9 @@ Committee members, Board and manager add notes and photos per case (committee me
 
 ## Uploaded minutes (SEC-15, done)
 `minutesfiles.py` + add-only `MinutesFile` (migration 0042). Only PDF and Word `.docx`, judged by CONTENT (pypdf parse; zip structure; refuses macros, embedded objects, PDFs with /JavaScript or /Launch, zip bombs); old `.doc`, text and pictures are refused. Stored under a random name (`minutes/<year>/<token>.<ext>`), uploader's file name kept as display text only. Uploading again adds a new row (`replaces` = previous) and never deletes the old file; the meeting page lists the history. Download = `meeting_minutes` view only (committee/Board/manager), always as an attachment with a fixed type, no-store, fingerprint re-checked (409 on mismatch). `CommitteeMeeting.minutes` (old FileField) is no longer written; files uploaded before this are still offered, as a download only. Retention default is now 7 years (`ARCHIVE_RETENTION_YEARS`).
+
+## File backup (copy only)
+`backups.py` + `manage.py backup_files` (`backup-files.bat` on the PC): copies every file in the live storage (Backblaze B2) to the backup bucket (Cloudflare R2) using the `BACKUP_*` settings (its own key; the website never has it). COPY ONLY: no code path deletes or overwrites in the backup (a same-name different-size file is a CONFLICT and left alone); every new copy is read back and fingerprint-checked; then it checks that every file name the database refers to (any FileField of any model) is in the backup; exits with an error if anything is wrong; optional `BACKUP_HEARTBEAT_URL` is pinged only after full success; `--dry-run`, `--verify`. `storage-check/` test files are skipped. The encrypted database dump is NOT built yet.
 
 ## Naming
 This app is called the **My Heron Landing Application** (`settings.APP_NAME` = "My Heron Landing Application"; in a sentence "the {APP_NAME}"; use the setting, never hard-code it, in templates, emails and letters). **"Homeowner Portal" is Vantaca's site** (governing documents live there): never use "portal" for this app in owner-facing text. The header shows the name with the association name beneath it.

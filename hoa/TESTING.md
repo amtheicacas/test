@@ -67,3 +67,8 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] Upload a second file: it becomes current, and the first appears under "Earlier uploads" and still downloads.
 - [ ] The file downloads (it does not open as a web page); a homeowner login cannot open the address.
 - [ ] Former owners page says records are kept 7 years.
+
+## File backup (copy only)
+- [ ] `backup-files.bat --dry-run` lists what it would copy and writes nothing.
+- [ ] `backup-files.bat` copies; a second run says everything is already in the backup.
+- [ ] In the Cloudflare R2 bucket the same folders (`photos/`, `minutes/`, ...) appear; delete nothing there by hand.

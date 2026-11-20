@@ -264,6 +264,13 @@ SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 # offer it. Set SUSPENSION_ENABLED=1 to bring it back (nothing is deleted from the database either way).
 SUSPENSION_ENABLED = env("SUSPENSION_ENABLED", "0") == "1"
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))
+# The second copy of the files (Cloudflare R2): written ONLY by `manage.py backup_files`, never by the website. Its own key.
+BACKUP_BUCKET = env("BACKUP_BUCKET", "")
+BACKUP_ENDPOINT_URL = env("BACKUP_ENDPOINT_URL", "")
+BACKUP_REGION = env("BACKUP_REGION", "auto")
+BACKUP_ACCESS_KEY_ID = env("BACKUP_ACCESS_KEY_ID", "")
+BACKUP_SECRET_ACCESS_KEY = env("BACKUP_SECRET_ACCESS_KEY", "")
+BACKUP_HEARTBEAT_URL = env("BACKUP_HEARTBEAT_URL", "")      # optional: a monitor address pinged only after a fully successful run
 
 # ---- Refuse to start a live site with unsafe settings -------------------------
 if PRODUCTION:
