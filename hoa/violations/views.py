@@ -560,7 +560,7 @@ def site_visit_photo(request, pk):
         return HttpResponse("This photograph could not be read from storage.", status=404, content_type="text/plain")
     if hashlib.sha256(data).hexdigest() != p.sha256:
         return HttpResponse("This photograph no longer matches its fingerprint, so it may have been changed.", status=409, content_type="text/plain")
-    sitevisits.log_access(request.user, v, sitevisits.A.PHOTO, request, observation=p.observation, photo=p)
+    sitevisits.log_photo_open(request.user, p, request)
     return uploads.file_response(p.file, f"site-visit-{p.observation_id}-{p.pk}", private=True, data=data)
 
 

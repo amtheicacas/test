@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.conf import settings
 
 from . import accounts
-from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, SentLetter, Violation, ViolationType
+from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, SentLetter, SiteVisitAccess, SiteVisitObservation, SiteVisitPhoto, Violation, ViolationType
 
 
 @admin.action(description=f"Send {settings.APP_NAME} invitation (creates homeowner login)")
@@ -79,3 +79,32 @@ class SentLetterAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class _LookOnly(admin.ModelAdmin):
+    """Saved evidence: look only. Nobody can add, change or delete a row here."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SiteVisitObservation)
+class SiteVisitObservationAdmin(_LookOnly):
+    list_display = ["violation", "author_name", "author_role", "created_at", "corrects"]
+
+
+@admin.register(SiteVisitPhoto)
+class SiteVisitPhotoAdmin(_LookOnly):
+    list_display = ["observation", "created_at", "size", "sha256"]
+
+
+@admin.register(SiteVisitAccess)
+class SiteVisitAccessAdmin(_LookOnly):
+    list_display = ["violation", "user_name", "role", "action", "at", "detail"]
+    list_filter = ["action"]

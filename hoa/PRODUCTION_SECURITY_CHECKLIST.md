@@ -167,3 +167,5 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] Upload test in staging: send a test notice, open its saved copy, redeploy, open it again (fingerprint must still match).
 - [ ] `SUSPENSION_ENABLED` is not set (suspension is hidden).
 - [ ] The saved-letters prefix is in the nightly file copy to the second vendor.
+
+- [ ] Site-visit observations: after the first staging deploy, add one with a photo, redeploy, open the photo again (fingerprint must still match); confirm an owner login sees nothing about it anywhere; confirm `site-visits/` is in the nightly file copy.

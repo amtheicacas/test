@@ -43,6 +43,9 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - Verify the CC&R text (it was read from a scan) and which document wins where it conflicts with the Community Standards.
 
 ## 6. Added since the first checklist (please test)
+- [ ] **Site-visit observations:** sign in as a committee member, open a meeting that has a case. Under the case, "Site-visit observations": write a note and add one or two photos (on a phone, take them with the camera), Save. It shows who, when, and a short fingerprint. Add a correction to it: the original stays. There is no edit or delete anywhere.
+- [ ] As the owner of that case (owner login): nothing about site visits appears on any of your pages. As a committee member who owns the case: the section says you can't see it.
+- [ ] As Board/manager: the case page shows the same section; "Download the case file (zip)" now has a `Site-Visit-Observations` folder (notes, photos, photo list with fingerprints, who looked) and a `manifest.csv`.
 - [ ] **Saved letters:** send a notice (the first notice of a test case). On the case page, "Exact copies of letters sent" lists it; click "Open the exact copy": it is the same PDF that was emailed. Try the "Download the case file (zip)" button: unzip it and open `00-INDEX.html`. The case history shows "Case file downloaded".
 - [ ] **Hearing notice attachment:** send a case to a hearing. The hearing notice PDF ends with a page titled "ATTACHMENT - Copy of Notice of Violation" followed by the exact first notice. The Second Notice is not attached.
 - [ ] **Suspension:** no screen (Board vote, committee pages, case pages, owner pages, dashboard) mentions suspension.

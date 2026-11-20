@@ -64,6 +64,16 @@ def log_view(user, v, request):
     log_access(user, v, A.VIEWED, request)
 
 
+def log_photo_open(user, p, request):
+    """Record that `user` opened photograph `p`: once per person per photo per 10 minutes (a page with ten thumbnails is one visit, not ten)."""
+    try:
+        if not cache.add(f"sv-photo:{user.pk}:{p.pk}", 1, 600):
+            return
+    except Exception:       # noqa: BLE001
+        pass
+    log_access(user, p.observation.violation, A.PHOTO, request, observation=p.observation, photo=p)
+
+
 def panel(user, v, request, back="meeting"):
     """What a page needs to show the observations of case `v` to `user`: {'allowed', 'items', 'count', 'back', 'why'}. Records the view."""
     why = blocked_reason(user, v)

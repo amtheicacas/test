@@ -174,3 +174,9 @@ where the last Vantaca owner export is kept.
 
 ## Addendum (Part A): what the file backups must now include
 `sent-letters/` (the exact PDF of every letter sent) is added to the uploads that must be backed up (photos, minutes). Treat it as the most important file area: it is the proof of what each owner was sent. Quarterly restore test: pick one saved letter from the database, restore it from the backup copy, and check that its SHA-256 equals the fingerprint on the case page / in the case-file manifest.
+
+
+---
+
+## Addendum: `site-visits/` is part of the file backups
+Add the `site-visits/` prefix (committee drive-through photographs) next to `sent-letters/`, photos and minutes. In the quarterly restore test, open one site-visit photograph from the restored copy and compare its SHA-256 with the fingerprint in the case file's `Site-Visit-Observations/photos-manifest.csv`.

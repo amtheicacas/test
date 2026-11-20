@@ -169,6 +169,33 @@ def build_case_file(v, user, site_visits=True):
     files[f"{root}/history/case-history.csv"] = _csv(["When", "Who", "What happened"], [[_when(e.created_at), _who(e.user) if e.user else "", e.text] for e in evs])
     index.append(("Change history", "history/case-history.csv", "", f"{len(evs)} recorded step(s), including this download"))
 
+    # ---- site-visit observations (internal: committee, Board and manager only) ---------------------------------------------------------
+    SV, SEC = "Site-Visit-Observations", "Site-Visit Observations (internal)"
+    if site_visits:
+        obs_rows, photo_rows = [], []
+        for ob in v.site_visits.select_related("corrects").prefetch_related("photos"):
+            obs_rows.append([ob.pk, _when(ob.created_at), ob.author_name, ob.author_role, ob.corrects_id or "", ob.comment, ob.photos.count()])
+            for n, p in enumerate(ob.photos.all(), 1):
+                path = f"{SV}/photos/observation-{ob.pk}-photo-{n}.{p.file.name.rsplit('.', 1)[-1].lower() if '.' in p.file.name else 'jpg'}"
+                try:
+                    data = p.read_bytes()
+                except Exception as e:      # noqa: BLE001
+                    index.append((SEC, "(photo could not be read)", _when(p.created_at), f"observation #{ob.pk}: {e}"))
+                    continue
+                ok = hashlib.sha256(data).hexdigest() == p.sha256
+                add(SEC, path, data, _when(ob.created_at), f"Photo from observation #{ob.pk} by {ob.author_name}"
+                    + (f" (taken {_when(p.taken_at)})" if p.taken_at else "") + f" - fingerprint {'matches' if ok else 'DOES NOT MATCH'}")
+                photo_rows.append([ob.pk, path, p.original_name, _when(p.taken_at), _when(p.created_at), p.size, p.sha256, "yes" if ok else "NO"])
+        add(SEC, f"{SV}/observations.csv", _csv(["Observation", "Submitted", "By", "Role", "Corrects observation", "Comment", "Photos"], obs_rows), "",
+            f"{len(obs_rows)} observation(s): internal notes, not committee findings")
+        add(SEC, f"{SV}/photos-manifest.csv", _csv(["Observation", "File", "Original file name", "Taken (from the picture)", "Submitted", "Bytes",
+                                                    "SHA-256 fingerprint", "File matches fingerprint"], photo_rows), "", f"{len(photo_rows)} photographs with fingerprints")
+        add(SEC, f"{SV}/access-history.csv", _csv(["When", "Who", "Role", "What", "Observation", "Detail", "From address"],
+            [[_when(a.at), a.user_name, a.role, a.get_action_display(), a.observation_id or "", a.detail, a.ip_address] for a in v.site_visit_access.all()]),
+            "", "Who looked at, added to, opened a photograph from, or exported the observations")
+    else:
+        index.append((SEC, "(not included)", "", "Not included in this download: you may not see site-visit observations on this case."))
+
     # ---- index page -----------------------------------------------------------------------------------------------------------------
     by_section = {}
     for sec, path, when, what in index:
@@ -186,7 +213,10 @@ def build_case_file(v, user, site_visits=True):
         parts.append("<h2 class='w'>Letters with no exact copy on file</h2><p>These were sent before exact copies were kept.</p><ul>"
                      + "".join(f"<li>{escape(x)}</li>" for x in missing_copy) + "</ul>")
     parts.append("<p>The fingerprint (SHA-256) of each letter is in letters/letters-manifest.csv: it proves the file has not changed since it was sent.</p>")
+    parts.append("<p>manifest.csv lists every file in this download with its size and SHA-256 fingerprint.</p>")
     files[f"{root}/00-INDEX.html"] = "".join(parts).encode("utf-8")
+    files[f"{root}/manifest.csv"] = _csv(["File", "Bytes", "SHA-256 fingerprint"],
+                                         [[p.split("/", 1)[1], len(d), hashlib.sha256(d).hexdigest()] for p, d in sorted(files.items())])
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:

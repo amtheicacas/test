@@ -7,3 +7,6 @@ os.environ.setdefault("SUSPENSION_ENABLED", "1")     # the older tests exercise 
 os.environ.setdefault("HOA_ENV_FILE", "no-local-env-file-while-testing")   # never read the developer's own local.env
 
 from .settings import *  # noqa: E402,F401,F403
+
+# Tests create many logins; the real (deliberately slow) password hasher would make the suite crawl. The live site never uses this file.
+PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

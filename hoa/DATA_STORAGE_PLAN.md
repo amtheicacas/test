@@ -180,3 +180,9 @@ and as the owner. Then confirm the object exists in the bucket and that the app 
 - The app never deletes a saved letter (no page does, the admin is read-only). Deleting a violation through the admin (or `clear_test_data`, `purge_archived_owners`) still removes the database rows, not the files in the bucket.
 - The vendor is still undecided: the settings are vendor-neutral (S3 API). The recommended pairing in section 3 stands (Backblaze B2 live + Cloudflare R2 copy).
 - A live site now refuses to start without `STORAGE_BUCKET` or `MEDIA_ROOT` (a persistent disk path), so files can never silently land on a disk that is wiped at every update.
+
+
+---
+
+## Addendum: site-visit photographs
+New private files under `site-visits/<year>/<random>.<ext>` (same storage as photos, minutes and `sent-letters/`). They are the ORIGINAL uploaded bytes (never re-encoded), with a SHA-256 fingerprint in the database; the app re-checks it whenever one is opened and in the case-file manifest. Internal evidence: include `site-visits/` in the nightly file copy and bucket versioning; never public, never served to owners.
