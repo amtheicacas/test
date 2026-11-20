@@ -183,3 +183,7 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 
 - [ ] Minutes uploads: after the first staging deploy upload a PDF and a .docx, redeploy, download both again (fingerprint must still match); confirm `minutes/` is in the nightly file copy; confirm a homeowner login cannot open the download address.
 - [ ] `ARCHIVE_RETENTION_YEARS` is 7 (the default); nothing is purged by hand before then.
+
+- [x] Live bucket `heron-landing-files` created private + encrypted; restricted key (no deleteFiles) passes `check_storage` (first real run).
+- [ ] In the B2 console confirm "show all versions" lists the earlier version of a file the key "deleted" (proves the delete-marker behaviour).
+- [ ] Master application key regenerated and not stored anywhere; `local.live.env` removed from the PC once the key is in the host's secret settings.
