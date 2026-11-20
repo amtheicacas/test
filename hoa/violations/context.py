@@ -31,7 +31,7 @@ def _staff_counts():
 def hoa(request):
     role = accounts.role_of(request.user)
     o = accounts.owner_of(request.user)
-    ctx = {"SUSPENSION_ENABLED": settings.SUSPENSION_ENABLED, "APP_NAME": settings.APP_NAME, "HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role, "HOA_DOCUMENTS_URL": settings.HOA_DOCUMENTS_URL,
+    ctx = {"STAGING": settings.STAGING, "SUSPENSION_ENABLED": settings.SUSPENSION_ENABLED, "APP_NAME": settings.APP_NAME, "HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role, "HOA_DOCUMENTS_URL": settings.HOA_DOCUMENTS_URL,
            "IS_OWNER": o is not None}
     # NAVMODE: which menu to show. An owner who is also on the committee or Board sees the owner menu on their own pages (/me/...) and the
     # committee or Board menu elsewhere, with a link between the two.

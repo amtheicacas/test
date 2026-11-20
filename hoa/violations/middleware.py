@@ -37,3 +37,25 @@ class NoStorePrivatePages:
         if request.user.is_authenticated and not request.path.startswith("/static/") and "Cache-Control" not in response:
             response["Cache-Control"] = "no-store, private"
         return response
+
+
+class HealthCheck:
+    """/healthz for the host's health check: answers "ok" if the website is running and can reach its database, 503 otherwise. It sits FIRST
+    so it works whatever address or protocol the host's checker uses (it never looks at the Host header or redirects to https), and it
+    reveals nothing but one word."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if request.path in ("/healthz", "/healthz/"):
+            from django.db import connection
+            from django.http import HttpResponse
+            try:
+                with connection.cursor() as c:
+                    c.execute("SELECT 1")
+                    c.fetchone()
+            except Exception:       # noqa: BLE001
+                return HttpResponse("database unavailable", status=503, content_type="text/plain")
+            return HttpResponse("ok", content_type="text/plain", headers={"Cache-Control": "no-store"})
+        return self.get_response(request)

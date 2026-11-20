@@ -1,5 +1,5 @@
 {% load static %}<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="{% static 'violations/heron-landing-logo.png' %}">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><link rel="icon" href="{% static 'violations/heron-landing-logo.png' %}">
 <title>{% block title %}Violations{% endblock %} · {{ APP_NAME }}</title>
 <style>
 :root{--btn:#2563c9;--bg:#f4f4f5;--card:#fff;--ink:#0b0b0c;--mut:#5f6368;--line:#d1d2d4;--acc:#111113;--acc-ink:#fff;--bad:#b42318;--ok:#067647;--warn:#b54708}
@@ -55,7 +55,7 @@ details.x{}
 ol.steps li small{display:block;font-size:.7rem;margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
 details summary{cursor:pointer;text-decoration:underline}
 @media(max-width:600px){th{display:none}header .brand small{display:none}header .brand .appname{font-size:.95rem}}
-</style></head><body>
+</style></head><body>{% if STAGING %}<div style="background:#b42318;color:#fff;text-align:center;padding:6px 10px;font-weight:700">STAGING SITE: test data only. Nothing here is real, and no email or letter leaves this site.</div>{% endif %}
 <header><a class="brand" href="/"><img src="{% static 'violations/heron-landing-logo.png' %}" alt="Heron Landing"><span class="brandname"><span class="appname">{{ APP_NAME }}</span><small>{{ HOA_NAME }}</small></span></a>
 {% if user.is_authenticated %}
 {% if NAVMODE == "owner" %}<span style="font-weight:600" title="Signed in as {{ RESIDENT_NAME }}">Welcome, {{ RESIDENT_NAME }}</span><a class="nav" href="{% url 'my_home' %}"><span>Home</span><small>&nbsp;</small></a><a class="nav" href="{% url 'my_violations' %}"><span>Violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{{ HOA_DOCUMENTS_URL }}" target="_blank" rel="noopener">HOA Documents</a><a href="{% url 'my_household' %}">Account</a>{% if ROLE == "manager" or ROLE == "board" %}<a class="newbtn" style="background:#6d4fc2" href="{% url 'dashboard' %}">Board / Manager workspace &rarr;</a>{% elif ROLE == "committee" %}<a class="newbtn" style="background:#6d4fc2" href="{% url 'committee_home' %}">Committee &rarr;</a>{% endif %}

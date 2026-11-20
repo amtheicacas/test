@@ -215,3 +215,9 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] The map page loads without any request to cdnjs (browser network tab); tiles still come from the tile server.
 - [ ] Ask AI: leave `ANTHROPIC_API_KEY` blank unless wanted; `AI_DAILY_LIMIT` is 50 a day for the team.
 - [ ] Audit log has no `signin.ambiguous_email` entries (if it does, fix the duplicate address in Vantaca).
+
+
+## Addendum (staging)
+- [ ] `RENDER_STAGING.md` followed: staging uses its own database, its own SECRET_KEY, the TEST bucket/key, `STAGING=1`, `EMAIL_TO_LOG=1`, no integration keys, no real owner data.
+- [ ] `/healthz` shows `ok`; the Render health check path is `/healthz`.
+- [ ] Production must NOT set `STAGING` or `EMAIL_TO_LOG` (the site refuses `EMAIL_TO_LOG` without `STAGING`, and a live site without `EMAIL_HOST` refuses to start).

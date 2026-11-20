@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "violations",
 ]
 MIDDLEWARE = [
+    "violations.middleware.HealthCheck",
     "django.middleware.security.SecurityMiddleware",
     *([] if DEBUG else ["whitenoise.middleware.WhiteNoiseMiddleware"]),     # serves the site's own CSS/JS/images on a live host
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -140,7 +141,15 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 
 # Email: console by default so nothing is sent until SMTP is configured.
-if env("EMAIL_HOST"):
+# A STAGING site is a live-style site used only for testing with fake data. It shows a banner on every page, and may print its emails in
+# the host's log (EMAIL_TO_LOG=1) instead of sending them, so nothing real can leave it. EMAIL_TO_LOG is refused on a site that is not STAGING.
+STAGING = env("STAGING", "0") == "1"
+EMAIL_TO_LOG = env("EMAIL_TO_LOG", "0") == "1"
+if EMAIL_TO_LOG and not STAGING:
+    raise ImproperlyConfigured("EMAIL_TO_LOG=1 is only allowed on a staging site (set STAGING=1). A real site must send its emails.")
+if EMAIL_TO_LOG:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+elif env("EMAIL_HOST"):
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = env("EMAIL_HOST")
     EMAIL_USE_SSL = env("EMAIL_USE_SSL", "0") == "1"                       # port 465 style; the default is STARTTLS on port 587
@@ -290,7 +299,7 @@ BACKUP_PUBLIC_KEY = env("BACKUP_PUBLIC_KEY", "")            # the age PUBLIC key
 if PRODUCTION:
     _problems = deploy.production_problems(
         secret_key=SECRET_KEY, allowed_hosts=ALLOWED_HOSTS, site_url=SITE_URL, database_url=env("DATABASE_URL", ""),
-        email_host=env("EMAIL_HOST", ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES,
+        email_host=env("EMAIL_HOST", "") or ("(printed in the log: staging)" if EMAIL_TO_LOG else ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES,
         file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")), vantaca_url=env("VANTACA_BASE_URL", ""))
     if _problems:
         raise ImproperlyConfigured(deploy.explain(_problems))

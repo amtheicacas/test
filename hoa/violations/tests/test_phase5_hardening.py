@@ -294,3 +294,61 @@ def test_changing_a_login_to_an_address_that_two_households_list_is_refused(w):
     Owner.objects.create(name="D", property_address="4 D Way", email="dup@example.com")
     with pytest.raises(accounts.AccountError, match="different household"):
         accounts.change_signin_email(w.home.profile, "dup@example.com", w.manager, "r")
+
+
+# ================= Render staging support =================
+def test_the_health_check_answers_ok_for_any_host_without_redirecting(client, settings):
+    settings.SECURE_SSL_REDIRECT = True
+    r = client.get("/healthz", HTTP_HOST="10.0.0.7:10000")
+    assert r.status_code == 200 and r.content == b"ok" and r["Cache-Control"] == "no-store"
+    assert client.get("/healthz/", HTTP_HOST="evil.example.net").status_code == 200
+
+
+def test_the_health_check_says_503_when_the_database_is_down(client):
+    from django.db.backends.base.base import BaseDatabaseWrapper
+    with mock.patch.object(BaseDatabaseWrapper, "cursor", side_effect=OSError("db down")):
+        r = client.get("/healthz")
+    assert r.status_code == 503 and b"database" in r.content
+
+
+def test_the_health_check_needs_no_login_and_shows_nothing_else(client):
+    assert client.get("/healthz").content == b"ok"
+
+
+LIVE = {"DJANGO_DEBUG": "0", "SECRET_KEY": "k" * 50, "ALLOWED_HOSTS": "staging.example.com", "SITE_URL": "https://staging.example.com",
+        "DATABASE_URL": "postgres://u:p@localhost/db", "DEFAULT_FROM_EMAIL": "violations@heronlanding.org", "STORAGE_BUCKET": "b"}
+
+
+def test_a_live_site_without_email_is_still_refused():
+    r = settings_run({**LIVE}, "from django.conf import settings as s; print(s.STAGING)")
+    assert r.returncode != 0 and "EMAIL_HOST" in r.stderr
+
+
+def test_a_staging_site_may_print_its_emails_in_the_log_instead():
+    r = settings_run({**LIVE, "STAGING": "1", "EMAIL_TO_LOG": "1"}, "from django.conf import settings as s; print(s.STAGING, s.EMAIL_BACKEND)")
+    assert r.returncode == 0 and r.stdout.split() == ["True", "django.core.mail.backends.console.EmailBackend"], r.stderr
+
+
+def test_printing_emails_in_the_log_is_refused_on_a_site_that_is_not_staging():
+    r = settings_run({**LIVE, "EMAIL_TO_LOG": "1"}, "from django.conf import settings as s; print(s.EMAIL_BACKEND)")
+    assert r.returncode != 0 and "only allowed on a staging site" in r.stderr
+
+
+def test_a_staging_site_shows_a_banner_and_every_page_asks_not_to_be_indexed(client, w, settings):
+    client.force_login(w.manager)
+    assert "STAGING SITE" not in client.get("/workspace/").content.decode()
+    settings.STAGING = True
+    page = client.get("/workspace/").content.decode()
+    assert "STAGING SITE: test data only" in page and 'name="robots" content="noindex,nofollow"' in page
+
+
+def test_the_staging_test_owner_file_imports_and_is_clearly_fake(w):
+    text = (HOA_DIR / "staging-test-owners.csv").read_text(encoding="utf-8")
+    result = vantaca.sync_csv(text)
+    assert result["created"] == 6
+    assert set(Owner.objects.filter(external_id__startswith="TEST").values_list("email", flat=True)) == {f"test.owner{i}@example.com" for i in range(1, 7)}
+
+
+def test_the_build_script_installs_the_live_requirements_and_gathers_static_files():
+    text = (HOA_DIR / "build.sh").read_text(encoding="utf-8")
+    assert "requirements-production.txt" in text and "collectstatic" in text and "errexit" in text and os.access(HOA_DIR / "build.sh", os.X_OK)
