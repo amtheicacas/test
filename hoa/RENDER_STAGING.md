@@ -28,7 +28,7 @@ New + -> **Web Service** -> the repository `amtheicacas/test`.
 - Root Directory: `hoa`
 - Runtime: Python 3
 - Build Command: `./build.sh`
-- Start Command: `gunicorn config.wsgi:application`
+- Start Command: `gunicorn -c gunicorn.conf.py --access-logfile /dev/null config.wsgi:application`  (the two extra options switch the web-server access log OFF; Render sets its own logging option that would otherwise turn it on and write every sign-in link into the log)
 - Instance type: Starter, same region as the database
 - Health Check Path: `/healthz`
 - Pre-Deploy Command: `python manage.py migrate --no-input` (this runs the database changes before each new version goes live)
@@ -78,3 +78,8 @@ still there; `/healthz` is `ok`; a bad address shows the branded page; `python m
 Scheduled jobs (`daily_jobs`, `backup_files`, `backup_database` as Render cron jobs with a heartbeat), a separate staging backup bucket, a
 `render.yaml` blueprint (so the whole setup can be recreated from one file), Postmark, the real domain, monitoring, and the production
 service. Everything on staging uses test data and the TEST bucket only.
+
+
+## Found on the first real deploy (2026-11-20)
+- The site came up: build, static files, all 43 migrations and the health check passed on the first full attempt once ALLOWED_HOSTS / SITE_URL / CSRF_TRUSTED_ORIGINS were added (the first attempt failed ON PURPOSE, only for those two).
+- The web-server access log was ON in Render's log even though `gunicorn.conf.py` turns it off: Render's own settings override the file. Fixed by putting `--access-logfile /dev/null` in the start command (verified in the sandbox with Render's variable simulated: without the flag the secret in a sign-in address was logged, with it nothing was).

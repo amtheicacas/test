@@ -210,7 +210,7 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 ## Addendum (Phase 5)
 - [ ] `VANTACA_BASE_URL` starts with `https://` (the site refuses to start otherwise).
 - [ ] Email: `EMAIL_TIMEOUT` left at 10 (or lower); `EMAIL_USE_SSL=1` only if the provider needs port 465; sign-in mail is sent in the background by default on the live site.
-- [ ] Run gunicorn from the `hoa` folder so `gunicorn.conf.py` is used, and do NOT add `--access-logfile`; check the host's request log setting too (links contain secrets).
+- [ ] Start command is `gunicorn -c gunicorn.conf.py --access-logfile /dev/null config.wsgi:application` (the host overrides the config file, so the flag is required); open the host's Logs tab after visiting a sign-in link and confirm no `GET /accounts/link/...` line appears (links contain secrets).
 - [ ] A custom 404/403/500 page shows (try a bad address and a page you may not open).
 - [ ] The map page loads without any request to cdnjs (browser network tab); tiles still come from the tile server.
 - [ ] Ask AI: leave `ANTHROPIC_API_KEY` blank unless wanted; `AI_DAILY_LIMIT` is 50 a day for the team.
