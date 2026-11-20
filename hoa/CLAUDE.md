@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 713 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 836 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -56,3 +56,6 @@ Cache-backed throttles are cleared per test (`conftest.py`). `Violation.OPEN` in
 
 ## Working with the user
 Non-technical Board member on Windows; screenshots and short wording/layout requests, often mid-task. Plain-language instructions with exact commands; say when `migrate` is needed; be candid about untested integrations. Manager = Board. Current position and next steps: `PROJECT_STATUS.md` sections 9, 12 and 13.
+
+## Stabilisation pass (read `REVIEW_REPORT.md`)
+Fixed with tests: the old committee vote page now enforces abstention (F-01a); `next` redirects are validated (`views._safe_next`, F-02); `services._require` re-reads and locks the case so a double click cannot repeat a transition (F-03); `send_notice` builds subject/body before the try (F-04); case-file CSV cells that look like formulas get a leading apostrophe (`casefile._safe_cell`, F-07); owner-list upload limited to 10 MB (F-14); `daily_jobs` isolates its steps and ends with an error naming failures (F-15). `test_access_matrix.py` checks every route for every login type and fails when a NEW route is not classified: add new routes to its lists. Open decisions (do not "fix" without asking): the old `committee_vote` route skips the meeting-level review (F-01b); the ledger post is not atomic (F-08); a photo that cannot be read is silently left out of a letter (F-05, pdf.py frozen).
