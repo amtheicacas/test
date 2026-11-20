@@ -30,4 +30,4 @@ class Command(BaseCommand):
         u.save()
         Profile.objects.update_or_create(user=u, defaults={"role": role, "owner": None})
         self.stdout.write(f"Done. {role.capitalize()} login: '{username}' / '{o['password']}'. "
-                          + ("Two-step login is required for this role unless MFA_REQUIRED_ROLES=none is set on your test copy." if role != "board" or True else ""))
+                          + "Two-step login is required for this role unless MFA_REQUIRED_ROLES=none is set on your test copy.")

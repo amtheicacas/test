@@ -120,7 +120,7 @@ def copy_files(storage, target, dry_run=False, verify=False, exclude=EXCLUDE):
     return rep
 
 
-def check_database(rep, target, storage_names=None):
+def check_database(rep, target):
     """Every file the database refers to must now exist in the backup. Fills rep.missing_from_backup."""
     have = set(target.existing())
     rep.missing_from_backup = sorted(n for n in referenced_files() if n not in have)

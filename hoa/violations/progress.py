@@ -264,7 +264,7 @@ def staff_stages(v):
         vote_state = issued_state = b["state"]
     vote = {"key": "vote", "title": "Awaiting Board vote", "icon": "\U0001f5f3", "state": vote_state, "text": "", "subs": subs["vote"],
             "date": v.cure_deadline if vote_state in ("done", "current") else None}
-    issued = dict(b, title="Fine issued by Board", icon="$" if False else b["icon"], state=issued_state, text="",
+    issued = dict(b, title="Fine issued by Board", icon=b["icon"], state=issued_state, text="",
                   date=v.board_meeting_date if issued_state in ("done", "current") else None)
     steps[idx:idx + 1] = [vote, issued]
     return steps
