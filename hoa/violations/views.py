@@ -1253,6 +1253,9 @@ def committee_vote(request, pk):
     v = get_object_or_404(Violation, pk=pk)
     if not can_view(request.user, v):
         raise PermissionDenied
+    if owns(request.user, v) or any(m.user_id == request.user.pk for m in services.conflicted_members(v)):      # same abstention rule as the meeting page
+        messages.error(request, "This is your own violation (or your household's), so you abstain: you can't record the committee's decision on it.")
+        return redirect("committee_case", pk=pk)
     _committee_vote(request, v, forms.CommitteeForm(request.POST))
     return redirect("committee_case", pk=pk)
 
