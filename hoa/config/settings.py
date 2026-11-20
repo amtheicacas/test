@@ -95,11 +95,17 @@ AUTHENTICATION_BACKENDS = ["axes.backends.AxesStandaloneBackend", "django.contri
 AXES_FAILURE_LIMIT = int(env("LOGIN_FAILURE_LIMIT", "5"))      # lock after 5 bad passwords...
 AXES_COOLOFF_TIME = 1                                          # ...for 1 hour
 AXES_LOCKOUT_PARAMETERS = [["ip_address", "username"]]
+AXES_CLIENT_IP_CALLABLE = "violations.throttle.client_ip"      # the visitor's real address, also behind the host's proxy
 AXES_RESET_ON_SUCCESS = True
 # Roles that MUST use an authenticator app (TOTP) after their password. Homeowners may opt in.
 MFA_REQUIRED_ROLES = tuple(r.strip() for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r.strip() and r.strip() != "none")
 OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", "Heron Landing HOA")
 SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600   # staff; owners get 30 days (see signals.py)
+# How many load balancers sit in front of the site (Render: 1). Their X-Forwarded-For entry is the visitor's real address; used by the
+# sign-in limits and the lockout. 0 on your own PC.
+TRUSTED_PROXY_COUNT = int(env("TRUSTED_PROXY_COUNT", "1" if PRODUCTION else "0"))
+if PRODUCTION:       # the counters behind the sign-in limits must be shared by all web workers and survive restarts
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache", "LOCATION": "django_cache"}}
 PASSWORD_RESET_TIMEOUT = 86400
 # (password reset links last one day: PASSWORD_RESET_TIMEOUT above)
 LANGUAGE_CODE = "en-us"

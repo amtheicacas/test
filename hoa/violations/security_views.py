@@ -8,13 +8,20 @@ from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
+from django.contrib.auth.views import PasswordResetView
+from django.http import HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from . import accounts
+import logging
+
+from . import accounts, throttle
+from .models import LoginLink
+
+
+log = logging.getLogger(__name__)
 
 
 class CodeForm(forms.Form):
@@ -77,9 +84,7 @@ class AccessForm(forms.Form):
 
 
 def _throttled(key, limit=3, window=3600):
-    n = cache.get(key, 0)
-    cache.set(key, n + 1, window)
-    return n >= limit
+    return throttle.hit(key, limit, window)
 
 
 def signin_link(request, token):
@@ -89,8 +94,9 @@ def signin_link(request, token):
     if ll is None:
         return render(request, "violations/signin_link_invalid.html", status=410)
     if request.method == "POST":
-        ll.used_at = timezone.now()
-        ll.save(update_fields=["used_at"])
+        # claim the link in one step: if two clicks arrive together only one of them gets to use it
+        if not LoginLink.objects.filter(pk=ll.pk, used_at__isnull=True).update(used_at=timezone.now()):
+            return render(request, "violations/signin_link_invalid.html", status=410)
         auth_login(request, ll.user, backend="django.contrib.auth.backends.ModelBackend")
         return redirect("home_root")
     return render(request, "violations/signin_link_confirm.html", {"who": ll.user.first_name or "your account"})
@@ -103,8 +109,22 @@ def get_access(request):
     done = False
     if request.method == "POST" and form.is_valid():
         email = form.cleaned_data["email"].strip().lower()
-        ip = request.META.get("REMOTE_ADDR", "")
+        ip = throttle.client_ip(request)
         if not (_throttled(f"access:email:{email}") or _throttled(f"access:ip:{ip}", limit=10)):
-            accounts.send_access_link(email, request)  # works for owner, co-owner and tenant emails on file
+            try:
+                accounts.send_access_link(email, request)  # works for owner, co-owner and tenant emails on file
+            except Exception:       # noqa: BLE001  (mail server down): the visitor sees the same page either way, so errors can't reveal who has an account
+                log.exception("sign-in link could not be emailed")
         done = True
     return render(request, "violations/get_access.html", {"form": form, "done": done})
+
+
+class ThrottledPasswordResetView(PasswordResetView):
+    """Django's "forgot your password" page, with a limit on how many reset emails one address (or one visitor) can trigger, so it
+    can't be used to flood someone's inbox. A refused request looks exactly like an accepted one."""
+
+    def form_valid(self, form):
+        email = form.cleaned_data["email"].strip().lower()
+        if _throttled(f"reset:email:{email}") or _throttled(f"reset:ip:{throttle.client_ip(self.request)}", limit=10):
+            return HttpResponseRedirect(self.get_success_url())
+        return super().form_valid(form)

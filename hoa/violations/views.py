@@ -13,12 +13,16 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
+from . import accounts, forms, geocoding, ledger, services, standards_search, throttle, uploads, vantaca
 from .models import Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
 MAX_UPLOAD = 10 * 1024 * 1024
+MAX_PHOTOS_PER_UPLOAD = 10                       # photos accepted in one submission
+MAX_UPLOAD_TOTAL = 40 * 1024 * 1024               # ...and their combined size
+MAX_RESIDENT_PHOTOS_PER_CASE = 30                 # photos an owner (or anyone holding the private link) can add to one case
+RESIDENT_POSTS_PER_HOUR = 10                      # messages from one private link per hour
 STAFF = ("manager", "board")
 COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL, S.WAIVED)
 
@@ -75,17 +79,6 @@ def can_view(user, v):
     return False
 
 
-def _is_image(f):
-    from PIL import Image
-    try:
-        Image.open(f).verify()
-        return True
-    except Exception:
-        return False
-    finally:
-        f.seek(0)
-
-
 def _taken_at(f):
     """When the photo was taken, from EXIF (DateTimeOriginal), or None."""
     from datetime import datetime
@@ -100,16 +93,37 @@ def _taken_at(f):
         f.seek(0)
 
 
-def _save_photos(v, files, from_resident=False):
-    n = 0
+def _save_photos(v, files, from_resident=False, rejected=None):
+    """Save the uploaded pictures; returns how many were kept. The stored type is the picture's real type (never the typed file name).
+    Anything not kept is added to `rejected` as (file name, reason) so the person is told."""
+    rejected = rejected if rejected is not None else []
+    n = total = 0
+    room = MAX_RESIDENT_PHOTOS_PER_CASE - v.photos.filter(from_resident=True).count() if from_resident else None
     for f in files:
-        if f.size > MAX_UPLOAD or not _is_image(f):
-            continue
-        p = Photo(violation=v, from_resident=from_resident, taken_at=_taken_at(f))
-        p.image.save(f.name, f, save=False)
-        p.save()
-        n += 1
+        if n >= MAX_PHOTOS_PER_UPLOAD:
+            rejected.append((f.name, f"only {MAX_PHOTOS_PER_UPLOAD} photos can be added at a time"))
+        elif room is not None and n >= room:
+            rejected.append((f.name, "this case already has the most photos allowed"))
+        elif f.size > MAX_UPLOAD:
+            rejected.append((f.name, f"larger than {MAX_UPLOAD // (1024 * 1024)} MB"))
+        elif total + f.size > MAX_UPLOAD_TOTAL:
+            rejected.append((f.name, "too much to send at once; add the rest separately"))
+        elif not (ext := uploads.image_ext(f)):
+            rejected.append((f.name, "not a JPG, PNG, GIF or WebP picture"))
+        else:
+            p = Photo(violation=v, from_resident=from_resident, taken_at=_taken_at(f))
+            p.image.save(f"photo.{ext}", f, save=False)
+            p.save()
+            n += 1
+            total += f.size
     return n
+
+
+def _report_rejected(request, rejected):
+    if rejected:
+        shown = "; ".join(f"{name} ({why})" for name, why in rejected[:4])
+        more = f"; and {len(rejected) - 4} more" if len(rejected) > 4 else ""
+        messages.warning(request, f"{len(rejected)} file(s) were not added: {shown}{more}.")
 
 
 def _run(request, fn, *a, ok=None, **kw):
@@ -355,7 +369,9 @@ def violation_create(request):
         if timing != "draft":
             v.issuance_timing = timing
         v.save()
-        n = _save_photos(v, request.FILES.getlist("photos"))
+        bad = []
+        n = _save_photos(v, request.FILES.getlist("photos"), rejected=bad)
+        _report_rejected(request, bad)
         services.log(v, f"Violation recorded with {n} photo(s)", request.user)
         if timing != "draft":
             held = timing == "standard"
@@ -497,9 +513,11 @@ def violation_action(request, pk, action):
     v = get_object_or_404(Violation, pk=pk)
     u, P = request.user, request.POST
     if action == "add_photos":
-        n = _save_photos(v, request.FILES.getlist("photos"))
+        bad = []
+        n = _save_photos(v, request.FILES.getlist("photos"), rejected=bad)
         services.log(v, f"{n} photo(s) added", u)
         messages.success(request, f"{n} photo(s) added.")
+        _report_rejected(request, bad)
     elif action == "delete_photo":
         _run(request, services.delete_photo, v, get_object_or_404(Photo, pk=P.get("photo"), violation=v), u, ok="Photo removed.")
     elif action == "send_notice":
@@ -1116,7 +1134,7 @@ def photo_file(request, pk):
     p = get_object_or_404(Photo.objects.select_related("violation"), pk=pk)
     if not can_view(request.user, p.violation):
         raise PermissionDenied
-    return FileResponse(p.image.open("rb"))
+    return uploads.photo_response(p)
 
 
 # ---------- homeowner portal (login) ----------
@@ -1129,10 +1147,12 @@ def _handle_owner_post(request, v, form):
                           extension_requested=d["request_extension"],
                           extension_days=d["extension_days"] if d["request_extension"] else None,
                           cure_reported=d["cure_reported"])
-    n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True)
+    bad = []
+    n = _save_photos(v, request.FILES.getlist("photos"), from_resident=True, rejected=bad)
     if n:
         services.log(v, f"Owner uploaded {n} photo(s)")
     messages.success(request, "Thank you — your message has been sent to the association.")
+    _report_rejected(request, bad)
 
 
 def _owner_updates(vs):
@@ -1271,15 +1291,26 @@ def resident(request, token):
     if v.status not in TOKEN_STAGES:  # board/committee stage and beyond: require a real login
         return render(request, "violations/resident_locked.html", {"v": v})
     form = forms.ResidentForm(request.POST or None)
+    status = 200
     if request.method == "POST" and form.is_valid():
-        _handle_owner_post(request, v, form)
-        return redirect("resident", token=token)
-    return render(request, "violations/resident.html", {"v": v, "form": form})
+        # anyone holding this link can post, so the number of posts is limited (per link, and per visitor address)
+        if throttle.hit(f"resident:{v.pk}", RESIDENT_POSTS_PER_HOUR) or throttle.hit(f"resident-ip:{throttle.client_ip(request)}", 30):
+            messages.error(request, "You have sent several messages in a short time. Please wait a while and try again; "
+                                    "what you typed is still in the box. For anything urgent, contact the association directly.")
+            status = 429
+        else:
+            _handle_owner_post(request, v, form)
+            return redirect("resident", token=token)
+    resp = render(request, "violations/resident.html", {"v": v, "form": form}, status=status)
+    resp["Referrer-Policy"] = "no-referrer"       # the private address is never passed on to other sites
+    return resp
 
 
 def resident_photo(request, token, pk):
     p = get_object_or_404(Photo, pk=pk, violation__token=token, violation__status__in=TOKEN_STAGES)
-    return FileResponse(p.image.open("rb"))
+    resp = uploads.photo_response(p)
+    resp["Referrer-Policy"] = "no-referrer"
+    return resp
 
 
 # ---------- map ----------

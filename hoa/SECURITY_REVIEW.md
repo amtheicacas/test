@@ -260,3 +260,4 @@ keep "tests also pass on PostgreSQL" true.
 | Date | Phase | Items | Status |
 |---|---|---|---|
 | 2026-11-20 | 1 — Safe defaults | SEC-02 (fail-closed settings), SEC-04 (Event.text + field sizes + import fit), SEC-08 (DATABASE_URL, production requirements, static files), SEC-13 (test-only command guards) | **Done.** 425 tests pass on SQLite and PostgreSQL 16; live-style gunicorn run checked. Not yet run on Render. |
+| 2026-11-20 | 2 — XSS and sign-in | SEC-01 (photo type + serving), SEC-03 (real visitor address, shared counters), SEC-11 (link lifecycle), SEC-12 (private-link limits), SEC-20 (SITE_URL links), SEC-21 (password-reset limit); also mail-failure no longer reveals accounts | **Done.** 450 tests pass on SQLite and PostgreSQL 16; live-style gunicorn run checked. Not yet run on Render. Confirm `X-Forwarded-For` behaviour on Render in staging (`TRUSTED_PROXY_COUNT`). |

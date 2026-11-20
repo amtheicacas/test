@@ -1,3 +1,4 @@
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 
 from violations import accounts, services
@@ -14,3 +15,5 @@ class Command(BaseCommand):
         self.stdout.write(f"{services.send_hold_reminders()} hold-ending reminder(s) sent.")
         self.stdout.write(f"{services.send_cure_reminders()} reminder(s) sent.")
         self.stdout.write(f"{services.advance_expired()} violation(s) referred to the board.")
+        self.stdout.write(f"{accounts.purge_old_links()} old sign-in link(s) cleared.")
+        call_command("clearsessions")        # signed-out and expired sessions

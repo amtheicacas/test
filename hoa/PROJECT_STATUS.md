@@ -112,3 +112,13 @@ Phase 1 (SEC-02, SEC-04, SEC-08, SEC-13) is built and tested on SQLite and Postg
 - Tests use `config/test_settings.py` (pytest.ini); `HOA_ENV_FILE` can point the local.env loader at another file.
 - Rehearsed with gunicorn + PostgreSQL in the sandbox: https redirect, static files, HSTS, secure cookies, bad Host refused. Not run on Render itself.
 NEXT: Phase 2 (SEC-01 photo extension/XSS, SEC-03 proxy IP + shared cache, SEC-11 link lifecycle, SEC-12 private-link limits, SEC-20, SEC-21), then Phase 3 storage. Awaiting the user's go-ahead for each phase.
+
+
+## 15. Hosting hardening, Phase 2 DONE
+SEC-01, SEC-03, SEC-11, SEC-12, SEC-20, SEC-21 (plus: a mail-server failure on the sign-in page now looks identical to an unknown address). 450 tests, also green on PostgreSQL 16.
+- Photos: stored extension comes from Pillow's detected type (`violations/uploads.py`); served with a fixed image type, `inline`, CSP `default-src 'none'; sandbox`; old files with other extensions are download-only. At most 10 photos / 40 MB per submission and 30 owner photos per case; rejected files are reported to the person (`_save_photos(..., rejected=[])`).
+- `/r/<token>/`: 10 posts/hour per link and 30/hour per visitor address (429 keeps the typed text); `Referrer-Policy: no-referrer`.
+- `violations/throttle.py`: `client_ip` (uses `TRUSTED_PROXY_COUNT`, default 1 live / 0 on a PC; the proxy's X-Forwarded-For entry, never the visitor-supplied ones) and `hit`. django-axes uses the same helper (`AXES_CLIENT_IP_CALLABLE`). Live site keeps counters in the database cache; migration 0039 creates the table, so a plain `migrate` is enough.
+- Sign-in links: asking again cancels earlier links; one-step claim so two clicks sign in once; `accounts.revoke_links` (for the email-change work in Phase 4); `daily_jobs` clears old links and runs `clearsessions`. Live-site link addresses always come from `SITE_URL`.
+- Password reset: `ThrottledPasswordResetView` (3 per address, 10 per visitor per hour; refused requests look identical).
+NEXT: Phase 3 (private object storage, SEC-06 / SEC-15; needs the user's storage choice), Phase 4 (email-change action, account audit log, admin restrictions, 2FA gaps, session hygiene).

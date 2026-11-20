@@ -13,8 +13,8 @@ from django.urls import reverse
 
 
 def photo_path(instance, filename):
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-    return f"photos/{secrets.token_hex(16)}.{ext}"
+    from .uploads import safe_ext        # the name the uploader typed is never trusted: only picture extensions are kept
+    return f"photos/{secrets.token_hex(16)}.{safe_ext(filename)}"
 
 
 def split_emails(text):

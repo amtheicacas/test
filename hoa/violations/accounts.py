@@ -46,12 +46,25 @@ def link_user(token):
     return ll
 
 
+def revoke_links(user):
+    """Cancel every sign-in link this person has not used yet (a new link was sent, or their email address changed). Returns how many."""
+    return LoginLink.objects.filter(user=user, used_at__isnull=True).update(used_at=timezone.now())
+
+
+def purge_old_links(days=2):
+    """Delete sign-in links that are long dead (they only work for 15 minutes). Returns how many."""
+    return LoginLink.objects.filter(created_at__lt=timezone.now() - timedelta(days=days)).delete()[0]
+
+
 def send_signin_link(user, request=None):
-    """Email the owner a one-time sign-in link (works with or without an HTTP request, e.g. from the Vantaca sync)."""
+    """Email the owner a one-time sign-in link (works with or without an HTTP request, e.g. from the Vantaca sync).
+    Only the newest link works: asking again cancels any earlier one."""
+    revoke_links(user)
     token = secrets.token_urlsafe(32)
     LoginLink.objects.create(user=user, token_hash=_hash(token))
     path = reverse("signin_link", args=[token])
-    url = request.build_absolute_uri(path) if request is not None else settings.SITE_URL + path
+    # On the live site the address in the email always comes from SITE_URL, never from the address the request arrived on.
+    url = request.build_absolute_uri(path) if (request is not None and not settings.PRODUCTION) else settings.SITE_URL + path
     name = user.first_name or "there"
     EmailMessage(f"Your sign-in link for {settings.HOA_NAME}",
                  f"Hello {name},\n\nClick this link to sign in to the {settings.HOA_NAME} owner portal:\n\n{url}\n\n"

@@ -43,6 +43,8 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - Verify the CC&R text (it was read from a scan) and which document wins where it conflicts with the Community Standards.
 
 ## 6. Added since the first checklist (please test)
+- [ ] **Photo limits:** on a case, add a text file as a "photo": a yellow message names it and says why; add 12 pictures at once: 10 are kept and the message says so.
+- [ ] **Sign-in links:** ask for a link twice; only the newest works.
 - [ ] **Roster:** Committee members page: pick members from the owner list; they get the committee role on their own owner login; copy the roster to next year.
 - [ ] **Meetings:** schedule with "Create the Zoom meeting for me"; try <20 days (pop-up); repeat monthly; assign ticked waiting cases to a picked meeting; open a meeting to reschedule / cancel.
 - [ ] **Committee page:** tick attendance; own-violation abstention; decisions; minutes (draft), approve at the next meeting.
