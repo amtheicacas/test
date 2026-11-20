@@ -243,3 +243,27 @@ def test_a_normal_owner_list_still_uploads(client):
     ok = SimpleUploadedFile("owners.csv", b"Homeowner ID,Account Number,Homeowner(s),Address,Email\nH1,A1,Pat,1 A St,p@example.com\n", content_type="text/csv")
     r = client.post("/import/", {"action": "upload", "file": ok})
     assert r.status_code == 200 and "import" in client.session
+
+
+# ---------- F-15: one failing daily step must not stop the others ----------
+def test_a_failing_daily_step_does_not_stop_the_rest_and_the_job_still_ends_with_an_error():
+    from io import StringIO
+    from unittest import mock
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    from violations import services
+    out = StringIO()
+    with mock.patch.object(services, "send_due_mailings", side_effect=RuntimeError("provider exploded")), \
+         mock.patch.object(services, "advance_expired", return_value=3) as later:
+        with pytest.raises(CommandError, match="send_due_mailings"):
+            call_command("daily_jobs", stdout=out)
+    assert later.called, "the steps after the failing one were skipped"
+    assert "3 violation(s) referred to the board" in out.getvalue() and "FAILED" in out.getvalue()
+
+
+def test_when_every_daily_step_works_the_job_ends_quietly_as_before():
+    from io import StringIO
+    from django.core.management import call_command
+    out = StringIO()
+    call_command("daily_jobs", stdout=out)
+    assert "Committee logins" in out.getvalue() and "FAILED" not in out.getvalue()

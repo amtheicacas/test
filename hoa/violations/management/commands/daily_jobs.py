@@ -1,19 +1,31 @@
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from violations import accounts, services
 
 
 class Command(BaseCommand):
-    help = "Run once a day: refer expired cure periods to the board and send deadline reminders."
+    help = ("Run once a day: refer expired cure periods to the board and send deadline reminders. Every step runs even if an earlier one "
+            "fails; if any step failed the job ends with an error (so a scheduler alerts) after the others have been done.")
 
     def handle(self, *a, **kw):
-        on, off = accounts.sync_committee_logins()
-        self.stdout.write(f"Committee logins: {on} switched on, {off} switched off (they follow the yearly roster).")
-        self.stdout.write(f"{services.refresh_mail_tracking()} certified letter(s) had tracking updates.")
-        self.stdout.write(f"{services.send_due_mailings()} held mailing(s) sent to the mail provider.")
-        self.stdout.write(f"{services.send_hold_reminders()} hold-ending reminder(s) sent.")
-        self.stdout.write(f"{services.send_cure_reminders()} reminder(s) sent.")
-        self.stdout.write(f"{services.advance_expired()} violation(s) referred to the board.")
-        self.stdout.write(f"{accounts.purge_old_links()} old sign-in link(s) cleared.")
-        call_command("clearsessions")        # signed-out and expired sessions
+        failed = []
+
+        def step(name, fn, line):
+            try:
+                self.stdout.write(line(fn()))
+            except Exception as e:      # noqa: BLE001  (one bad record must not stop the other daily jobs)
+                failed.append(name)
+                self.stdout.write(self.style.ERROR(f"FAILED {name}: {type(e).__name__}: {e}"))
+
+        step("sync_committee_logins", accounts.sync_committee_logins,
+             lambda r: f"Committee logins: {r[0]} switched on, {r[1]} switched off (they follow the yearly roster).")
+        step("refresh_mail_tracking", lambda: services.refresh_mail_tracking(), lambda n: f"{n} certified letter(s) had tracking updates.")
+        step("send_due_mailings", lambda: services.send_due_mailings(), lambda n: f"{n} held mailing(s) sent to the mail provider.")
+        step("send_hold_reminders", lambda: services.send_hold_reminders(), lambda n: f"{n} hold-ending reminder(s) sent.")
+        step("send_cure_reminders", lambda: services.send_cure_reminders(), lambda n: f"{n} reminder(s) sent.")
+        step("advance_expired", lambda: services.advance_expired(), lambda n: f"{n} violation(s) referred to the board.")
+        step("purge_old_links", accounts.purge_old_links, lambda n: f"{n} old sign-in link(s) cleared.")
+        step("clearsessions", lambda: call_command("clearsessions"), lambda _: "Signed-out and expired sessions cleared.")   # signed-out and expired sessions
+        if failed:
+            raise CommandError("These daily steps failed: " + ", ".join(failed) + ". The others were done.")
