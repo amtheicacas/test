@@ -20,6 +20,7 @@ from .pdf import render_notice_pdf
 
 S = Violation.Status
 MAX_UPLOAD = uploads.MAX_UPLOAD
+MAX_IMPORT_BYTES = 10 * 1024 * 1024                         # the owner-list upload (a real list is a few hundred KB)
 MAX_PHOTOS_PER_UPLOAD = uploads.MAX_PHOTOS_PER_UPLOAD       # photos accepted in one submission
 MAX_UPLOAD_TOTAL = uploads.MAX_UPLOAD_TOTAL                 # ...and their combined size
 MAX_RESIDENT_PHOTOS_PER_CASE = 30                 # photos an owner (or anyone holding the private link) can add to one case
@@ -1556,6 +1557,9 @@ def import_owners(request):
             if not form.is_valid():
                 return render(request, "violations/import.html", ctx)
             f = request.FILES["file"]
+            if f.size > MAX_IMPORT_BYTES:
+                form.add_error("file", "That file is too large (the limit is 10 MB). An owner list is normally well under 1 MB: check it is the right file.")
+                return render(request, "violations/import.html", ctx)
             try:
                 rows = vantaca.rows_from_upload(f.read(), f.name)
             except vantaca.UploadError as e:

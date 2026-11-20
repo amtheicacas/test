@@ -223,3 +223,23 @@ def test_the_sync_command_refuses_a_partial_feed_unless_forced(tmp_path):
     assert Owner.objects.filter(active=True).count() == 10
     call_command("sync_vantaca", "--csv", str(f), "--deactivate-missing", "--force", stdout=StringIO())
     assert Owner.objects.filter(active=True).count() == 1
+
+
+# ---------- F-14: the owner-list upload had no size limit ----------
+def test_an_oversized_owner_list_is_refused_with_a_message_and_not_read_into_memory(client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    boss = mk("boss", "board")
+    client.force_login(boss)
+    big = SimpleUploadedFile("owners.csv", b"Homeowner ID,Address\n" + b"H1,1 A St\n" * (1024 * 1024), content_type="text/csv")     # about 10.5 MB
+    r = client.post("/import/", {"action": "upload", "file": big})
+    assert r.status_code == 200 and "too large" in r.content.decode().lower()
+    assert "import" not in client.session
+
+
+def test_a_normal_owner_list_still_uploads(client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    boss = mk("boss", "board")
+    client.force_login(boss)
+    ok = SimpleUploadedFile("owners.csv", b"Homeowner ID,Account Number,Homeowner(s),Address,Email\nH1,A1,Pat,1 A St,p@example.com\n", content_type="text/csv")
+    r = client.post("/import/", {"action": "upload", "file": ok})
+    assert r.status_code == 200 and "import" in client.session
