@@ -100,3 +100,15 @@ Completed in the last session: one-login for owners who are committee/Board memb
 **User and working style:** a non-technical Board member who runs the app on a Windows PC (`start-site.bat`), pastes screenshots, and sends many small wording/layout requests, sometimes mid-task: acknowledge each, apply it, add a test, push. Explain steps in plain language with exact clicks and copy-paste commands (for them: `git pull`, `python manage.py migrate`, restart `start-site.bat`). Say which updates need `migrate`. Treat manager and board as one group. Be honest about what is untested (integrations, browser views). Ask before sending anything outward or changing legal wording; flag legal questions for the attorney.
 **Open questions awaiting the user:** per-day fine counting vs flat; keep/remove/reword the "respond at [link]" line on letters 1 and 3; hosting provider and email service; owner import/admin access is now open to board (can be turned off with `STAFF_ADMIN_ACCESS=0`); decision date for the speed chart is the hearing date (confirm); whether "imposed fine = closed" for owners stays.
 **Sanity checks on resume:** `git status` clean; `git log --oneline | head -3` shows `60851b2` (or later); run the test suite before and after any change.
+
+
+## 14. Hosting hardening, Phase 1 DONE (appended after the security review)
+Plan and findings: `SECURITY_REVIEW.md` (SEC-01..28), `DATA_STORAGE_PLAN.md`, `BACKUP_AND_RECOVERY.md`, `PRODUCTION_SECURITY_CHECKLIST.md`.
+Phase 1 (SEC-02, SEC-04, SEC-08, SEC-13) is built and tested on SQLite and PostgreSQL 16 (425 tests):
+- `DEBUG` now defaults OFF; `PRODUCTION = not DEBUG`. Live startup checks in `config/deploy.py` (`production_problems`), raised from `settings.py`.
+- `DATABASE_URL` (PostgreSQL) via `deploy.database_from_url`; SQLite stays the PC default. `requirements-production.txt` = gunicorn, whitenoise, psycopg. WhiteNoise + `STATIC_ROOT` only when not DEBUG. HSTS starts at 3600 s (`SECURE_HSTS_SECONDS`).
+- `Event.text` is a `TextField` (migration 0038: run `migrate`). Form fields have `max_length` matching their columns; the Vantaca import fits values to column sizes (long text cut, "Florida" -> FL).
+- Test-only commands (`seed_demo`, `make_test_owner`, `backdate_meeting`, `clear_test_data`) refuse on a live site unless `ALLOW_DEV_COMMANDS=1`; `make_login` / `owner_login` need a real `--password` there (`violations/management/dev_guard.py`).
+- Tests use `config/test_settings.py` (pytest.ini); `HOA_ENV_FILE` can point the local.env loader at another file.
+- Rehearsed with gunicorn + PostgreSQL in the sandbox: https redirect, static files, HSTS, secure cookies, bad Host refused. Not run on Render itself.
+NEXT: Phase 2 (SEC-01 photo extension/XSS, SEC-03 proxy IP + shared cache, SEC-11 link lifecycle, SEC-12 private-link limits, SEC-20, SEC-21), then Phase 3 storage. Awaiting the user's go-ahead for each phase.

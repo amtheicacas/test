@@ -19,12 +19,14 @@ def img(label):
     b = io.BytesIO()
     im.save(b, "JPEG")
     return ContentFile(b.getvalue(), "demo.jpg")
+from violations.management import dev_guard
 
 
 class Command(BaseCommand):
     help = "Create demo owners, cases and one login per role (password: demo-password-123). Never run in production."
 
     def handle(self, *a, **kw):
+        dev_guard.test_site_only("seed_demo")
         U = get_user_model()
         homes = [("Pat Owner", "12 Heron Way", 27.3400, -82.5300), ("Sam Lee", "14 Heron Way", 27.3402, -82.5294),
                  ("Ana Ruiz", "16 Heron Way", 27.3404, -82.5288), ("Kim Park", "18 Heron Way", 27.3406, -82.5282),

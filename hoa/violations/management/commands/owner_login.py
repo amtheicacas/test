@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from violations.models import Owner, Profile
+from violations.management import dev_guard
 
 
 class Command(BaseCommand):
@@ -14,6 +15,7 @@ class Command(BaseCommand):
         p.add_argument("--password", default="demo-password-123")
 
     def handle(self, *a, **o):
+        dev_guard.real_password(o["password"])
         found = list(Owner.objects.filter(property_address__icontains=o["address"], active=True))
         if not found:
             raise CommandError(f'No active owner matches "{o["address"]}".')

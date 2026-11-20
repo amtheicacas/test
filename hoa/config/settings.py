@@ -1,14 +1,18 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
+from . import deploy
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def _load_local_env():
+def _load_local_env(path=None):
     """Read KEY=VALUE lines from hoa/local.env (never saved to GitHub) into the environment, so passwords and keys such as the Zoom,
     email and Lob settings can live in one private file instead of being typed into a terminal. Real environment variables win."""
-    f = BASE_DIR / "local.env"
-    if not f.exists():
+    f = Path(path) if path else BASE_DIR / "local.env"
+    if not f.is_file():
         return
     for line in f.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
@@ -17,18 +21,20 @@ def _load_local_env():
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-_load_local_env()
+# HOA_ENV_FILE can name a different file (or one that does not exist, to read none); the tests use that.
+_load_local_env(os.environ.get("HOA_ENV_FILE"))
 
 
 def env(name, default=None):
     return os.environ.get(name, default)
 
 
-DEBUG = env("DJANGO_DEBUG", "1") == "1"
-SECRET_KEY = env("SECRET_KEY") or ("dev-only-insecure-key" if DEBUG else None)
-if not SECRET_KEY:
-    raise RuntimeError("Set SECRET_KEY when DJANGO_DEBUG=0")
-ALLOWED_HOSTS = env("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",")
+# A live site is the default. Debug (your own PC) must be asked for: start-site.bat sets DJANGO_DEBUG=1, and a line
+# DJANGO_DEBUG=1 in hoa/local.env does the same for commands run in a terminal.
+DEBUG = env("DJANGO_DEBUG", "0") == "1"
+PRODUCTION = not DEBUG      # fixed when the settings load, so tests and commands can tell a live site from a test one
+SECRET_KEY = env("SECRET_KEY") or (deploy.DEV_SECRET if DEBUG else "")
+ALLOWED_HOSTS = [h.strip() for h in env("ALLOWED_HOSTS", "localhost,127.0.0.1,testserver" if DEBUG else "").split(",") if h.strip()]
 CSRF_TRUSTED_ORIGINS = [o for o in env("CSRF_TRUSTED_ORIGINS", "").split(",") if o]
 
 INSTALLED_APPS = [
@@ -45,6 +51,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    *([] if DEBUG else ["whitenoise.middleware.WhiteNoiseMiddleware"]),     # serves the site's own CSS/JS/images on a live host
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -68,7 +75,14 @@ TEMPLATES = [{
     ]},
 }]
 WSGI_APPLICATION = "config.wsgi.application"
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
+if env("DATABASE_URL"):     # the live PostgreSQL database (a secret set on the host; never in GitHub)
+    try:
+        DATABASES = {"default": deploy.database_from_url(env("DATABASE_URL"), int(env("DB_CONN_MAX_AGE", "60")),
+                                                         env("DATABASE_SSL_REQUIRE", "0") == "1")}
+    except ValueError as e:
+        raise ImproperlyConfigured(str(e)) from None
+else:                       # your own PC
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": BASE_DIR / "db.sqlite3"}}
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
@@ -83,7 +97,7 @@ AXES_COOLOFF_TIME = 1                                          # ...for 1 hour
 AXES_LOCKOUT_PARAMETERS = [["ip_address", "username"]]
 AXES_RESET_ON_SUCCESS = True
 # Roles that MUST use an authenticator app (TOTP) after their password. Homeowners may opt in.
-MFA_REQUIRED_ROLES = tuple(r for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r)
+MFA_REQUIRED_ROLES = tuple(r.strip() for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r.strip() and r.strip() != "none")
 OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", "Heron Landing HOA")
 SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600   # staff; owners get 30 days (see signals.py)
 PASSWORD_RESET_TIMEOUT = 86400
@@ -93,6 +107,10 @@ TIME_ZONE = "America/New_York"
 USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"      # `collectstatic` gathers the CSS/JS/images here on the live host
+if not DEBUG:
+    STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+                "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"}}
 MEDIA_URL = "media/"
 MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "media")))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -116,8 +134,8 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "violations@example.org")
 if not DEBUG:
     SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", "1") == "1"
     SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")   # behind Azure / a load balancer
-    SECURE_HSTS_SECONDS = 31536000
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")   # the host's load balancer (Render) says the visit was https
+    SECURE_HSTS_SECONDS = int(env("SECURE_HSTS_SECONDS", "3600"))    # start at 1 hour; raise to 31536000 (1 year) once https works everywhere
 
 # ---- HOA configuration --------------------------------------------------
 HOA_NAME = env("HOA_NAME", "Heron Landing Homeowners’ Association, Inc.")
@@ -224,3 +242,11 @@ ARCHIVE_RETENTION_YEARS = int(env("ARCHIVE_RETENTION_YEARS", "3"))   # how long 
 STAFF_ADMIN_ACCESS = env("STAFF_ADMIN_ACCESS", "1") == "1"   # managers and board members get the same access, including the admin screens
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))
+
+# ---- Refuse to start a live site with unsafe settings -------------------------
+if PRODUCTION:
+    _problems = deploy.production_problems(
+        secret_key=SECRET_KEY, allowed_hosts=ALLOWED_HOSTS, site_url=SITE_URL, database_url=env("DATABASE_URL", ""),
+        email_host=env("EMAIL_HOST", ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES)
+    if _problems:
+        raise ImproperlyConfigured(deploy.explain(_problems))

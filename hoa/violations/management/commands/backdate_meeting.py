@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from violations.models import CommitteeMeeting
+from violations.management import dev_guard
 
 
 class Command(BaseCommand):
@@ -14,6 +15,7 @@ class Command(BaseCommand):
         p.add_argument("meeting_id", type=int, nargs="?", help="Meeting id (default: the newest meeting).")
 
     def handle(self, *a, **o):
+        dev_guard.test_site_only("backdate_meeting")
         m = CommitteeMeeting.objects.filter(pk=o["meeting_id"]).first() if o["meeting_id"] else CommitteeMeeting.objects.order_by("-created_at").first()
         if not m:
             raise CommandError("No committee meeting found. Create one under Committee meetings first.")

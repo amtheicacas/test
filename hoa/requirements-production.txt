@@ -1,0 +1,5 @@
+# What the live website (Render) installs. Your own PC only needs requirements.txt.
+-r requirements.txt
+gunicorn>=23.0,<24        # the web server
+whitenoise>=6.7,<7        # serves the site's own CSS/JS/images
+psycopg[binary]>=3.2,<4   # PostgreSQL driver

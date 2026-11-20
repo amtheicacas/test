@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from violations.models import Owner, Profile
+from violations.management import dev_guard
 
 
 class Command(BaseCommand):
@@ -16,6 +17,7 @@ class Command(BaseCommand):
         p.add_argument("--password", default="demo-password-123")
 
     def handle(self, *a, **o):
+        dev_guard.test_site_only("make_test_owner")
         if "@" not in o["email"]:
             raise CommandError("Give a real email address with --email.")
         owner, _ = Owner.objects.update_or_create(

@@ -170,6 +170,31 @@ def normalize(row):
     return d
 
 
+US_STATES = {"alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA", "colorado": "CO", "connecticut": "CT",
+             "delaware": "DE", "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL", "indiana": "IN", "iowa": "IA",
+             "kansas": "KS", "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+             "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV", "new hampshire": "NH",
+             "new jersey": "NJ", "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+             "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
+             "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV", "wisconsin": "WI",
+             "wyoming": "WY", "district of columbia": "DC"}
+
+
+def _fit_columns(owner):
+    """PostgreSQL (unlike SQLite) refuses a value longer than its column, which would stop the whole import. A long value is cut to
+    fit; a state written out in full ("Florida") becomes its two-letter code, and anything else that isn't two letters is left blank."""
+    for f in ("state", "mail_state"):
+        v = (getattr(owner, f) or "").strip()
+        if len(v) > 2:
+            v = US_STATES.get(v.lower().rstrip("."), "")
+        setattr(owner, f, v.upper())
+    for field in owner._meta.concrete_fields:
+        limit = getattr(field, "max_length", None)
+        v = getattr(owner, field.attname, None)
+        if limit and isinstance(v, str) and len(v) > limit:
+            setattr(owner, field.attname, v[:limit])
+
+
 def upsert_owner(row):
     """Returns ('created' | 'updated' | 'skipped', owner_or_None).
     Matched on Homeowner ID, then Account Number, then property address (so hand-entered owners are linked, not duplicated)."""
@@ -209,6 +234,7 @@ def upsert_owner(row):
         owner.external_id = d["external_id"]
     owner.last_synced_at = timezone.now()
     owner.active = True  # present in the feed, so currently an owner
+    _fit_columns(owner)
     owner.save()
     return ("created" if created else "updated"), owner
 

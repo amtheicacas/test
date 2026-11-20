@@ -251,3 +251,12 @@ keep "tests also pass on PostgreSQL" true.
 - P5: full URL × role sweep, no unexpected 200s; two staff-only 500s (SEC-22).
 - P6: disabled account's session → 302; password-reset responses identical for known/unknown; three requests → three valid links.
 - Backup rehearsal: `pg_dump -Fc` → `age` and `gpg` encrypt/decrypt round-trips → `pg_restore` → `migrate --check` clean.
+
+
+---
+
+## 8. Progress log
+
+| Date | Phase | Items | Status |
+|---|---|---|---|
+| 2026-11-20 | 1 — Safe defaults | SEC-02 (fail-closed settings), SEC-04 (Event.text + field sizes + import fit), SEC-08 (DATABASE_URL, production requirements, static files), SEC-13 (test-only command guards) | **Done.** 425 tests pass on SQLite and PostgreSQL 16; live-style gunicorn run checked. Not yet run on Render. |

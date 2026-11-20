@@ -90,7 +90,7 @@ class MailedForm(forms.Form):
     mailed_on = forms.DateField(widget=DateInput, initial=date.today, label="Mailed / delivered on")
     method = forms.ChoiceField(choices=[("first_class", "First-class mail"), ("certified", "Certified, return receipt"),
                                         ("hand", "Hand delivered")], required=False)
-    tracking_number = forms.CharField(required=False)
+    tracking_number = forms.CharField(required=False, max_length=100)
     return_receipt_on = forms.DateField(widget=DateInput, required=False, label="Return receipt back on")
 
 
@@ -121,10 +121,10 @@ class MeetingForm(forms.Form):
     repeat = forms.BooleanField(required=False, label="Repeat every month")
     repeat_months = forms.ChoiceField(required=False, initial="12", choices=[("3", "3 months"), ("6", "6 months"), ("12", "12 months")], label="For")
     zoom_link = forms.URLField(required=False, label="Zoom link", assume_scheme="https")
-    zoom_meeting_id = forms.CharField(required=False, label="Zoom meeting ID")
-    zoom_passcode = forms.CharField(required=False, label="Zoom passcode")
+    zoom_meeting_id = forms.CharField(required=False, label="Zoom meeting ID", max_length=40)
+    zoom_passcode = forms.CharField(required=False, label="Zoom passcode", max_length=40)
     zoom_dial_in = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}), label="Zoom one-tap / dial-in lines (paste from the invitation)")
-    location = forms.CharField(required=False, label="In-person location (optional)")
+    location = forms.CharField(required=False, label="In-person location (optional)", max_length=250)
 
 
 class AssignForm(forms.Form):
@@ -138,7 +138,7 @@ class AssignForm(forms.Form):
 
 
 class HoldForm(forms.Form):
-    reason = forms.CharField(label="Reason for hold")
+    reason = forms.CharField(label="Reason for hold", max_length=300)
     until = forms.DateField(label="On hold until", widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                             help_text="The hold lifts itself on this date and the cure period starts over.")
 

@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from violations.models import Profile
+from violations.management import dev_guard
 
 
 class Command(BaseCommand):
@@ -15,6 +16,7 @@ class Command(BaseCommand):
         p.add_argument("--email", default="")
 
     def handle(self, *a, **o):
+        dev_guard.real_password(o["password"])
         role = o["role"]
         username = o["username"] or f"{role}1"
         U = get_user_model()

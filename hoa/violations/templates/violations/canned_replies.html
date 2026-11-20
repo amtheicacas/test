@@ -8,4 +8,4 @@
 <label>Title</label><input name="title" maxlength="80" value="{{ r.title }}"><label>Reply text</label><textarea name="body" rows="3">{{ r.body }}</textarea>
 <div class="row" style="margin-top:8px;align-items:center"><span class="mut" style="flex:1 1 200px">{% if r.created_by %}Added by {{ r.created_by.get_full_name|default:r.created_by.username }}{% endif %}</span>
 <button name="action" value="update" style="flex:0 0 auto;min-width:0">Save changes</button><button name="action" value="delete" class="bad" style="flex:0 0 auto;min-width:0" onclick="return confirm('Delete this saved reply?')">Delete</button></div></form>
-{% empty %}<div class="card mut">No saved replies yet.</div>{% endfor %}{% endblock %}
+{% empty %}<div class="card mut">No standard responses yet.</div>{% endfor %}{% endblock %}

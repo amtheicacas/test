@@ -7,6 +7,7 @@ if not exist ".venv\Scripts\activate.bat" (
   exit /b 1
 )
 call .venv\Scripts\activate.bat
+set DJANGO_DEBUG=1
 set MFA_REQUIRED_ROLES=none
 echo Updating the database if needed...
 python manage.py migrate

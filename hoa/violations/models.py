@@ -667,7 +667,7 @@ class Reminder(models.Model):
 class Event(models.Model):
     """Audit trail / timeline shown on each violation."""
     violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="events")
-    text = models.CharField(max_length=500)
+    text = models.TextField()      # no length limit: notes typed by staff are quoted here, and PostgreSQL (unlike SQLite) enforces a limit
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 

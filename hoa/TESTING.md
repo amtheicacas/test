@@ -3,6 +3,7 @@
 Everything below runs on your own computer. Start the site with `start-site.bat`, sign in at http://127.0.0.1:8000. Test logins use the password `demo-password-123`.
 
 ## 0. One-time setup
+0. **Once:** add the line `DJANGO_DEBUG=1` to `hoa/local.env` (copy `local.env.example` to `local.env` if you have none). `start-site.bat` already does this, but commands you type yourself (`python manage.py ...`) need it too.
 1. `git pull`, then double-click `start-site.bat` (it runs `migrate`).
 2. `python manage.py load_standards` (violation types, including the weeds ones).
 3. Logins: `make_login board --username board1`, `make_login committee --username committee1`; `owner_login --address "7316 Great Egret"` for the owner. Use a separate browser window for each person.
