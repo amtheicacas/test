@@ -985,13 +985,40 @@ def _owner_updates(vs):
     return updates[:6]
 
 
+def _owner_hearings(owner):
+    """[(meeting, [this owner's violations on its agenda], days_left)] for hearings that haven't happened yet. Only the owner's own cases."""
+    if owner is None:
+        return []
+    cases = (Violation.objects.filter(owner=owner, status=S.HEARING_SCHEDULED, committee_meeting__isnull=False,
+                                      committee_meeting__starts_at__gte=timezone.now() - timedelta(hours=3))
+             .select_related("vtype", "committee_meeting").order_by("committee_meeting__starts_at", "pk"))
+    grouped = {}
+    for v in cases:
+        grouped.setdefault(v.committee_meeting_id, (v.committee_meeting, []))[1].append(v)
+    today = timezone.localdate()
+    return [(m, vs, (timezone.localtime(m.starts_at).date() - today).days) for m, vs in grouped.values()]
+
+
+@homeowner_only
+def my_hearing(request, pk):
+    """The owner's view of one hearing: when and how to attend, and ONLY their own violations on that agenda."""
+    o = accounts.owner_of(request.user)
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    cases = list(Violation.objects.filter(owner=o, committee_meeting=m).exclude(status=S.DRAFT).select_related("vtype").order_by("pk")) if o else []
+    if not cases:
+        raise Http404
+    days = (timezone.localtime(m.starts_at).date() - timezone.localdate()).days
+    return render(request, "violations/me_hearing.html", {"m": m, "cases": cases, "days": days, "past": m.starts_at < timezone.now()})
+
+
 @homeowner_only
 def my_home(request):
     """The owner's front page: a tile for each part of the portal, plus what's new."""
     from . import portal
     o = accounts.owner_of(request.user)
     vs = list(Violation.objects.filter(owner=o).exclude(status=S.DRAFT).select_related("vtype").prefetch_related("notices", "responses")) if o else []
-    return render(request, "violations/me_home.html", {"owner": o, "tiles": portal.owner_tiles(request.user, o), "updates": _owner_updates(vs)})
+    return render(request, "violations/me_home.html", {"owner": o, "tiles": portal.owner_tiles(request.user, o), "updates": _owner_updates(vs),
+                                                       "hearings": _owner_hearings(o)})
 
 
 @homeowner_only

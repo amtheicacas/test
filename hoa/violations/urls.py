@@ -37,6 +37,7 @@ urlpatterns = [
     path("photos/<int:pk>/", views.photo_file, name="photo"),
     path("me/", views.my_home, name="my_home"),
     path("me/violations/", views.my_violations, name="my_violations"),
+    path("me/hearings/<int:pk>/", views.my_hearing, name="my_hearing"),
     path("me/<int:pk>/", views.my_violation, name="my_violation"),
     path("me/<int:pk>/state/", views.my_violation_state, name="my_violation_state"),
     path("security/setup/", security_views.security_setup, name="security_setup"),

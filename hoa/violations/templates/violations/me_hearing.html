@@ -1,0 +1,14 @@
+{% extends "violations/base.html" %}{% block title %}Your hearing{% endblock %}{% block content %}
+<p><a href="{% url 'my_home' %}">&larr; Home</a></p>
+<h1>Your homeowner hearing</h1>
+<div class="card" style="border-color:var(--bad);border-width:2px"><h2 style="margin-bottom:4px">{{ m.starts_at|date:"l, F j, Y" }} at {{ m.starts_at|date:"g:i A" }}</h2>
+<p style="margin:0"><b>{% if past %}This hearing has taken place.{% elif days == 0 %}Today{% elif days == 1 %}Tomorrow{% else %}{{ days }} days remaining{% endif %}</b></p>
+<p class="mut">The Compliance Committee will hear the violation{{ cases|length|pluralize }} listed below. You may attend to respond, present evidence and give written or oral argument. Your hearing notice has the full details.</p>
+{% if m.location %}<p><b>Where:</b> {{ m.location }}</p>{% endif %}
+{% if m.zoom_link %}<p><a class="btn" href="{{ m.zoom_link }}" target="_blank" rel="noopener">Join by Zoom</a></p>
+<p class="mut" style="margin:0">{% if m.zoom_meeting_id %}Meeting ID: {{ m.zoom_meeting_id }}{% endif %}{% if m.zoom_passcode %} &middot; Passcode: {{ m.zoom_passcode }}{% endif %}</p>
+{% if m.zoom_dial_in %}<pre style="white-space:pre-wrap;font:inherit;margin:8px 0 0">{{ m.zoom_dial_in }}</pre>{% endif %}{% endif %}</div>
+<div class="card"><h2>Your violations on the agenda</h2>
+{% for v in cases %}<div style="padding:8px 0;border-top:1px solid var(--line)"><a href="{% url 'my_violation' v.pk %}"><b>{{ v.vtype.name }}</b></a> <span class="pill {{ v.portal_status.1 }}">{{ v.portal_status.0 }}</span>
+<div class="mut">{{ v.description|truncatechars:200 }}</div>{% if v.proposed_fine %}<div>Fine issued by the Board: <b>${{ v.proposed_fine }}</b>, subject to the Committee&rsquo;s decision.</div>{% endif %}</div>{% endfor %}
+<p class="mut" style="margin-bottom:0">Questions? Call {{ MANAGER_PHONE }} or email {{ MANAGER_EMAIL }}.</p></div>{% endblock %}

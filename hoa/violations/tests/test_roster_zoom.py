@@ -122,3 +122,29 @@ def test_meetings_page_form_creates_the_zoom_meeting(client, staff, zoom_on):
         assert "Zoom is connected" in client.get("/meetings/").content.decode()
         client.post("/meetings/", {"starts_at": start, "create_zoom": "on"})
     assert CommitteeMeeting.objects.get().zoom_link == ZOOM_REPLY["join_url"]
+
+
+def test_owner_sees_a_hearing_banner_with_days_remaining_and_only_their_own_items(client, django_user_model):
+    from violations.models import Owner, ViolationType, Violation
+    m = CommitteeMeeting.objects.create(starts_at=timezone.now() + timedelta(days=9, hours=2), zoom_link="https://z.us/9", zoom_meeting_id="123", zoom_passcode="pw")
+    vt = ViolationType.objects.create(name="Mine")
+    mine, theirs = (Owner.objects.create(name=n, property_address=a) for n, a in (("Pat", "1 Mine Way"), ("Sam", "2 Theirs Way")))
+    v1 = Violation.objects.create(owner=mine, vtype=vt, description="d", cure_required="c", status="hearing_scheduled", committee_meeting=m, hearing_date=m.starts_at, proposed_fine=50)
+    Violation.objects.create(owner=mine, vtype=ViolationType.objects.create(name="Mine2"), description="d", cure_required="c", status="hearing_scheduled", committee_meeting=m, hearing_date=m.starts_at)
+    v3 = Violation.objects.create(owner=theirs, vtype=ViolationType.objects.create(name="SECRET-THEIRS"), description="d", cure_required="c", status="hearing_scheduled", committee_meeting=m, hearing_date=m.starts_at)
+    u = django_user_model.objects.create_user("pat1", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "homeowner", "owner": mine})
+    client.force_login(u)
+    home = client.get("/me/").content.decode()
+    assert "You have a homeowner hearing in 9 days" in home and "9 days remaining" in home and "2 violations on your agenda" in home
+    page = client.get(f"/me/hearings/{m.pk}/").content.decode()
+    assert "Mine" in page and "Mine2" in page and "Join by Zoom" in page and "9 days remaining" in page
+    assert "SECRET-THEIRS" not in page and "Sam" not in page and "2 Theirs Way" not in page      # never anyone else's item
+    assert "SECRET-THEIRS" not in home
+    s = django_user_model.objects.create_user("sam1", password="x"); Profile.objects.update_or_create(user=s, defaults={"role": "homeowner", "owner": theirs})
+    client.force_login(s)
+    other = client.get(f"/me/hearings/{m.pk}/").content.decode()
+    assert "SECRET-THEIRS" in other and "Mine2" not in other and "1 Mine Way" not in other
+    nobody = Owner.objects.create(name="Nope", property_address="3 None Way")
+    z = django_user_model.objects.create_user("nope1", password="x"); Profile.objects.update_or_create(user=z, defaults={"role": "homeowner", "owner": nobody})
+    client.force_login(z)
+    assert client.get(f"/me/hearings/{m.pk}/").status_code == 404 and "homeowner hearing" not in client.get("/me/").content.decode()

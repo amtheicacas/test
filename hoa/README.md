@@ -168,3 +168,6 @@ Owners who move out or sell are never deleted by the sync: they are marked **ina
 
 ### Committee logins
 Committee members change each year. On the roster you can link a member to their login; that login then switches on and off by itself with the current year's roster (the daily job and every roster edit apply it). The roster page lists committee logins that aren't linked to anyone.
+
+### Hearing banner for owners
+When an owner has a case assigned to an upcoming committee meeting, their home page opens with a banner ("You have a homeowner hearing in 9 days", with the date, time and days remaining). It opens a page with the Zoom/location details and only that owner's own violations on the agenda. Owners never see anyone else's items, a count of them, or the full agenda.
