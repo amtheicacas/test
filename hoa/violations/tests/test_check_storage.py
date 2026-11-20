@@ -28,8 +28,11 @@ def test_a_bucket_that_answers_an_unsigned_link_is_flagged():
         def delete(self, n): self.d.pop(n)
     res = run_checks(S(), True, fetch=lambda u: 200)
     assert any(ok is False and "WITHOUT A SIGNATURE" in t for ok, t in res)
-    res = run_checks(S(), True, fetch=lambda u: 200 if "sig=" in u else 403)
-    assert not any(ok is False for ok, _ in res)
+    for refusal in (400, 401, 403):                                   # B2 answers 401, R2 answers 400
+        res = run_checks(S(), True, fetch=lambda u, r=refusal: 200 if "sig=" in u else r)
+        assert not any(ok is False for ok, _ in res)
+    res = run_checks(S(), True, fetch=lambda u: 302 if "sig=" not in u else 200)               # a redirect is not a refusal
+    assert any(ok is False for ok, _ in res)
 
 
 def test_a_storage_that_fails_is_reported_not_crashed(monkeypatch):

@@ -43,7 +43,8 @@ def run_checks(storage, bucket_mode, fetch=fetch_status):
         signed = fetch(url)
         out.append((signed == 200, f"the signed link works (HTTP {signed})" if signed == 200 else f"the signed link did NOT work (HTTP {signed})"))
         bare = fetch(url.split("?", 1)[0])
-        out.append((bare in (401, 403), f"the same link without its signature is refused (HTTP {bare})" if bare in (401, 403)
+        refused = 400 <= bare < 500          # B2 says 401, Cloudflare R2 says 400: either way no file was handed over
+        out.append((refused, f"the same link without its signature is refused (HTTP {bare})" if refused
                     else f"THE BUCKET ANSWERED A LINK WITHOUT A SIGNATURE (HTTP {bare}): it may be public. Make it private."))
     try:
         storage.delete(name)
