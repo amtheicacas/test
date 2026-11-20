@@ -182,3 +182,44 @@ def test_ordinary_text_is_not_changed_by_the_defusing():
     assert casefile._safe_cell("- gate was open") == "- gate was open"                    # a dash then a space is a list, not a formula
     assert casefile._safe_cell("") == "" and casefile._safe_cell(5) == 5 and casefile._safe_cell(None) is None
     assert casefile._safe_cell("=1+1") == "'=1+1" and casefile._safe_cell("-1+1") == "'-1+1" and casefile._safe_cell("\t=1") == "'\t=1"
+
+
+# ---------- the scheduled Vantaca sync command had no tests at all ----------
+def test_the_sync_command_reads_a_csv_export_and_reports_counts(tmp_path):
+    from io import StringIO
+    from django.core.management import call_command
+    f = tmp_path / "owners.csv"
+    f.write_text("Homeowner ID,Account Number,Homeowner(s),Address,Email\nH1,A1,Pat Sync,1 Sync Way,pat@example.com\nH2,A2,Sam Sync,2 Sync Way,sam@example.com\n", encoding="utf-8")
+    out = StringIO()
+    call_command("sync_vantaca", "--csv", str(f), stdout=out)
+    assert "created 2" in out.getvalue() and Owner.objects.filter(external_id__in=["H1", "H2"]).count() == 2
+    out = StringIO()
+    call_command("sync_vantaca", "--csv", str(f), stdout=out)                                   # running it again is safe
+    assert "created 0" in out.getvalue() and "updated 2" in out.getvalue() and Owner.objects.count() == 2
+
+
+def test_the_sync_command_refuses_to_deactivate_everyone_on_an_empty_feed(tmp_path):
+    from io import StringIO
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    Owner.objects.create(name="Existing", property_address="9 Keep Way", email="k@example.com", external_id="H9")
+    f = tmp_path / "empty.csv"
+    f.write_text("Homeowner ID,Account Number,Homeowner(s),Address,Email\n", encoding="utf-8")
+    with pytest.raises(CommandError, match="empty"):
+        call_command("sync_vantaca", "--csv", str(f), "--deactivate-missing", stdout=StringIO())
+    assert Owner.objects.get(external_id="H9").active is True
+
+
+def test_the_sync_command_refuses_a_partial_feed_unless_forced(tmp_path):
+    from io import StringIO
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    for i in range(10):
+        Owner.objects.create(name=f"O{i}", property_address=f"{i} Many Way", email=f"o{i}@example.com", external_id=f"M{i}")
+    f = tmp_path / "partial.csv"
+    f.write_text("Homeowner ID,Account Number,Homeowner(s),Address,Email\nM0,A0,O0,0 Many Way,o0@example.com\n", encoding="utf-8")
+    with pytest.raises(CommandError, match="partial feed"):
+        call_command("sync_vantaca", "--csv", str(f), "--deactivate-missing", stdout=StringIO())
+    assert Owner.objects.filter(active=True).count() == 10
+    call_command("sync_vantaca", "--csv", str(f), "--deactivate-missing", "--force", stdout=StringIO())
+    assert Owner.objects.filter(active=True).count() == 1
