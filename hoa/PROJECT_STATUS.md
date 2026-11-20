@@ -1,0 +1,94 @@
+# PROJECT_STATUS: HOA Violation Manager
+
+_Last updated: 2026-11-20. Code state: branch `claude/brave-galileo-mddme9`, last feature commit `b0810b4` (plus this documentation commit). 393 tests pass; `manage.py check` and `makemigrations --check` are clean. Django 5.2.19, Python 3.13 (sandbox) / 3.15 (user's Windows PC)._
+
+## 1. What this is
+A Django app for Heron Landing HOA (Sarasota, FL; managed by Sunstate Management, which uses **Vantaca** as its system of record). It runs the violation process from first notice to fine: owner notices (email + US Mail), owner portal and replies, Board queue, Compliance Committee hearings (Zoom, minutes), administrative review, fine letters (certified), ledger posting, legal referral. Long-term goal: the one place for HOA owner interactions (ARC requests, inquiries) and a phone-friendly field tool for the property manager. Users: the Board/manager (identical), Compliance Committee, owners/tenants. Rules come from the **Fining Resolution (Apr 17, 2023)**, **FS 720.305**, the **Declaration** (CC&Rs), and **Community Standards (7th ed., Oct 2026)**.
+
+## 2. Repository layout
+`/home/user/test` is a shared git repo. **Only `hoa/` is this project** (`icac/` and `tests/` at the root are an unrelated earlier Flask app).
+```
+hoa/
+  CLAUDE.md  PROJECT_STATUS.md  README.md  TESTING.md  STATUSES.md  local.env.example
+  manage.py  config/(settings.py urls.py)  conftest.py  pytest.ini  requirements.txt  start-site.bat
+  tools/        build_standards_catalog.py  build_declaration_catalog.py  build_site_plan.py (regenerate data/static from source PDFs)
+  violations/
+    models.py services.py views.py urls.py forms.py admin.py context.py middleware.py signals.py apps.py
+    progress.py (trackers)  portal.py (owner tiles)  pdf.py (letters)  minutes.py  accounts.py  security_views.py
+    mailing.py (Lob)  zoom.py  vantaca.py  ledger.py  geocoding.py  standards_search.py  templatetags/hoa_tags.py
+    data/ standards_catalog.json (83 types) declaration_catalog.json (47 types)
+    static/violations/ logo, site-plan.png, site-plan-lots.json, mapfilter.js, photopicker.js
+    templates/violations/*.html  templates/registration/*  management/commands/*  migrations/ (0001..0037)  tests/
+```
+Size: ~5,800 lines of Python in `violations/` (excluding tests), 18 test modules.
+
+## 3. Architecture and conventions
+- **services.py is the workflow layer**: every status transition and rule lives there and raises `WorkflowError`; views call `_run(request, services.x, ...)` to show the message. Add behavior there first.
+- **One status per case** (`Violation.Status`) projected two ways: owner tracker (six steps, plain sentences) and staff tracker (7 steps + sub-steps) in `progress.py`; owner pill labels in `Violation.PORTAL_LABELS`. Regenerate `STATUSES.md` with `manage.py print_statuses`.
+- **Notices** (`Notice` kinds: violation, second, extension, hearing, fine=Letter 3 "decision/written findings") each produce a PDF (`pdf.render_notice_pdf`), an email (copy kept in `EmailLog`), and, with Lob on, physical `MailPiece`s with tracking. Standard issuance emails now and holds the mailed copy 2 business days (`mail_hold_until`); "urgent" mails immediately; cured cases cancel held mail.
+- **Daily job** `manage.py daily_jobs` (must be scheduled in production): committee login sync, certified-tracking refresh, release held mail, hold-ending reminders, cure reminders, move expired cure periods to the Board queue. `advance_expired` also runs when the dashboard/queue loads.
+- **Settings** are env-driven (`config/settings.py`), with a private untracked `hoa/local.env` loader. `start-site.bat` runs migrate and sets `MFA_REQUIRED_ROLES=none` for local testing.
+- **Templates** use inline CSS in `base.html` (CSS variables, light/dark). Nav is role/mode-aware (`NAVMODE`, `IS_OWNER` in `context.py`).
+
+## 4. Completed functionality
+**Violation entry:** violation-type picker (83 Community Standards + 47 Declaration types, local keyword search + optional Anthropic AI search, bare-section search), drafted observation/cure with `[location]`/`[address]` auto-filled, owner type-ahead, recipient preview (owner + active tenant), photos with preview/remove, cure days incl. 0 ("immediately", 12-hour wording), Immediate-Issue flags (point-in-time/non-curable, safety, board emergency), issuance timing (standard / urgent / draft).
+**Owner side:** passwordless sign-in by emailed one-time link (15 min, 30-day session) + optional password with self-service reset; tile home (violations w/ status icon, read-only account, HOA documents link, sign-in options); violations list sorted by cure date with photos, show/hide closed toggle; case page with tracker, embedded letter, correspondence, reply/extension request/cure photos; hearing banner with days remaining and a page showing only the owner's own agenda items; resident private-link page during cure period.
+**Process:** extensions (days/new deadline, optional second notice) and cure reminders; hold with "until" date (auto-lift, cure restarts, reminders); re-inspect flag; unread-message envelope; point-in-time cases go straight to the Board queue; Board queue as a bulk table (select rows, decision/fine/date, majority tick, hover photo); committee scheduling (single, monthly series with per-date Zoom meetings, batch assignment, reschedule/cancel with owner notices); 14-day minimum notice enforced, <20 days warns; committee meeting page (roster attendance ticks, abstentions incl. automatic for own violation, one decision per case, minutes written from entries, drafts approved at next meeting, optional upload); submit for administrative review; Board approve/modify (lower or waive)/return; Letter 3 certified + email; ledger post (manual or configurable Vantaca API); fine due 30+5 days; payments; closes when cured and paid; send-to-legal flow with reviewed email draft (letters + photos attached; normal vs direct path); cures/dismiss/waive; fine/suspension caps per Declaration 8.1 (lien note at $1,000).
+**Board/manager:** dashboard (tiles, pipeline, overdue analytics, most-common violations by window, "how long cases take" notice to decision, attention lists), violations list/filters (type filter shows only used types), correspondence log with certified tracking per owner/case, map (site plan + street/satellite, filters, labels, lot boxes), owner import (xlsx/CSV with column mapping memory), Vantaca sync command, former-owners archive (3-year retention, search, reactivate, purge command), Standard Responses (shared canned replies), committee roster by year (pick from owners; role added to owner login; yearly copy), manager = board access.
+**Integrations (code complete, untested live):** Lob print/mail + certified tracking (`MailPiece`), Zoom Server-to-Server OAuth (create/update/delete meetings; cloud recording, cameras, alt hosts via env), Vantaca owners API + ledger poster (configurable), Census batch geocoder, Anthropic AI search.
+**Quality:** 393 tests (flow, portal, security/MFA, resolution letters, minutes, smoke test of every screen per role, etc.).
+
+## 5. Database (SQLite now; Postgres planned). Models in `violations/models.py`
+`Owner` (name/second owner, property_address, lot, emails incl. `additional_emails` ";"-separated, mailing split fields, lat/lng, tenant fields + lease dates, `active`, `inactive_since/reason`, Vantaca `external_id` + `account_number`; unique address only among ACTIVE owners) · `ViolationType` (code, section, source, rule_text, observed/cure templates, keywords) · `Violation` (owner, vtype, status, cure days/deadline/extensions, flags, issuance_timing, board vote fields, proposed fine, committee fields incl. outcome/votes/findings/amended fine/owner_present, board review fields, ledger/fine/suspension fields, hold/off-hold/reinspect dates, legal path/reason/sent) · `Photo` · `Notice` (+ mail hold/cancel, tracking, provider ids) · `MailPiece` (per physical letter: tracking, events JSON, delivered/problem) · `EmailLog` · `Response` (owner/staff messages, extension/cure flags, `read_at`) · `Reminder` · `Event` (timeline) · `CommitteeMeeting` (Zoom fields, series, attendance text, times, minutes file, `minutes_status` draft/approved, `results_status` open/submitted/processed) · `CommitteeMember` (year, role, user, owner) · `MeetingAttendance` · `CaseAbstention` · `Profile` (role manager/board/committee/homeowner, `owner` link, relationship) · `LoginLink` (hashed one-time tokens) · `CannedReply` · `ImportMapping`. Django `User` is the stock model (username = email for owners).
+
+## 6. Authentication and access
+Roles via `Profile.role`; `accounts.role_of` (elevated role) and `accounts.owner_of` (any linked owner). Manager/board/committee require TOTP two-step (`MFA_REQUIRED_ROLES`); owners don't unless they opt in; a dual-role person needs the code only for the elevated pages (middleware `own_area`). Owners sign in by one-time emailed link (`LoginLink`) or optional password; axes locks after repeated failures; link/password-reset requests throttled; password reset via Django views. Committee logins follow the roster each year. `STAFF_ADMIN_ACCESS=1` gives manager and board `is_staff`+`is_superuser`. Owners cannot change email/contact info (Vantaca flows in).
+
+## 7. Integrations and configuration
+| Service | Status | Settings |
+|---|---|---|
+| Email (SMTP) | **not configured**: emails print to console | `EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` |
+| Lob (print + certified mail, tracking) | coded, untested live | `MAIL_PROVIDER=lob`, `LOB_API_KEY`, `HOA_RETURN_*` |
+| Zoom (S2S OAuth) | coded; user created the Zoom app, scope `meeting:write:meeting:admin`; not yet connected/tested | `ZOOM_ACCOUNT_ID/CLIENT_ID/CLIENT_SECRET/HOST_EMAIL` (+ `ZOOM_AUTO_RECORDING`, `_ALTERNATIVE_HOSTS`, `_HOST_VIDEO`, `_PARTICIPANT_VIDEO`, `_WAITING_ROOM`) |
+| Vantaca | API details unknown (questions drafted for management co.); CSV/xlsx import works | `VANTACA_*` |
+| Census geocoder | coded, untested live | none |
+| Anthropic | optional AI search | `ANTHROPIC_API_KEY`, `AI_MODEL` |
+Other settings: `HOA_*` letterhead/payment/contact, `SITE_URL`, `ATTORNEY_NAME/EMAIL`, `HOA_DOCUMENTS_URL`, fine/notice rules (`FINE_*`, `HEARING_NOTICE_*`, `MAIL_DELAY_BUSINESS_DAYS`, `REMINDER_DAYS`, `ARCHIVE_RETENTION_YEARS`, ...). Dependencies (`requirements.txt`): Django 5.1-5.2, Pillow, reportlab, django-otp, django-axes, qrcode, anthropic, openpyxl (tests: pytest, pytest-django; Leaflet 1.9.4 from CDN; `pdftotext` used in some tests).
+
+## 8. Key technical decisions (and why)
+- **Django + SQLite, no SPA**: simplest to run on the user's PC and host; Postgres on the host later (env-driven DB planned).
+- **Service layer + one status field**: rules testable and consistent; two projections (owner simple, staff detailed) avoid label drift.
+- **Passwordless owners**: owners log in rarely and forget passwords; email on file from Vantaca is the identity; staff keep password + TOTP.
+- **Vantaca is the source of truth** for owners (read-only in app); a sale archives the old owner and creates a new record (history stays with the old owner; address unique only among active owners); 3-year retention, purge is manual.
+- **Standard mail holds 2 business days** (cured cases save postage); urgent overrides. Letter 3 and hearing notice always certified + email.
+- **Fine due 30 + 5 days; Board can lower/waive but not raise** above the hearing-notice amount; committee confirms (needs 3+ votes); fines only "imposed" after administrative review.
+- **Committee works the whole meeting, submits for administrative review**; minutes generated from entries, approved at the next meeting.
+- **No suspensions in the UI** (no amenities) but supported in code (60-day cap).
+- **One Zoom meeting per hearing date** so each notice carries that date's link; chat can't be disabled per meeting via API (account setting).
+- **Windows-safe code** after a `%-d` crash on the user's PC; tests run on Linux only.
+- **Docs and statuses regenerated from code** (`print_statuses`) to avoid drift.
+
+## 9. Outstanding tasks
+**Next to build (agreed direction):** (1) deployment prep: Postgres via `DATABASE_URL`, production settings, static serving, photo/object storage, scheduler for `daily_jobs`, host (Render Pro suggested; user is choosing); (2) email setup helper ("send me a test email") and real SMTP; (3) committee notification emails; (4) field/mobile mode as installable web app (camera-first entry, GPS nearest home) then optional native iOS; (5) audit log of who viewed/changed owner data.
+**Waiting on user/others:** Vantaca API/scheduled-report answers (owners, ledger posting); decision whether to count continuing-violation fines per day (attorney: when does day 1 start; flat $1,000 supportable?); fate of the "respond at [private link]" line on letters 1 and 3; HOA letterhead data (mailbox address from Anytime Mailbox, phone, contact email, signer, payment address); attorney email; Zoom credentials in `local.env`; hosting/domain choice; attorney review of letter wording; proofread OCR'd CC&R text and resolve Declaration vs Standards conflicts (fences, holiday dates, vehicles, leasing); 7 owners' mailing city/state/ZIP; lot 8 "#8"; permission for Meritage plat art.
+**Later:** inbound email replies; ARC requests and general inquiries modules (read the Declaration ARC article first; add tiles in `portal.py`); Sarasota County Property Appraiser mailing-address check; Lob webhooks (needs public URL); Zoom/series editing beyond reschedule/cancel; tenant-fine rules; AI-suggested standards polishing.
+
+## 10. Known bugs, risks, tech debt
+- **No integration has run live** (Lob, Zoom, Vantaca API/ledger, geocoder). Lob tracking event names may need adjusting.
+- Local DB is SQLite; `media/` on local disk; `DEBUG` defaults on; no HTTPS/static serving setup; `daily_jobs` unscheduled; email console-only.
+- Legacy route `committee_vote` + `services.committee_decide` still exist (hidden from UI); the reject path there skips administrative review. Remove or gate.
+- Rescheduled meetings re-send the same "Notice of committee hearing" title (no "amended" marker).
+- `test_history_nav.py` is a grab-bag of newer tests; reorganize.
+- Windows-only issues are not caught by tests (Linux CI); watch for `%-d`, console encodings, paths.
+- Some sandbox-only behaviors (headless Chromium doesn't render PDFs in iframes): letter preview on the owner page needs a real-browser check.
+- `README.md` has stale sections (see Doc drift).
+- Owner "closed" grouping treats an imposed fine as closed (user's choice); tile shows "fine due" so it isn't missed.
+- Declaration/Standards text came from OCR and a scan; amendments not captured.
+
+## 11. Doc drift (README.md sections that predate later changes)
+"Who can do what" (manager and board are now identical; committee works via roster; owners can also hold roles), "Process implemented" steps 6-7 (now: committee records decisions per meeting, administrative review, fine due 30+5 days, Letter 3 certified), "Things to verify / next steps" (roster, certified mail tracking, roles now exist; per-day fines still not built), and the "Run" section (Windows: `start-site.bat`). Newer sections at the end of README are current. No existing docs were removed.
+
+## 12. Where we left off
+Completed in the last session: one-login for owners who are committee/Board members; abstentions; roster picked from owners; monthly series meetings with batch assignment and reschedule/cancel; Zoom per date + settings; Standard Responses rename; dashboard "how long cases take"; green +New button; Vantaca-style former-owner archive. Everything is committed and pushed (`b0810b4`); working tree clean before this documentation commit.
+**Immediate next steps:** (1) user runs through `TESTING.md` (new section at the end covers recent features) and reports issues; (2) user adds Zoom credentials to `hoa/local.env` and creates one test meeting; (3) decide hosting + email service, then build deployment prep and the email test helper; (4) get Vantaca's answers; (5) resolve the open decisions in section 9.
+**Resume commands:** `cd /home/user/test/hoa && /tmp/claude-0/venv/bin/python -m pytest -q` (expect 393 passed), `git log --oneline | head`.

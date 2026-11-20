@@ -40,3 +40,12 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - Letter text: the "respond at [private link]" line on letters 1 and 3 (remove, reword, or email-only).
 - Committee emails (when a case or meeting is ready), inbound email replies, Vantaca API (owners and ledger), Sarasota County Property Appraiser check, hosting.
 - Verify the CC&R text (it was read from a scan) and which document wins where it conflicts with the Community Standards.
+
+## 6. Added since the first checklist (please test)
+- [ ] **Roster:** Committee members page: pick members from the owner list; they get the committee role on their own owner login; copy the roster to next year.
+- [ ] **Meetings:** schedule with "Create the Zoom meeting for me"; try <20 days (pop-up); repeat monthly; assign ticked waiting cases to a picked meeting; open a meeting to reschedule / cancel.
+- [ ] **Committee page:** tick attendance; own-violation abstention; decisions; minutes (draft), approve at the next meeting.
+- [ ] **One login:** an owner who is on the committee lands on their own home and uses the Committee button.
+- [ ] **Owner home:** hearing banner and its page (only their own items); closed-violations toggle.
+- [ ] **Board queue** bulk table; **Former owners** page; **Standard Responses**; dashboard charts.
+- [ ] **Zoom:** after adding credentials to `hoa/local.env`, the hearing notice PDF shows that meeting's link.

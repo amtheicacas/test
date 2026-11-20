@@ -1,5 +1,7 @@
 # HOA Violation Manager (Django)
 
+> **Note (2026-11-20):** some sections below predate later changes (roles, committee process, fine due dates, the old next-steps list). `PROJECT_STATUS.md` has the current state, decisions and open items; `CLAUDE.md` has working instructions. Nothing here was removed.
+
 Tracks HOA violation notices from first notice through board vote, fining-committee hearing and fine.
 
 ## Run
