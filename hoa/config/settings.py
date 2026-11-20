@@ -90,6 +90,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# What this website is called to owners, in letters, emails and on every page. (Vantaca's site is the "Homeowner Portal"; this one is not.)
+APP_NAME = env("APP_NAME", "My Heron Landing")
+
 # ---- Sign-in security -----------------------------------------------------
 AUTHENTICATION_BACKENDS = ["axes.backends.AxesStandaloneBackend", "django.contrib.auth.backends.ModelBackend"]
 AXES_FAILURE_LIMIT = int(env("LOGIN_FAILURE_LIMIT", "5"))      # lock after 5 bad passwords...
@@ -99,7 +102,7 @@ AXES_CLIENT_IP_CALLABLE = "violations.throttle.client_ip"      # the visitor's r
 AXES_RESET_ON_SUCCESS = True
 # Roles that MUST use an authenticator app (TOTP) after their password. Homeowners may opt in.
 MFA_REQUIRED_ROLES = tuple(r.strip() for r in env("MFA_REQUIRED_ROLES", "manager,board,committee").split(",") if r.strip() and r.strip() != "none")
-OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", "Heron Landing HOA")
+OTP_TOTP_ISSUER = env("OTP_TOTP_ISSUER", APP_NAME)
 SESSION_COOKIE_AGE = int(env("SESSION_HOURS", "12")) * 3600   # staff; owners get 30 days (see signals.py)
 # How many load balancers sit in front of the site (Render: 1). Their X-Forwarded-For entry is the visitor's real address; used by the
 # sign-in limits and the lockout. 0 on your own PC.

@@ -4,11 +4,12 @@ import io
 import qrcode
 import qrcode.image.svg
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login as auth_login
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.views import PasswordResetView
+from django.contrib.auth.views import PasswordResetCompleteView, PasswordResetConfirmView, PasswordResetDoneView, PasswordResetView
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -16,6 +17,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 import logging
+from urllib.parse import urlsplit
 
 from . import accounts, throttle
 from .models import LoginLink
@@ -119,12 +121,38 @@ def get_access(request):
     return render(request, "violations/get_access.html", {"form": form, "done": done})
 
 
+# The password-reset pages and email live under violations/ (not registration/): Django's admin app has pages with the same names
+# and would otherwise be used instead, with its own wording and styling.
 class ThrottledPasswordResetView(PasswordResetView):
+    template_name = "violations/password_reset_form.html"
+    email_template_name = "violations/password_reset_email.html"
+    subject_template_name = "violations/password_reset_subject.txt"
+
     """Django's "forgot your password" page, with a limit on how many reset emails one address (or one visitor) can trigger, so it
     can't be used to flood someone's inbox. A refused request looks exactly like an accepted one."""
+
+    def dispatch(self, request, *args, **kwargs):
+        ctx = {"APP_NAME": settings.APP_NAME}
+        if settings.PRODUCTION:       # on the live site the reset link always points at SITE_URL, never at whatever address the request named
+            site = urlsplit(settings.SITE_URL)
+            ctx.update(domain=site.netloc, protocol=site.scheme)
+        self.extra_email_context = ctx
+        return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
         email = form.cleaned_data["email"].strip().lower()
         if _throttled(f"reset:email:{email}") or _throttled(f"reset:ip:{throttle.client_ip(self.request)}", limit=10):
             return HttpResponseRedirect(self.get_success_url())
         return super().form_valid(form)
+
+
+class ResetDoneView(PasswordResetDoneView):
+    template_name = "violations/password_reset_done.html"
+
+
+class ResetConfirmView(PasswordResetConfirmView):
+    template_name = "violations/password_reset_confirm.html"
+
+
+class ResetCompleteView(PasswordResetCompleteView):
+    template_name = "violations/password_reset_complete.html"

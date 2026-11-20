@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 453 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 462 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -21,6 +21,9 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 - New model fields need a migration (`makemigrations`); data fixes go in migrations with `RunPython`.
 - Integrations (Lob, Zoom, Vantaca API/ledger, Census geocoder) are written to documented shapes but **never run live**: say so when touching them.
 - Don't modify docs by deleting; append or mark superseded.
+
+## Naming
+This app is called **My Heron Landing** (`settings.APP_NAME`; use it, never hard-code it, in templates, emails and letters). **"Homeowner Portal" is Vantaca's site** (governing documents live there): never use "portal" for this app in owner-facing text. The header shows My Heron Landing with the association name beneath it.
 
 ## Known gotchas
 Cache-backed throttles are cleared per test (`conftest.py`). `Violation.OPEN` includes `referred_legal`; `OWNER_CLOSED` (owner list grouping) is different. `/` routes by role; staff dashboard is `/workspace/`. `load_standards` overwrites violation-type rows.

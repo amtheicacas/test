@@ -551,7 +551,7 @@ def violation_action(request, pk, action):
         f = forms.ReplyForm(P)
         if f.is_valid():
             services.add_response(v, f.cleaned_data["message"], from_resident=False, user=u)
-            messages.success(request, "Reply sent (the owner sees it in their portal).")
+            messages.success(request, f"Reply sent (the owner sees it in {settings.APP_NAME}).")
             title = (P.get("save_title") or "").strip()
             if P.get("save_reply") and title:
                 CannedReply.objects.create(title=title[:80], body=f.cleaned_data["message"], created_by=u)

@@ -2,11 +2,13 @@ from django.contrib import admin, messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
+from django.conf import settings
+
 from . import accounts
 from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, Violation, ViolationType
 
 
-@admin.action(description="Send portal invitation (creates homeowner login)")
+@admin.action(description=f"Send {settings.APP_NAME} invitation (creates homeowner login)")
 def invite(modeladmin, request, queryset):
     sent = sum(1 for o in queryset if accounts.invite_owner(o, request))
     messages.success(request, f"{sent} invitation(s) sent. Owners without an email or already invited were skipped.")

@@ -138,7 +138,7 @@ OWNER_SUSPENSION_SENTENCE = " Owners shall likewise be suspended from common fac
 
 
 def _respond_line(v):
-    bits = [f"Respond, send photos of the corrected condition, or ask for more time at: {v.resident_url()}"]
+    bits = [f"Respond, send photos of the corrected condition, or ask for more time through {settings.APP_NAME} at: {v.resident_url()}"]
     contact = ", ".join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)
     if contact:
         bits.append(f"Questions: {contact}. We aim to respond within 48-72 hours.")
@@ -221,7 +221,7 @@ def _response_form(v, to_name, mail_block, dated):
     t = Table([[_p(a, lab), _p(b, lab)] for a, b in rows], colWidths=[1.5 * inch, 5.0 * inch])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
     line = "_" * 78
-    where = f"through the Association portal at {v.resident_url()}"
+    where = f"through {settings.APP_NAME} at {v.resident_url()}"
     if settings.HOA_CONTACT_EMAIL:
         where += f" or email this form to {settings.HOA_CONTACT_EMAIL}"
     elif hoa_address():
@@ -391,8 +391,8 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
             s.append(_p(f"Copy also sent to {'the owner, ' + o.display_name if to_tenant else 'the tenant, ' + o.tenant_name}. "
                         "Owners are responsible for the actions of their tenants and guests.", SMALL))
         if notice.kind == K.EXTENSION:
-            s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to "
-                        f"{v.cure_deadline:%B %d, %Y}." if v.cure_deadline else "a new date; please see your portal for the deadline."))
+            when = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"a new date; please see {settings.APP_NAME} for the deadline"
+            s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to {when}."))
         s += [_respond_line(v)] + _signoff()
     buf = BytesIO()
     SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.9 * inch, rightMargin=0.9 * inch, topMargin=0.55 * inch,
