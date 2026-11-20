@@ -24,6 +24,11 @@ def sent_letter_path(instance, filename):
     return f"sent-letters/{timezone.now():%Y}/{secrets.token_hex(16)}.pdf"      # random name: never guessable, never the owner's name
 
 
+def site_visit_photo_path(instance, filename):
+    from .uploads import safe_ext
+    return f"site-visits/{timezone.now():%Y}/{secrets.token_hex(16)}.{safe_ext(filename)}"      # random name; the original name is kept as text only
+
+
 def split_emails(text):
     """'a@x.com; b@x.com' -> ['a@x.com', 'b@x.com'] (Vantaca separates several addresses with ';')."""
     seen, out = set(), []
@@ -701,6 +706,92 @@ class SentLetter(models.Model):
             return hashlib.sha256(self.read_bytes()).hexdigest() == self.sha256
         except Exception:       # noqa: BLE001  (file missing or storage unreachable)
             return False
+
+
+class _AddOnly(models.Model):
+    """Base for records that are written once and never changed or deleted through the application (saved evidence)."""
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("This record can never be changed. Add a new one that refers to it instead.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("This record can never be deleted.")
+
+
+class SiteVisitObservation(_AddOnly):
+    """What the Compliance Committee (or the Board / manager) saw on a drive-through or visit: written notes and photographs, for INTERNAL use
+    only (committee, Board and manager; never the owner). Add-only: a mistake is fixed by a new observation that refers to the original
+    (`corrects`). It is NOT a committee finding and never becomes one on its own."""
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="site_visits")
+    meeting = models.ForeignKey("CommitteeMeeting", null=True, blank=True, on_delete=models.SET_NULL, related_name="site_visits")
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    author_name = models.CharField(max_length=200, help_text="Who wrote it, kept as text so it survives a change to the login.")
+    author_role = models.CharField(max_length=20, blank=True, help_text="committee, board or manager at the time.")
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    comment = models.TextField(blank=True)
+    corrects = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="corrections",
+                                 help_text="The earlier observation this one corrects or adds to.")
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self):
+        return f"Site visit #{self.pk} on case #{self.violation_id} by {self.author_name}"
+
+
+class SiteVisitPhoto(_AddOnly):
+    """A photograph taken at a site visit: the original bytes exactly as uploaded, with their SHA-256 fingerprint."""
+    observation = models.ForeignKey(SiteVisitObservation, on_delete=models.CASCADE, related_name="photos")
+    file = models.FileField(upload_to=site_visit_photo_path)
+    sha256 = models.CharField(max_length=64, db_index=True)
+    size = models.PositiveIntegerField(default=0)
+    original_name = models.CharField(max_length=200, blank=True, help_text="The file name on the uploader's device (display only).")
+    taken_at = models.DateTimeField(null=True, blank=True, help_text="From the picture's own date, when it has one.")
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def read_bytes(self):
+        with self.file.open("rb") as f:
+            return f.read()
+
+    def intact(self):
+        try:
+            return hashlib.sha256(self.read_bytes()).hexdigest() == self.sha256
+        except Exception:       # noqa: BLE001  (missing file or storage unreachable)
+            return False
+
+
+class SiteVisitAccess(_AddOnly):
+    """Who looked at, added to, opened a photo from, or exported the site-visit observations of a case (and who was turned away)."""
+
+    class Action(models.TextChoices):
+        VIEWED = "viewed", "Viewed the observations"
+        ADDED = "added", "Added an observation"
+        CORRECTED = "corrected", "Added a correction"
+        PHOTO = "photo", "Opened a photograph"
+        EXPORTED = "exported", "Included in a case-file download"
+        DENIED = "denied", "Turned away"
+
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="site_visit_access")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    user_name = models.CharField(max_length=200)
+    role = models.CharField(max_length=20, blank=True)
+    action = models.CharField(max_length=12, choices=Action.choices)
+    observation = models.ForeignKey(SiteVisitObservation, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    photo = models.ForeignKey(SiteVisitPhoto, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    detail = models.CharField(max_length=200, blank=True)
+    ip_address = models.CharField(max_length=45, blank=True)
+    at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["at", "pk"]
 
 
 class Response(models.Model):

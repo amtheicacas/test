@@ -14,14 +14,14 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import accounts, casefile, forms, geocoding, ledger, services, standards_search, throttle, uploads, vantaca
-from .models import SentLetter, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from . import accounts, casefile, forms, geocoding, ledger, services, sitevisits, standards_search, throttle, uploads, vantaca
+from .models import SentLetter, SiteVisitPhoto, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
-MAX_UPLOAD = 10 * 1024 * 1024
-MAX_PHOTOS_PER_UPLOAD = 10                       # photos accepted in one submission
-MAX_UPLOAD_TOTAL = 40 * 1024 * 1024               # ...and their combined size
+MAX_UPLOAD = uploads.MAX_UPLOAD
+MAX_PHOTOS_PER_UPLOAD = uploads.MAX_PHOTOS_PER_UPLOAD       # photos accepted in one submission
+MAX_UPLOAD_TOTAL = uploads.MAX_UPLOAD_TOTAL                 # ...and their combined size
 MAX_RESIDENT_PHOTOS_PER_CASE = 30                 # photos an owner (or anyone holding the private link) can add to one case
 RESIDENT_POSTS_PER_HOUR = 10                      # messages from one private link per hour
 STAFF = ("manager", "board")
@@ -82,16 +82,7 @@ def can_view(user, v):
 
 def _taken_at(f):
     """When the photo was taken, from EXIF (DateTimeOriginal), or None."""
-    from datetime import datetime
-    from PIL import Image
-    try:
-        exif = Image.open(f).getexif()
-        raw = exif.get_ifd(0x8769).get(36867) or exif.get(306)
-        return timezone.make_aware(datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")) if raw else None
-    except Exception:
-        return None
-    finally:
-        f.seek(0)
+    return uploads.taken_at(f)
 
 
 def _save_photos(v, files, from_resident=False, rejected=None):
@@ -504,6 +495,7 @@ def violation_detail(request, pk):
         "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
         "impose_form": forms.ImposeForm(), "ledger_configured": ledger.configured(),
         "history": services.owner_history(v),
+        "sv": sitevisits.panel(request.user, v, request, back="case"),
         "sent_letters": v.sent_letters.select_related("sent_by"),
         "no_copy": [n for n in v.notices.all() if not n.sent_copies.exists()],
     }
@@ -524,12 +516,63 @@ def sent_letter(request, pk):
         "Content-Disposition": f'inline; filename="case-{s.violation_id}-{s.kind}-{s.sent_at:%Y-%m-%d}.pdf"', "Cache-Control": "private, max-age=300"})
 
 
+# ---------- site-visit observations (committee, Board, manager only; never owners) ----------
+def _site_visit_back(request, v):
+    """Where to return after adding an observation: only ever one of our own pages."""
+    if request.POST.get("back") == "case" and accounts.role_of(request.user) in STAFF:
+        return reverse("violation_detail", args=[v.pk]) + "#site-visits"
+    if v.committee_meeting_id:
+        return reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}"
+    return reverse("violation_detail", args=[v.pk]) if accounts.role_of(request.user) in STAFF else reverse("committee_home")
+
+
+@staff_or_committee
+@require_POST
+def site_visit_add(request, pk):
+    """Add a site-visit observation (a note and/or photographs) or a correction to an earlier one. Never edits or deletes anything."""
+    v = get_object_or_404(Violation, pk=pk)
+    why = sitevisits.blocked_reason(request.user, v)
+    if why:
+        sitevisits.log_access(request.user, v, sitevisits.A.DENIED, request, detail=f"tried to add: {why}")
+        raise PermissionDenied
+    bad = []
+    try:
+        sitevisits.add(request.user, v, request.POST.get("comment", ""), request.FILES.getlist("photos"), request.POST.get("corrects"), request, bad)
+        messages.success(request, "Site-visit observation saved. It can't be edited or deleted; add a correction if something needs fixing.")
+    except services.WorkflowError as e:
+        messages.error(request, str(e))
+    _report_rejected(request, bad)
+    return redirect(_site_visit_back(request, v))
+
+
+@staff_or_committee
+def site_visit_photo(request, pk):
+    """Open one site-visit photograph (the original, exactly as uploaded). Refuses a file that no longer matches its fingerprint."""
+    p = get_object_or_404(SiteVisitPhoto.objects.select_related("observation__violation"), pk=pk)
+    v = p.observation.violation
+    why = sitevisits.blocked_reason(request.user, v)
+    if why:
+        sitevisits.log_access(request.user, v, sitevisits.A.DENIED, request, observation=p.observation, photo=p, detail=f"tried to open a photo: {why}")
+        raise PermissionDenied
+    try:
+        data = p.read_bytes()
+    except Exception:       # noqa: BLE001
+        return HttpResponse("This photograph could not be read from storage.", status=404, content_type="text/plain")
+    if hashlib.sha256(data).hexdigest() != p.sha256:
+        return HttpResponse("This photograph no longer matches its fingerprint, so it may have been changed.", status=409, content_type="text/plain")
+    sitevisits.log_access(request.user, v, sitevisits.A.PHOTO, request, observation=p.observation, photo=p)
+    return uploads.file_response(p.file, f"site-visit-{p.observation_id}-{p.pk}", private=True, data=data)
+
+
 @staff_only
 def case_file(request, pk):
     """One zip with everything about the case (Board and manager only). Every download is recorded in the case history."""
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     services.log(v, "Case file downloaded", request.user)
-    data, name = casefile.build_case_file(v, request.user)
+    with_site_visits = sitevisits.allowed(request.user, v)       # not for someone whose own violation it is
+    data, name = casefile.build_case_file(v, request.user, site_visits=with_site_visits)
+    sitevisits.log_access(request.user, v, sitevisits.A.EXPORTED, request,
+                          detail="site-visit observations included" if with_site_visits else "site-visit observations NOT included (own violation)")
     return HttpResponse(data, content_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
@@ -1012,7 +1055,8 @@ def committee_meeting(request, pk):
              "mine": owns(request.user, v), "conflicts": services.conflicted_members(v),
              "abstained": {a.member_id for a in v.abstentions.all()},
              "voters": [x for x in m.roster() if x.pk in present_ids or not present_ids],
-             "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count()} for v in summary["cases"]]
+             "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count(),
+             "sv": sitevisits.panel(request.user, v, request, back="meeting")} for v in summary["cases"]]
     roster = m.roster()
     have = {a.member_id: a.status for a in m.attendance.all()}
     for member in roster:

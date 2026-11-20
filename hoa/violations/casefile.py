@@ -35,7 +35,7 @@ def _who(user):
     return (user.get_full_name() or user.get_username()) if user else "the application (automatic)"
 
 
-def build_case_file(v, user):
+def build_case_file(v, user, site_visits=True):
     """Returns (zip bytes, file name). Everything about case `v`: the saved exact copy of every letter, the emails, the mailing and certified
     tracking history, the photos, the hearing and decision records, the change history, the owner messages, and an index of it all."""
     root = f"case-{v.pk}-{_slug(v.owner.property_address)}"

@@ -45,7 +45,7 @@
 <div><label>Votes in favor</label><input name="votes_for" type="number" min="0" value="{{ v.committee_votes_for|default_if_none:'' }}"></div><div><label>Votes against</label><input name="votes_against" type="number" min="0" value="{{ v.committee_votes_against|default_if_none:'' }}"></div></div>
 {% if r.voters %}<div style="margin:6px 0"><label style="margin:0">Abstaining (did not vote)</label>{% for x in r.voters %}<label style="font-weight:400;display:inline-block;margin:2px 14px 2px 0"><input type="checkbox" name="abstain" value="{{ x.pk }}" {% if x.pk in r.abstained or x in r.conflicts %}checked{% endif %} {% if x in r.conflicts %}disabled{% endif %}> {{ x.name }}{% if x in r.conflicts %} (own violation){% endif %}</label>{% endfor %}</div>{% endif %}
 <label>Findings / note (quoted in the decision letter)</label><textarea name="findings" rows="2" required>{{ v.committee_findings }}</textarea>
-<button class="sec" style="margin-top:6px">Save decision</button></form>{% elif not v.committee_outcome %}<p class="mut">{{ v.get_status_display }}</p>{% endif %}</div></div></div>{% endwith %}
+<button class="sec" style="margin-top:6px">Save decision</button></form>{% elif not v.committee_outcome %}<p class="mut">{{ v.get_status_display }}</p>{% endif %}</div></div>{% with sv=r.sv %}{% include "violations/_site_visits.html" %}{% endwith %}</div>{% endwith %}
 {% empty %}<div class="card mut">No cases assigned yet.</div>{% endfor %}
 
 {% if can_edit and rows %}<form class="card" method="post" action="{% url 'committee_submit' m.pk %}" style="border-color:var(--acc)"><h2>Submit for administrative review</h2>{% csrf_token %}
