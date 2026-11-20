@@ -169,3 +169,14 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] The saved-letters prefix is in the nightly file copy to the second vendor.
 
 - [ ] Site-visit observations: after the first staging deploy, add one with a photo, redeploy, open the photo again (fingerprint must still match); confirm an owner login sees nothing about it anywhere; confirm `site-visits/` is in the nightly file copy.
+
+---
+
+## Addendum: email sending service = Postmark (decided; not yet set up)
+- [ ] Postmark account created; the SMTP settings go in `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` (Render environment / `hoa/local.env`). The token is never in chat, git, screenshots or the build log. Staging uses a different Postmark server/token from production.
+- [ ] Confirm Postmark's current prices, limits and SMTP details on their site before setup (not verified).
+- [ ] Sending domain chosen and its DNS controlled by the Association (Cloudflare likely). Postmark's SPF and DKIM records added and shown as verified; DMARC added. Free Cloudflare Email Routing set up for replies.
+- [ ] Postmark has never run live with this app. Before any real notice: test sign-in link, notice and reminder to several real mailboxes, including a strict one; check the From name shows the HOA.
+- [ ] Prove a refused or failed send shows as a failure in the app (for example a wrong token or a rejected address) and does not appear as sent.
+- [ ] The record of what was sent is the app's saved letter copies and email records, not Postmark's delivery log (limited retention, not ours).
+- [ ] Postmark and DNS logins added to the recovery sheet.
