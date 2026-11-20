@@ -1,4 +1,4 @@
-"""Former owners are kept (3 years), hidden from daily use, searchable, and a sale starts a fresh record."""
+"""Former owners are kept (7 years), hidden from daily use, searchable, and a sale starts a fresh record."""
 from datetime import date, timedelta
 
 import pytest
@@ -26,7 +26,7 @@ def test_a_sale_archives_the_old_owner_and_starts_a_new_record(db):
     assert new.active and new.pk != old.pk and new.property_address == old.property_address       # same address, two records
     assert old.violations.get() == v and not new.violations.exists()                              # the history stays with the old owner
     assert not Profile.objects.get(owner=old).user.is_active                                      # their login is off
-    assert old.keep_until == date.today().replace(year=date.today().year + 3)
+    assert old.keep_until == date.today().replace(year=date.today().year + 7)
 
 
 def test_missing_from_the_feed_marks_inactive_with_a_reason(db):
@@ -62,10 +62,10 @@ def test_former_owners_page_searches_reactivates_and_hides_them_elsewhere(db, cl
     old.refresh_from_db(); assert old.active and old.inactive_since is None
 
 
-def test_purge_only_after_three_years_and_only_with_yes(db):
+def test_purge_only_after_seven_years_and_only_with_yes(db):
     keep = Owner.objects.create(name="Recent", property_address="6 Recent Way", active=False)
     old = Owner.objects.create(name="Ancient", property_address="7 Old Way", active=False)
-    Owner.objects.filter(pk=old.pk).update(inactive_since=date.today() - timedelta(days=3 * 365 + 5))
+    Owner.objects.filter(pk=old.pk).update(inactive_since=date.today() - timedelta(days=7 * 365 + 5))
     Violation.objects.create(owner=old, vtype=ViolationType.objects.create(name="T"), description="d", cure_required="c")
     call_command("purge_archived_owners")                                                         # dry run
     assert Owner.objects.filter(pk=old.pk).exists()

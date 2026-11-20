@@ -184,3 +184,12 @@ Known limits / decisions: observations on a case are visible to ALL committee me
 - Still open: who holds the backup private key and approves a restore, letterhead/contact details, attorney email.
 
 - Attorney list: `ATTORNEY_QUESTIONS.md` (created; add to it, never delete). Items A1-A2 are the findings questions: is written findings text required under FS 720.305 / the Declaration / the Fining Resolution, and is pre-filled editable standard text acceptable. Until answered the findings box stays required and the letters stay frozen.
+
+- **Retention changed to 7 years (user said yes):** `ARCHIVE_RETENTION_YEARS` default is now 7 (was 3), README and test updated. Caution for later: `purge_archived_owners --yes` deletes a former owner's violations (and their saved letters' database rows, site-visit notes and photo records through the cascade) after 7 years, and does NOT delete the files in storage; backups keep their own retention (yearly x7). The attorney still has to confirm 7 years (`ATTORNEY_QUESTIONS.md` item 13). A live site can override with the `ARCHIVE_RETENTION_YEARS` environment variable.
+
+
+## 24. Phase 3 (part): minutes uploads hardened (SEC-15) DONE; retention 7 years DONE — 573 tests, green on SQLite and PostgreSQL 16
+- User approved the five-point minutes plan. Built: `violations/minutesfiles.py`, add-only `MinutesFile` (migration 0042), `committee_meeting_save` now uses it, `meeting_minutes` serves the current file or `?v=<id>`, meeting page shows current + earlier uploads, admin look-only, 32 tests (`test_minutes_files.py`). Decision to note: ONLY PDF and Word `.docx` are accepted (old `.doc` refused: it can hold macros and the app cannot check them); every download is an attachment (never shown as a page).
+- Retention default is now 7 years (see section 23 note).
+- Still open for Phase 3: SEC-06 (pdf reads photo bytes, done earlier) is fine; the REAL private-bucket test needs the storage vendor + account + keys (user will create the account and put keys in `hoa/local.env`; keys never in chat). Vendor decision pending: B2 live + R2 copy (recommended) or Cloudflare only (cannot confirm R2 keys can be made no-delete).
+- Costs and who pays: `RUNNING_COSTS.md`.

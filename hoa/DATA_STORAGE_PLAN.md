@@ -186,3 +186,7 @@ and as the owner. Then confirm the object exists in the bucket and that the app 
 
 ## Addendum: site-visit photographs
 New private files under `site-visits/<year>/<random>.<ext>` (same storage as photos, minutes and `sent-letters/`). They are the ORIGINAL uploaded bytes (never re-encoded), with a SHA-256 fingerprint in the database; the app re-checks it whenever one is opened and in the case-file manifest. Internal evidence: include `site-visits/` in the nightly file copy and bucket versioning; never public, never served to owners.
+
+
+## Update: SEC-15 (minutes uploads) built
+Add-only `MinutesFile` rows (migration 0042); files under `minutes/<year>/<random>.<pdf|docx>`; content checks, history and permission-checked download as described in `CLAUDE.md` ("Uploaded minutes"). The `minutes/` prefix is part of the file backups. Still to prove against a real private bucket: upload, redeploy, download, fingerprint still matches.

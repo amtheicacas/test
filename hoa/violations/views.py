@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import accounts, casefile, forms, geocoding, ledger, services, sitevisits, standards_search, throttle, uploads, vantaca
+from . import accounts, casefile, minutesfiles, forms, geocoding, ledger, services, sitevisits, standards_search, throttle, uploads, vantaca
 from .models import SentLetter, SiteVisitPhoto, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
@@ -1064,7 +1064,7 @@ def committee_meeting(request, pk):
     return render(request, "violations/committee_meeting.html", {"m": m, "rows": rows, "S": S, "sum": summary, "can_edit": can_edit,
                                                                   "roster": roster, "present_count": sum(1 for x in have.values() if x == "present"),
                                                                   "waiting_minutes": _minutes_waiting(m),
-                                                                  "minutes_open": m.minutes_status == CommitteeMeeting.Minutes.DRAFT,
+                                                                  "minutes_open": m.minutes_status == CommitteeMeeting.Minutes.DRAFT, "minutes_files": list(m.minutes_files.all()),
                                                                   "ready": can_edit and summary["n"] and not summary["undecided"]})
 
 
@@ -1094,13 +1094,12 @@ def committee_meeting_save(request, pk):
         else:
             MeetingAttendance.objects.filter(meeting=m, member=member).delete()
     m.called_to_order, m.adjourned = _parse_time(P.get("called_to_order")), _parse_time(P.get("adjourned"))
+    m.save()
     f = request.FILES.get("minutes")
     if f:
-        if f.size > MAX_UPLOAD or not f.name.lower().endswith((".pdf", ".doc", ".docx", ".txt", ".png", ".jpg", ".jpeg")):
-            messages.error(request, "Upload the minutes as a PDF, Word document or image under 10 MB.")
-        else:
-            m.minutes = f
-    m.save()
+        row, err = minutesfiles.add(m, f, request.user)         # the upload history is the MinutesFile rows (who, when, fingerprint, what it replaced)
+        if err:
+            messages.error(request, err)
     messages.success(request, "Meeting details saved.")
     return redirect("committee_meeting", pk=pk)
 
@@ -1139,10 +1138,28 @@ def committee_submit(request, pk):
 
 @staff_or_committee
 def meeting_minutes(request, pk):
+    """The uploaded minutes (the current file, or an earlier one with ?v=<id>), always as a download. Committee, Board and manager only."""
     m = get_object_or_404(CommitteeMeeting, pk=pk)
-    if not m.minutes:
+    vid = request.GET.get("v")
+    if vid:
+        row = get_object_or_404(m.minutes_files, pk=vid) if str(vid).isdigit() else None
+        if row is None:
+            raise Http404
+    else:
+        row = minutesfiles.current(m)
+    if row is not None:
+        try:
+            data = row.read_bytes()
+        except Exception:       # noqa: BLE001  (file missing or storage unreachable)
+            raise Http404
+        if hashlib.sha256(data).hexdigest() != row.sha256:
+            return HttpResponse("This file no longer matches its saved fingerprint, so it is not being sent. Tell the manager.", status=409,
+                                content_type="text/plain")
+        return minutesfiles.serve(m, row.file, row.kind, data=data, version=row.pk if vid else "")
+    if not m.minutes:                                               # a file uploaded before the history existed
         raise Http404
-    return FileResponse(m.minutes.open("rb"), as_attachment=False, filename=m.minutes.name.rsplit("/", 1)[-1])
+    ext = m.minutes.name.rsplit(".", 1)[-1].lower()
+    return minutesfiles.serve(m, m.minutes, ext if ext in minutesfiles.CONTENT_TYPES else "bin")
 
 
 @staff_only

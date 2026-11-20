@@ -180,3 +180,6 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] Prove a refused or failed send shows as a failure in the app (for example a wrong token or a rejected address) and does not appear as sent.
 - [ ] The record of what was sent is the app's saved letter copies and email records, not Postmark's delivery log (limited retention, not ours).
 - [ ] Postmark and DNS logins added to the recovery sheet.
+
+- [ ] Minutes uploads: after the first staging deploy upload a PDF and a .docx, redeploy, download both again (fingerprint must still match); confirm `minutes/` is in the nightly file copy; confirm a homeowner login cannot open the download address.
+- [ ] `ARCHIVE_RETENTION_YEARS` is 7 (the default); nothing is purged by hand before then.

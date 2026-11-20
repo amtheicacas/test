@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.conf import settings
 
 from . import accounts
-from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, SentLetter, SiteVisitAccess, SiteVisitObservation, SiteVisitPhoto, Violation, ViolationType
+from .models import CannedReply, CommitteeMeeting, CommitteeMember, MinutesFile, Owner, Profile, SentLetter, SiteVisitAccess, SiteVisitObservation, SiteVisitPhoto, Violation, ViolationType
 
 
 @admin.action(description=f"Send {settings.APP_NAME} invitation (creates homeowner login)")
@@ -92,6 +92,11 @@ class _LookOnly(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(MinutesFile)
+class MinutesFileAdmin(_LookOnly):
+    list_display = ["meeting", "original_name", "kind", "uploaded_by_name", "uploaded_at", "size", "sha256"]
 
 
 @admin.register(SiteVisitObservation)

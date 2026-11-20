@@ -24,6 +24,11 @@ def sent_letter_path(instance, filename):
     return f"sent-letters/{timezone.now():%Y}/{secrets.token_hex(16)}.pdf"      # random name: never guessable, never the owner's name
 
 
+def minutes_file_path(instance, filename):
+    ext = "pdf" if str(filename).lower().endswith(".pdf") else "docx"        # only these two are ever accepted (see minutesfiles.py)
+    return f"minutes/{timezone.now():%Y}/{secrets.token_hex(16)}.{ext}"      # random name; the uploader's file name is kept as text only
+
+
 def site_visit_photo_path(instance, filename):
     from .uploads import safe_ext
     return f"site-visits/{timezone.now():%Y}/{secrets.token_hex(16)}.{safe_ext(filename)}"      # random name; the original name is kept as text only
@@ -721,6 +726,35 @@ class _AddOnly(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionDenied("This record can never be deleted.")
+
+
+class MinutesFile(_AddOnly):
+    """A file of minutes uploaded for a committee meeting (PDF or Word .docx). Add-only: uploading again does not touch the earlier file,
+    it adds a new row that says which one it replaced; the newest row is the current file and the rest are the history."""
+    meeting = models.ForeignKey("CommitteeMeeting", on_delete=models.CASCADE, related_name="minutes_files")
+    file = models.FileField(upload_to=minutes_file_path)
+    kind = models.CharField(max_length=4, help_text="pdf or docx, decided from what the file really is.")
+    sha256 = models.CharField(max_length=64, db_index=True)
+    size = models.PositiveIntegerField(default=0)
+    original_name = models.CharField(max_length=200, blank=True, help_text="The file name on the uploader's device (display only).")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    uploaded_by_name = models.CharField(max_length=200, blank=True, help_text="Kept as text so it survives a change to the login.")
+    uploaded_at = models.DateTimeField(default=timezone.now, editable=False)
+    replaces = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="replaced_by",
+                                 help_text="The file that was current when this one was uploaded.")
+
+    class Meta:
+        ordering = ["-uploaded_at", "-pk"]
+
+    def read_bytes(self):
+        with self.file.open("rb") as f:
+            return f.read()
+
+    def intact(self):
+        try:
+            return hashlib.sha256(self.read_bytes()).hexdigest() == self.sha256
+        except Exception:       # noqa: BLE001  (missing file or storage unreachable)
+            return False
 
 
 class SiteVisitObservation(_AddOnly):

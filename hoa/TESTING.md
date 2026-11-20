@@ -60,3 +60,10 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] **Owner home:** hearing banner and its page (only their own items); closed-violations toggle.
 - [ ] **Board queue** bulk table; **Former owners** page; **Standard Responses**; dashboard charts.
 - [ ] **Zoom:** after adding credentials to `hoa/local.env`, the hearing notice PDF shows that meeting's link.
+
+## Uploaded minutes (Phase 3, SEC-15) and retention
+- [ ] Committee meeting page: upload a real PDF and a real Word `.docx`; each shows as "Current file" with who, when and a fingerprint.
+- [ ] Try a `.txt`, a picture, an old `.doc`, and a PDF renamed from a text file: each is refused with a plain message and nothing is saved.
+- [ ] Upload a second file: it becomes current, and the first appears under "Earlier uploads" and still downloads.
+- [ ] The file downloads (it does not open as a web page); a homeowner login cannot open the address.
+- [ ] Former owners page says records are kept 7 years.

@@ -180,3 +180,7 @@ where the last Vantaca owner export is kept.
 
 ## Addendum: `site-visits/` is part of the file backups
 Add the `site-visits/` prefix (committee drive-through photographs) next to `sent-letters/`, photos and minutes. In the quarterly restore test, open one site-visit photograph from the restored copy and compare its SHA-256 with the fingerprint in the case file's `Site-Visit-Observations/photos-manifest.csv`.
+
+
+## Addendum: `minutes/` is part of the file backups
+Uploaded minutes (PDF/.docx) live under `minutes/`; keep that prefix in the nightly file copy next to `sent-letters/` and `site-visits/`. Older versions of replaced minutes are kept on purpose and must be backed up too.

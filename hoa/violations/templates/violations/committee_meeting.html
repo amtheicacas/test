@@ -26,8 +26,11 @@
 {% if not roster %}<div><label>Members absent</label><textarea name="members_absent" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.members_absent }}</textarea></div>{% endif %}
 <div><label>Others present (owners, representatives, management)</label><textarea name="guests" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.guests }}</textarea></div></div>
 <label>Other business and notes</label><textarea name="notes" rows="3" {% if not minutes_open %}disabled{% endif %}>{{ m.notes }}</textarea>
-<label>Or upload your own minutes (optional)</label>{% if m.minutes %}<p style="margin:2px 0"><a href="{% url 'meeting_minutes' m.pk %}" target="_blank">View the uploaded file</a></p>{% endif %}
-{% if minutes_open %}<input type="file" name="minutes" accept=".pdf,.doc,.docx,.txt,image/*"><button style="margin-top:8px">Save meeting details</button>{% endif %}</form>
+<label>Or upload your own minutes (optional; PDF or Word .docx, under 10 MB)</label>
+{% for f in minutes_files %}{% if forloop.first %}<p style="margin:2px 0"><b>Current file:</b> <a href="{% url 'meeting_minutes' m.pk %}">{{ f.original_name }}</a> <span class="mut">&middot; uploaded {{ f.uploaded_at|date:"M j, Y g:i a" }} by {{ f.uploaded_by_name|default:"unknown" }} &middot; fingerprint {{ f.sha256|slice:":12" }}</span></p>
+{% if minutes_files|length > 1 %}<details style="margin:2px 0"><summary class="mut">Earlier uploads ({{ minutes_files|length|add:"-1" }}; nothing is ever deleted)</summary>{% endif %}{% else %}<div class="mut" style="margin:2px 0 2px 12px"><a href="{% url 'meeting_minutes' m.pk %}?v={{ f.pk }}">{{ f.original_name }}</a> &middot; {{ f.uploaded_at|date:"M j, Y g:i a" }} by {{ f.uploaded_by_name|default:"unknown" }} &middot; fingerprint {{ f.sha256|slice:":12" }}</div>{% if forloop.last %}</details>{% endif %}{% endif %}{% endfor %}
+{% if not minutes_files and m.minutes %}<p style="margin:2px 0"><a href="{% url 'meeting_minutes' m.pk %}">Download the uploaded file</a> <span class="mut">(uploaded before upload history was kept)</span></p>{% endif %}
+{% if minutes_open %}<input type="file" name="minutes" accept=".pdf,.docx"><button style="margin-top:8px">Save meeting details</button>{% if minutes_files %}<p class="mut" style="margin:4px 0 0">Choosing a new file adds it as the current one; the earlier file is kept.</p>{% endif %}{% endif %}</form>
 
 <h2 style="margin:18px 0 6px">Violations for this meeting <span class="mut" style="font-weight:400;font-size:.9rem">&middot; {{ sum.n }} case{{ sum.n|pluralize }}, {{ sum.undecided }} still to decide</span></h2>
 {% for r in rows %}{% with v=r.v %}<div class="card" id="case-{{ v.pk }}">
