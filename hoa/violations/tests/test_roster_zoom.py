@@ -68,6 +68,7 @@ def test_a_meeting_without_its_own_year_falls_back_to_the_latest_roster(db):
 @pytest.fixture
 def zoom_on(settings, db):
     settings.ZOOM_ACCOUNT_ID, settings.ZOOM_CLIENT_ID, settings.ZOOM_CLIENT_SECRET = "acct", "cid", "secret"
+    settings.ZOOM_HOST_EMAIL = "host@example.org"
     zoom._token.update(value="", expires=0.0)
 
 
@@ -91,7 +92,7 @@ def test_creating_a_meeting_creates_the_zoom_meeting_and_fills_in_everything(zoo
     assert "+1 929 205 6099 New York" in m.zoom_dial_in
     token_call, create_call = calls
     assert "grant_type=account_credentials" in token_call[1] and "acct" in token_call[1]
-    assert create_call[0] == "POST" and "/v2/users/me/meetings" in create_call[1]
+    assert create_call[0] == "POST" and "/v2/users/host%40example.org/meetings" in create_call[1]
     assert create_call[2]["type"] == 2 and create_call[2]["timezone"] == "America/New_York" and create_call[2]["settings"]["waiting_room"] is True
 
 
@@ -148,3 +149,9 @@ def test_owner_sees_a_hearing_banner_with_days_remaining_and_only_their_own_item
     z = django_user_model.objects.create_user("nope1", password="x"); Profile.objects.update_or_create(user=z, defaults={"role": "homeowner", "owner": nobody})
     client.force_login(z)
     assert client.get(f"/me/hearings/{m.pk}/").status_code == 404 and "homeowner hearing" not in client.get("/me/").content.decode()
+
+
+def test_zoom_needs_a_host_email(zoom_on, settings):
+    settings.ZOOM_HOST_EMAIL = ""
+    with pytest.raises(services.WorkflowError, match="ZOOM_HOST_EMAIL"):
+        services.create_meeting(timezone.now() + timedelta(days=20), create_zoom=True)

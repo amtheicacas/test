@@ -1,7 +1,7 @@
 """Create the Zoom meeting for a committee hearing from inside the app, so nobody has to go to Zoom and paste a link.
 
 Uses a Zoom *Server-to-Server OAuth* app (Zoom Marketplace -> Develop -> Build App -> Server-to-Server OAuth) with the scope to create
-meetings. Set ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET (and ZOOM_HOST_EMAIL, the Zoom user who hosts; default "me").
+meetings. Set ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET and ZOOM_HOST_EMAIL (the email of the Zoom user who hosts: required).
 The request shapes follow Zoom's documented REST API (v2) but have not been run against a live Zoom account: try one meeting and check it."""
 import base64
 import json
@@ -49,7 +49,9 @@ def create_meeting(topic, starts_at, minutes=None):
     body = {"topic": topic[:200], "type": 2, "start_time": start.strftime("%Y-%m-%dT%H:%M:%S"), "timezone": settings.TIME_ZONE,
             "duration": int(minutes or settings.ZOOM_MEETING_MINUTES), "agenda": "Compliance Committee homeowner hearings",
             "settings": {"join_before_host": False, "waiting_room": True, "mute_upon_entry": True, "approval_type": 2}}
-    host = settings.ZOOM_HOST_EMAIL or "me"
+    host = settings.ZOOM_HOST_EMAIL
+    if not host:   # a Server-to-Server app is not a person, so Zoom needs to be told whose meeting this is
+        raise ZoomError("Set ZOOM_HOST_EMAIL to the email of the Zoom user who hosts the hearings.")
     try:
         r = _request("POST", f"https://api.zoom.us/v2/users/{urllib.parse.quote(host)}/meetings", body,
                      {"Authorization": f"Bearer {access_token()}", "Content-Type": "application/json"})
