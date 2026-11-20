@@ -196,3 +196,12 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] `backup_database` run for real (dry run first); the file appears under `database/` in R2 and is not readable without the private key.
 - [ ] A restore rehearsal was done with the stored private key: download from R2 -> `decrypt_backup` -> `pg_restore` into a scratch database -> counts match.
 - [ ] `backup_database` scheduled nightly on the host with its own heartbeat; a deliberately failed run produces an alert.
+
+
+## Addendum (Phase 4)
+- [ ] `ADMIN_URL` set to a hard-to-guess path (for example `board-tools-7k2/`) in the live environment; note it on the recovery sheet.
+- [ ] Lost-phone procedure: a DIFFERENT Board member or the manager confirms who the person is by phone or in person, then uses Staff logins -> Reset two-step (a reason is required); the person re-enrols at their next sign-in. Do NOT delete the device in the admin (it is look-only).
+- [ ] Every staff account is created and its authenticator enrolled in the same sitting (an account with no authenticator lets anyone who knows its password enrol one).
+- [ ] An owner's sign-in email is changed ONLY through Owner -> Sign-in logins (or in Vantaca + sync); update Vantaca as well or the next sync restores the old address.
+- [ ] Records are not deleted in the admin on the live site (the delete buttons are off); people who leave are switched off, not deleted.
+- [ ] Read the Audit log weekly for unexpected role, email or owner changes.

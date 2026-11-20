@@ -77,3 +77,10 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] `python manage.py make_backup_key` prints a public key and writes `backup-private-key.txt` without showing it; running it again refuses to overwrite.
 - [ ] `python manage.py backup_database --dry-run` says it dumped and encrypted and stored nothing.
 - [ ] After the real run a file under `database/` appears in the R2 bucket; `decrypt_backup` turns it back into a database file.
+
+## Accounts and audit (Phase 4)
+- [ ] Owner's correspondence page -> "Sign-in logins": change a test owner's sign-in email with a reason; the old session stops working, the new address gets a link, the audit log shows it.
+- [ ] Staff logins page: a different Board member resets a test person's two-step; resetting your own is refused.
+- [ ] Audit log page lists the changes and can be searched; nothing can be edited.
+- [ ] Admin: Owner email fields are read-only; the delete buttons are gone when the site is not in development mode.
+- [ ] Sign out, press the browser Back button: the previous page is not shown from the cache.

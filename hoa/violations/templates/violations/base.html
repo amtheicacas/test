@@ -67,7 +67,7 @@ details summary{cursor:pointer;text-decoration:underline}
 <a class="nav" href="{% url 'results_list' %}" title="Compliance Committee results, meeting by meeting"><span>Committee results</span><small class="{% if NAV.results %}hot{% endif %}">{% if NAV.results %}{{ NAV.results }} to review{% else %}all meetings{% endif %}</small></a>
 <a class="nav" href="{% url 'map' %}" title="Active homes"><span>Map</span><small>{{ NAV.homes }} homes</small></a>
 <a class="newbtn" href="{% url 'violation_create' %}">+ New violation</a>
-<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Standard Responses</a><a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'owner_archive' %}">Former owners</a><a href="{% url 'admin:index' %}">Admin</a>
+<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Standard Responses</a><a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'owner_archive' %}">Former owners</a><a href="{% url 'staff_logins' %}">Staff logins</a><a href="{% url 'audit_log' %}">Audit log</a><a href="{% url 'admin:index' %}">Admin</a>
 {% if IS_OWNER %}<a href="{% url 'my_home' %}">My violations</a>{% endif %}
 {% elif ROLE == "committee" %}<a class="nav" href="{% url 'committee_home' %}"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
 {% if IS_OWNER %}<a href="{% url 'my_home' %}">My violations</a>{% endif %}

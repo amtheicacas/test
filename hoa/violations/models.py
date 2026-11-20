@@ -757,6 +757,23 @@ class MinutesFile(_AddOnly):
             return False
 
 
+class AuditLog(_AddOnly):
+    """Who changed what about ACCOUNTS and RECORDS (logins, roles, sign-in emails, owner details, the roster, meetings, imports and syncs).
+    The case timeline (`Event`) covers each violation; this covers everything else. Add-only: nothing can edit or delete a row. The actor's
+    name is kept as text so it survives the login being removed. Never holds a password, token or key."""
+    at = models.DateTimeField(default=timezone.now, editable=False, db_index=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    actor_name = models.CharField(max_length=200, blank=True, help_text="Who did it ('system' for the sync and scheduled jobs).")
+    actor_role = models.CharField(max_length=20, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    action = models.CharField(max_length=60, db_index=True, help_text="A short code such as signin_email.changed or owner.changed.")
+    subject = models.CharField(max_length=300, blank=True, help_text="What it was about (a person, an address, a meeting).")
+    detail = models.TextField(blank=True, help_text="What changed, old -> new, for non-secret fields only.")
+
+    class Meta:
+        ordering = ["-at", "-pk"]
+
+
 class SiteVisitObservation(_AddOnly):
     """What the Compliance Committee (or the Board / manager) saw on a drive-through or visit: written notes and photographs, for INTERNAL use
     only (committee, Board and manager; never the owner). Add-only: a mistake is fixed by a new observation that refers to the original

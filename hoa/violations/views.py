@@ -14,8 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import accounts, casefile, minutesfiles, forms, geocoding, ledger, services, sitevisits, standards_search, throttle, uploads, vantaca
-from .models import SentLetter, SiteVisitPhoto, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from . import accounts, audit, casefile, minutesfiles, forms, geocoding, ledger, services, sitevisits, standards_search, throttle, uploads, vantaca
+from .models import AuditLog, SentLetter, SiteVisitPhoto, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -403,15 +403,20 @@ def canned_replies(request):
         P = request.POST
         act, title, body = P.get("action"), (P.get("title") or "").strip()[:80], (P.get("body") or "").strip()
         if act == "delete":
+            gone = CannedReply.objects.filter(pk=P.get("id") or 0).first()
+            if gone:
+                audit.record("standard_response.deleted", gone.title, "", request=request)
             CannedReply.objects.filter(pk=P.get("id") or 0).delete()
             messages.success(request, "Deleted.")
         elif not title or not body:
             messages.error(request, "A standard response needs a title and the text.")
         elif act == "update":
             CannedReply.objects.filter(pk=P.get("id") or 0).update(title=title, body=body)
+            audit.record("standard_response.changed", title, "", request=request)
             messages.success(request, "Saved.")
         else:
             CannedReply.objects.create(title=title, body=body, created_by=request.user)
+            audit.record("standard_response.added", title, "", request=request)
             messages.success(request, "Canned reply added. Everyone on the team can use it.")
         return redirect("canned_replies")
     return render(request, "violations/canned_replies.html", {"replies": CannedReply.objects.select_related("created_by")})
@@ -936,6 +941,7 @@ def owner_archive(request):
             o.active = True
             o.save()
             accounts.sync_account(o)
+            audit.record("owner.reactivated", o.property_address, o.name, request=request)
             messages.success(request, f"{o.name} is active again.")
         return redirect("owner_archive")
     q = (request.GET.get("q") or "").strip()
@@ -980,18 +986,25 @@ def committee_members(request):
                 else:
                     CommitteeMember.objects.create(name=name, role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
                                                    year=y, owner=o, user=user)
+                    audit.record("roster.added", f"{name} ({y})", f"role: {P.get('role') or 'member'}; an owner at {o.property_address}", request=request)
                     messages.success(request, f"{name} added." + ("" if user else " They have no email on file, so they have no login yet: fix it in Vantaca."))
         elif (P.get("login") or "").strip() and login() is None:
             messages.error(request, f'There is no login named "{P["login"].strip()}". Create it first (Admin, Users) or leave this blank.')
         elif act == "add" and (P.get("name") or "").strip():
             CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
                                            year=y, user=login())
+            audit.record("roster.added", f"{P['name'].strip()[:120]} ({y})", f"role: {P.get('role') or 'member'}; login: {(P.get('login') or '').strip() or 'none'}", request=request)
             messages.success(request, "Member added.")
         elif act == "update":
+            audit.record("roster.changed", f"roster entry {P.get('id')}", f"name: {(P.get('name') or '').strip()[:120]}; active: {bool(P.get('active'))}; "
+                         f"role: {P.get('role')}; login: {(P.get('login') or '').strip() or 'none'}", request=request)
             CommitteeMember.objects.filter(pk=P.get("id") or 0).update(name=(P.get("name") or "").strip()[:120] or "Unnamed", active=bool(P.get("active")),
                                                                       role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member", user=login())
             messages.success(request, "Saved.")
         elif act == "delete":
+            gone = CommitteeMember.objects.filter(pk=P.get("id") or 0).first()
+            if gone:
+                audit.record("roster.removed", f"{gone.name} ({gone.year})", "", request=request)
             CommitteeMember.objects.filter(pk=P.get("id") or 0).delete()
             messages.success(request, "Removed.")
         elif act == "copy":
@@ -999,6 +1012,7 @@ def committee_members(request):
             for old in CommitteeMember.objects.filter(year=y - 1, active=True):
                 _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role, "user": old.user, "owner": old.owner})
                 n += int(new)
+            audit.record("roster.copied", f"{y - 1} -> {y}", f"{n} member(s) copied", request=request)
             messages.success(request, f"Copied {n} member{'s' if n != 1 else ''} from {y - 1}.")
         accounts.sync_committee_logins()
         return redirect(f"{reverse('committee_members')}?year={y}")
@@ -1077,6 +1091,11 @@ def _parse_time(s):
         return None
 
 
+def _meeting_label(m):
+    t = timezone.localtime(m.starts_at)
+    return f"Meeting {t:%b} {t.day}, {t.year}"
+
+
 @staff_or_committee
 @require_POST
 def committee_meeting_save(request, pk):
@@ -1100,6 +1119,9 @@ def committee_meeting_save(request, pk):
         row, err = minutesfiles.add(m, f, request.user)         # the upload history is the MinutesFile rows (who, when, fingerprint, what it replaced)
         if err:
             messages.error(request, err)
+        else:
+            audit.record("minutes.uploaded", _meeting_label(m), f"{row.original_name} ({row.size:,} bytes, fingerprint {row.sha256[:12]})"
+                         + (", replacing the earlier file" if row.replaces_id else ""), request=request)
     messages.success(request, "Meeting details saved.")
     return redirect("committee_meeting", pk=pk)
 
@@ -1530,7 +1552,7 @@ def import_owners(request):
                 ImportMapping.objects.update_or_create(signature=vantaca.header_signature(headers), defaults={"mapping": mapping})
                 mapped = vantaca.apply_mapping(rows, mapping)
                 if action == "apply":
-                    result = vantaca.sync_rows(mapped, invite=bool(request.POST.get("invite")))
+                    result = vantaca.sync_rows(mapped, invite=bool(request.POST.get("invite")), actor=request.user)
                     sess.pop("import", None)
                     messages.success(request, "Imported: " + ", ".join(f"{v} {k}" for k, v in result.items() if v))
                     return redirect("import_owners")
@@ -1568,3 +1590,63 @@ def locate_homes(request):
         return redirect("map")
     messages.success(request, f"{located} home(s) placed on the map." + (f" {missing} could not be found: check those addresses." if missing else ""))
     return redirect("map")
+
+
+# ---------- logins, sign-in email changes, two-step resets, audit log (Board / manager only) ----------
+@staff_only
+def owner_logins(request, pk):
+    """Board / manager: the sign-in logins of one household, with the controlled 'Change sign-in email' and 'Sign out everywhere' actions."""
+    o = get_object_or_404(Owner, pk=pk)
+    if request.method == "POST":
+        profile = get_object_or_404(o.profiles.select_related("user"), pk=request.POST.get("profile") or 0)
+        try:
+            if request.POST.get("action") == "change_email":
+                r = accounts.change_signin_email(profile, request.POST.get("new_email", ""), request.user, request.POST.get("reason", ""), request)
+                msg = (f"Sign-in email changed from {r['old'] or '(none)'} to {r['new']}. Old links and sessions were cancelled. "
+                       + ("The old address was told. " if r["notice_sent"] else "The old address could NOT be emailed (see the audit log). ")
+                       + ("A first sign-in link was sent to the new address." if r["link_sent"] else "The sign-in link could NOT be sent (see the audit log)."))
+                messages.success(request, msg + " Remember: if Vantaca still has the old address, its next sync will change it back, so update Vantaca too.")
+            elif request.POST.get("action") == "sign_out":
+                n = accounts.end_sessions(profile.user)
+                audit.record("sessions.ended", f"{o.property_address} ({profile.user.get_username()})", f"Signed out everywhere ({n} session(s)).", request=request)
+                messages.success(request, f"{profile.user.get_username()} was signed out everywhere ({n} session{'s' if n != 1 else ''}).")
+        except accounts.AccountError as e:
+            messages.error(request, str(e))
+        return redirect("owner_logins", pk=o.pk)
+    logins = [{"p": p, "u": p.user} for p in o.profiles.select_related("user").order_by("pk")]
+    trail = AuditLog.objects.filter(subject__startswith=o.property_address)[:30]
+    return render(request, "violations/owner_logins.html", {"owner": o, "logins": logins, "trail": trail})
+
+
+@staff_only
+def staff_logins(request):
+    """Board / manager: every Board, manager and committee login, with two-step status and the audited 'Reset two-step' action."""
+    from django_otp import user_has_device
+    if request.method == "POST":
+        target = get_object_or_404(get_user_model().objects.select_related("profile"), pk=request.POST.get("user") or 0)
+        try:
+            if request.POST.get("action") == "reset_two_step":
+                r = accounts.reset_two_step(target, request.user, request.POST.get("reason", ""), request)
+                messages.success(request, f"Two-step sign-in reset for {target.get_username()}: they were signed out everywhere"
+                                          f"{' and emailed' if r['emailed'] else ' (the email could not be sent)'}. They set it up again at their next sign-in.")
+            elif request.POST.get("action") == "sign_out":
+                n = accounts.end_sessions(target)
+                audit.record("sessions.ended", target.get_username(), f"Signed out everywhere ({n} session(s)).", request=request)
+                messages.success(request, f"{target.get_username()} was signed out everywhere ({n} session{'s' if n != 1 else ''}).")
+        except accounts.AccountError as e:
+            messages.error(request, str(e))
+        return redirect("staff_logins")
+    rows = []
+    for u in get_user_model().objects.filter(profile__role__in=("manager", "board", "committee")).select_related("profile", "profile__owner").order_by("profile__role", "username"):
+        rows.append({"u": u, "role": u.profile.get_role_display().split(" (")[0], "device": user_has_device(u), "me": u.pk == request.user.pk})
+    return render(request, "violations/staff_logins.html", {"rows": rows})
+
+
+@staff_only
+def audit_log(request):
+    """Board / manager: the account and record audit trail (newest first). Look only."""
+    q = (request.GET.get("q") or "").strip()
+    qs = AuditLog.objects.all()
+    if q:
+        qs = qs.filter(Q(action__icontains=q) | Q(subject__icontains=q) | Q(detail__icontains=q) | Q(actor_name__icontains=q))
+    return render(request, "violations/audit_log.html", {"entries": qs[:300], "q": q, "total": AuditLog.objects.count()})

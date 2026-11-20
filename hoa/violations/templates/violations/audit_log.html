@@ -1,0 +1,8 @@
+{% extends "violations/base.html" %}{% block title %}Audit log{% endblock %}{% block content %}
+<h1>Audit log</h1>
+<p class="mut">Who changed logins, roles, sign-in emails, owner details, the committee roster, meetings, imports and syncs. Look only: entries can never be edited or deleted. The history of each violation is on its own page. {{ total }} entr{{ total|pluralize:"y,ies" }} in all; the newest 300 are shown.</p>
+<form method="get" class="row" style="margin-bottom:10px"><input name="q" value="{{ q }}" placeholder="Search who, what, address, action" style="flex:3 1 300px"><button style="flex:0 0 auto;min-width:0">Search</button></form>
+<div class="card" style="padding:0;overflow:auto"><table><tr><th>When<th>Who<th>What<th>About</tr>
+{% for e in entries %}<tr><td>{{ e.at|date:"M j, Y g:i a" }}<td>{{ e.actor_name }}{% if e.actor_role %}<div class="mut">{{ e.actor_role }}</div>{% endif %}{% if e.ip_address %}<div class="mut">{{ e.ip_address }}</div>{% endif %}
+<td><b>{{ e.action }}</b><div class="mut">{{ e.detail }}</div><td>{{ e.subject }}</tr>
+{% empty %}<tr><td colspan="4" class="mut">{% if q %}Nothing matches "{{ q }}".{% else %}Nothing recorded yet.{% endif %}</tr>{% endfor %}</table></div>{% endblock %}

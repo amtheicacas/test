@@ -30,6 +30,10 @@ def owner_of(user):
     return p.owner if p and p.owner_id else None
 
 
+class AccountError(Exception):
+    """A refused account action (shown to the person who tried it)."""
+
+
 LINK_MINUTES = 15          # an emailed sign-in link works for this long, once
 OWNER_SESSION_DAYS = 30    # an owner stays signed in on a device this long
 
@@ -220,7 +224,134 @@ def sync_account(owner):
         if owner_profile and new and owner_profile.user.email.lower() != new.lower() \
                 and not User.objects.filter(username__iexact=new).exclude(pk=owner_profile.user_id).exists():
             u = owner_profile.user
+            old = u.email
             u.username = u.email = new  # the owner's login follows the Vantaca email; the old address stops working
             u.save()
             result = "updated"
+            from . import audit            # the access change is audited, unused links are cancelled, sessions end, the old address is told
+            signed_out = end_sessions(u)
+            audit.record("signin_email.changed", f"{owner.property_address} (owner, {u.get_full_name() or old})",
+                         f"{old} -> {new} (changed by the Vantaca sync). Unused links cancelled: {revoke_links(u)}; sessions ended: {signed_out}.")
+            try:
+                _notify_old_address(owner.property_address, old, new, "")
+            except Exception as e:      # noqa: BLE001
+                audit.record("signin_email.mail_failed", owner.property_address, f"notice: {type(e).__name__}")
     return result
+
+
+# ---------- controlled account actions (SEC-05, SEC-14, SEC-17); each one is written to the audit log ----------
+def end_sessions(user):
+    """Sign this person out everywhere: delete every browser session that belongs to them. Returns how many."""
+    from django.contrib.sessions.models import Session
+    n = 0
+    for s in Session.objects.filter(expire_date__gt=timezone.now()):
+        if s.get_decoded().get("_auth_user_id") == str(user.pk):
+            s.delete()
+            n += 1
+    return n
+
+
+def _mask(email):
+    local, _, domain = (email or "").partition("@")
+    return f"{local[:1]}***@{domain}" if domain else "(no address)"
+
+
+def _notify_old_address(owner_label, old, new, by):
+    """Tell the OLD address its sign-in email was changed (so a wrong or hostile change is noticed). Never shows the full new address."""
+    if not old:
+        return
+    EmailMessage(f"The sign-in email for your {settings.APP_NAME} account was changed",
+                 f"Hello,\n\nThe sign-in email for {owner_label} on the {settings.APP_NAME} was changed from this address to {_mask(new)} "
+                 f"on {timezone.localdate():%b} {timezone.localdate().day}, {timezone.localdate().year}{(' by ' + by) if by else ''}.\n\n"
+                 f"If you did not expect this, please contact the Board right away. This address can no longer be used to sign in.\n\n"
+                 f"On behalf of the Board of Directors\n{settings.HOA_NAME}",
+                 settings.DEFAULT_FROM_EMAIL, [old]).send()
+
+
+def change_signin_email(profile, new_email, actor, reason, request=None):
+    """Staff action: change one household login's sign-in email. In one step it updates the login AND the owner record's matching address,
+    cancels unused sign-in links, signs the person out everywhere, and writes the audit entry; then it emails the OLD address a notice and
+    sends the first sign-in link to the NEW address (opening it is the proof the address is right). NOTE: Vantaca stays the source of
+    truth, so the next sync restores Vantaca's address unless Vantaca is updated too. Returns a dict describing what happened."""
+    from django.core.validators import validate_email
+    from django.core.exceptions import ValidationError
+    from django.db import transaction
+    from . import audit
+    if role_of(actor) not in STAFF_ROLES:
+        raise AccountError("Only the Board or manager can change a sign-in email.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise AccountError("Say why the address is being changed (it is kept in the audit log).")
+    new = (new_email or "").strip().lower()
+    try:
+        validate_email(new)
+    except ValidationError:
+        raise AccountError("That doesn't look like a valid email address.")
+    if len(new) > 150:
+        raise AccountError("That address is too long.")
+    user, owner = profile.user, profile.owner
+    if owner is None:
+        raise AccountError("This login is not part of an owner household.")
+    old = user.email
+    if new == (old or "").lower():
+        raise AccountError("That is already this login's sign-in email.")
+    User = get_user_model()
+    if User.objects.filter(username__iexact=new).exclude(pk=user.pk).exists() or User.objects.filter(email__iexact=new).exclude(pk=user.pk).exists():
+        raise AccountError("Another login already uses that address.")
+    other = household_for_email(new)
+    if other is not None and other.pk != owner.pk:
+        raise AccountError("That address is on a different household's record. It can't be used here.")
+    field = {"owner": "email", "co_owner": "co_owner_email", "tenant": "tenant_email"}.get(profile.relationship)
+    with transaction.atomic():
+        user.username = user.email = new
+        user.save(update_fields=["username", "email"])
+        if field:
+            setattr(owner, field, new)
+            owner.save(update_fields=[field])
+        revoked, signed_out = revoke_links(user), end_sessions(user)
+        audit.record("signin_email.changed", f"{owner.property_address} ({profile.relationship}, {user.get_full_name() or old})",
+                     f"{old} -> {new}. Reason: {reason}. Unused links cancelled: {revoked}; sessions ended: {signed_out}. "
+                     f"Owner record address updated: {'yes (' + field + ')' if field else 'no'}.", actor=actor, request=request)
+    out = {"old": old, "new": new, "notice_sent": False, "link_sent": False}
+    for key, fn in (("notice_sent", lambda: _notify_old_address(owner.property_address, old, new, actor.get_full_name() or actor.get_username())),
+                    ("link_sent", lambda: send_signin_link(user, request))):
+        try:
+            fn()
+            out[key] = True
+        except Exception as e:      # noqa: BLE001  (a mail problem must not undo the change; it is recorded)
+            audit.record("signin_email.mail_failed", owner.property_address, f"{key}: {type(e).__name__}", actor=actor, request=request)
+    return out
+
+
+def reset_two_step(user, actor, reason, request=None):
+    """Staff action for a lost phone: remove this person's authenticator so they can enrol a new one at their next sign-in. A DIFFERENT
+    Board member/manager must do it (never your own), a reason is required, the person is signed out everywhere and emailed, and it is audited."""
+    from django_otp import devices_for_user
+    from . import audit
+    if role_of(actor) not in STAFF_ROLES:
+        raise AccountError("Only the Board or manager can reset two-step sign-in.")
+    if actor.pk == user.pk:
+        raise AccountError("You can't reset your own two-step sign-in: another Board member or the manager must do it after confirming who you are.")
+    reason = (reason or "").strip()
+    if not reason:
+        raise AccountError("Say how the person's identity was confirmed and why (it is kept in the audit log).")
+    devices = list(devices_for_user(user, confirmed=None))
+    if not devices:
+        raise AccountError("This person has no authenticator set up, so there is nothing to reset.")
+    for d in devices:
+        d.delete()
+    signed_out = end_sessions(user)
+    audit.record("two_step.reset", user.get_full_name() or user.get_username(),
+                 f"{len(devices)} authenticator(s) removed; sessions ended: {signed_out}. Reason: {reason}", actor=actor, request=request)
+    mailed = False
+    if user.email:
+        try:
+            EmailMessage(f"Your {settings.APP_NAME} two-step sign-in was reset",
+                         f"Hello {user.first_name or 'there'},\n\nYour two-step sign-in (authenticator app) for the {settings.APP_NAME} was reset by "
+                         f"{actor.get_full_name() or actor.get_username()}. You will be asked to set it up again the next time you sign in.\n\n"
+                         f"If you did not ask for this, tell the Board right away.\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}",
+                         settings.DEFAULT_FROM_EMAIL, [user.email]).send()
+            mailed = True
+        except Exception as e:      # noqa: BLE001
+            audit.record("two_step.mail_failed", user.get_username(), type(e).__name__, actor=actor, request=request)
+    return {"devices": len(devices), "signed_out": signed_out, "emailed": mailed}

@@ -215,9 +215,13 @@ def upsert_owner(row):
             owner.active, owner.inactive_reason = False, "Home sold: the address now belongs to a different Vantaca owner"
             owner.save()
             accounts.sync_account(owner)
+            from . import audit
+            audit.record("owner.deactivated", owner.property_address, f"{owner.name}: {owner.inactive_reason}", actor=ACTOR.get())
             owner = None
     created = owner is None
     owner = owner or Owner()
+    watched = ("name", "second_owner_name", "property_address", "email", "co_owner_email", "tenant_name", "tenant_email")
+    before = {f: getattr(owner, f) for f in watched} if not created else {}
     for f in ("name", "property_address", "email", "additional_emails", "phone"):
         setattr(owner, f, d[f])
     for f in ("city", "state", "zip_code", "lot_no", "account_number"):  # keep what we have when the export has no value
@@ -236,6 +240,11 @@ def upsert_owner(row):
     owner.active = True  # present in the feed, so currently an owner
     _fit_columns(owner)
     owner.save()
+    if before:                                  # who owns it and where emails go decide who may see a household's records: record real changes
+        from . import audit
+        note = audit.diff(before, {f: getattr(owner, f) for f in watched}, watched)
+        if note:
+            audit.record("owner.changed", owner.property_address, note + " (Vantaca sync)", actor=ACTOR.get())
     return ("created" if created else "updated"), owner
 
 
@@ -243,12 +252,25 @@ class SafetyStop(Exception):
     pass
 
 
-def sync_rows(rows, invite=False, deactivate_missing=False, force=False):
+import contextvars
+ACTOR = contextvars.ContextVar("vantaca_sync_actor", default=None)      # who started the sync (None = the scheduled job / command line)
+
+
+def sync_rows(rows, invite=False, deactivate_missing=False, force=False, actor=None):
     """Upsert owners, then keep logins in step:
     invite=True            email new owners a link to set up their login
     deactivate_missing=True owners (with a Vantaca ID) absent from this FULL feed are marked inactive and lose access.
                             Refuses if that would deactivate more than 20% of owners (a bad/partial feed) unless force."""
     result = {"created": 0, "updated": 0, "skipped": 0, "invited": 0, "deactivated": 0, "logins_updated": 0}
+    token = ACTOR.set(actor)
+    try:
+        return _sync_rows(rows, invite, deactivate_missing, force, actor, result)
+    finally:
+        ACTOR.reset(token)
+
+
+def _sync_rows(rows, invite, deactivate_missing, force, actor, result):
+    from . import audit
     seen = set()
     rows, _ = infer_lots(list(rows))
     for r in rows:
@@ -272,7 +294,9 @@ def sync_rows(rows, invite=False, deactivate_missing=False, force=False):
             o.active, o.inactive_reason = False, "No longer in the Vantaca feed"
             o.save()
             accounts.sync_account(o)
+            audit.record("owner.deactivated", o.property_address, f"{o.name}: {o.inactive_reason}", actor=actor)
             result["deactivated"] += 1
+    audit.record("owners.synced", "Owner import / Vantaca sync", ", ".join(f"{k}: {v}" for k, v in result.items()), actor=actor)
     return result
 
 

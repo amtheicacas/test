@@ -58,6 +58,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django_otp.middleware.OTPMiddleware",
     "violations.middleware.RequireTwoStep",
+    "violations.middleware.NoStorePrivatePages",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -259,6 +260,8 @@ MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
 X_FRAME_OPTIONS = "SAMEORIGIN"   # lets the app show its own letter PDFs inside its pages
 ARCHIVE_RETENTION_YEARS = int(env("ARCHIVE_RETENTION_YEARS", "7"))   # how long former owners' records are kept before they may be purged
 STAFF_ADMIN_ACCESS = env("STAFF_ADMIN_ACCESS", "1") == "1"   # managers and board members get the same access, including the admin screens
+# Where the Django admin lives. Pick something nobody would guess on the live site (e.g. ADMIN_URL=board-tools-7k2/); the default is /admin/.
+ADMIN_URL = env("ADMIN_URL", "admin/").strip("/") + "/"
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 # Suspension of Common Area use is in the Declaration but does not apply today (there are no amenities), so the application does not show or
 # offer it. Set SUSPENSION_ENABLED=1 to bring it back (nothing is deleted from the database either way).

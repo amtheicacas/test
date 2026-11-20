@@ -23,3 +23,17 @@ class RequireTwoStep:
             target = "security_verify" if user_has_device(u) else "security_setup"
             return redirect(f"{reverse(target)}?next={request.get_full_path()}")
         return self.get_response(request)
+
+
+class NoStorePrivatePages:
+    """Pages shown to a signed-in person are never kept by the browser or a shared computer's cache, so the Back button after signing out
+    cannot show someone's cases. A view that sets its own Cache-Control (the file downloads do) keeps it. Static files are untouched."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.user.is_authenticated and not request.path.startswith("/static/") and "Cache-Control" not in response:
+            response["Cache-Control"] = "no-store, private"
+        return response

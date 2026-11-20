@@ -16,7 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
-from . import ledger, mailing
+from . import audit, ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
 
@@ -773,8 +773,15 @@ def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting
             zoom_link, zoom_meeting_id, zoom_passcode, zoom_dial_in, api_id = z["link"], z["meeting_id"], z["passcode"], z["dial_in"], z["api_id"]
     if not (zoom_link or location):
         raise WorkflowError("Add a Zoom link and/or a location for the meeting.")
-    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id, series=series,
-                                           zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
+    m = CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id, series=series,
+                                        zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
+    audit.record("meeting.created", _when(m), (f"series: {series}. " if series else "") + (f"Location: {location}. " if location else "") + ("Zoom link added." if zoom_link else ""), actor=user)
+    return m
+
+
+def _when(m):
+    t = timezone.localtime(m.starts_at)
+    return f"Meeting {t:%b} {t.day}, {t.year} {t:%I:%M %p}".replace(" 0", " ")
 
 
 def _meeting_changeable(m):
@@ -798,6 +805,7 @@ def reschedule_meeting(m, new_start, user=None, notify=True):
     old = timezone.localtime(m.starts_at)
     m.starts_at = new_start
     m.save()
+    audit.record("meeting.rescheduled", _when(m), f"from {old:%b} {old.day}, {old.year} to {_when(m)[8:]}; {len(cases)} case(s); owners notified: {'yes' if notify and cases else 'no'}", actor=user)
     warnings = []
     try:
         zoom.update_meeting_time(m.zoom_api_id, new_start)
@@ -835,6 +843,7 @@ def cancel_meeting(m, user=None, notify=True):
         zoom.delete_meeting(m.zoom_api_id)
     except zoom.ZoomError as e:
         warnings.append(f"{e} Delete it in Zoom by hand.")
+    audit.record("meeting.cancelled", _when(m), f"Cancelled; owners notified: {'yes' if notify else 'no'}", actor=user)
     m.delete()
     return warnings
 
