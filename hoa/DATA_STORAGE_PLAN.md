@@ -190,3 +190,7 @@ New private files under `site-visits/<year>/<random>.<ext>` (same storage as pho
 
 ## Update: SEC-15 (minutes uploads) built
 Add-only `MinutesFile` rows (migration 0042); files under `minutes/<year>/<random>.<pdf|docx>`; content checks, history and permission-checked download as described in `CLAUDE.md` ("Uploaded minutes"). The `minutes/` prefix is part of the file backups. Still to prove against a real private bucket: upload, redeploy, download, fingerprint still matches.
+
+
+## Update: vendor chosen (B2 live + R2 copy) and a correction about "cannot delete"
+See `PROJECT_STATUS.md` section 25. A key without delete permission can still hide an object with a delete marker on a versioned bucket (it needs `writeFiles` for that); only `deleteFiles` removes a stored version. Keep versioning on, give the live app key no `deleteFiles`, and treat the second copy at R2 as the real protection. `python manage.py check_storage` reports what a key can do.
