@@ -67,10 +67,21 @@ class Command(BaseCommand):
         bucket = bool(getattr(settings, "STORAGE_BUCKET", "") or settings.STORAGES["default"]["BACKEND"].endswith("S3Storage"))
         if not bucket:
             self.stdout.write("No bucket is configured (STORAGE_BUCKET is empty), so this checks the local media folder only.")
+        if bucket:
+            o_ = settings.STORAGES["default"]["OPTIONS"]       # only what is safe to show: never the key itself
+            self.stdout.write(f"Using bucket '{o_.get('bucket_name')}' at {o_.get('endpoint_url') or '(default AWS address)'} "
+                              f"(region {o_.get('region_name') or 'not set'}); key ID is {len(o_.get('access_key') or '')} characters, "
+                              f"key is {len(o_.get('secret_key') or '')} characters.")
         try:
             results = run_checks(default_storage, bucket)
         except Exception as e:      # noqa: BLE001
-            raise CommandError(f"The storage did not work: {type(e).__name__}: {e}")
+            hint = ""
+            if "403" in str(e) or "Forbidden" in str(e) or "AccessDenied" in str(e):
+                hint = ("\nA 403 means the bucket refused this key. Usual causes: the key was made for a different bucket than the one named above, "
+                        "a character was lost or added when the key or its ID was pasted (compare the lengths above with what Backblaze shows), "
+                        "the key lacks a permission (it needs listBuckets, listFiles, readFiles, writeFiles), or the bucket is in a different region "
+                        "from the endpoint above.")
+            raise CommandError(f"The storage did not work: {type(e).__name__}: {e}{hint}")
         bad = 0
         for ok, text in results:
             self.stdout.write(("  OK   " if ok else "  NOTE " if ok is None else "  FAIL ") + text)
