@@ -12,11 +12,23 @@ def invite(modeladmin, request, queryset):
     messages.success(request, f"{sent} invitation(s) sent. Owners without an email or already invited were skipped.")
 
 
+@admin.action(description="Mark as moved out / sold (inactive, kept for the retention period)")
+def mark_inactive(modeladmin, request, queryset):
+    n = 0
+    for o in queryset.filter(active=True):
+        o.active, o.inactive_reason = False, "Marked inactive by " + request.user.get_username()
+        o.save()
+        accounts.sync_account(o)
+        n += 1
+    messages.success(request, f"{n} owner(s) marked inactive. Find them under Former owners.")
+
+
 @admin.register(Owner)
 class OwnerAdmin(admin.ModelAdmin):
     search_fields = ["name", "property_address", "email"]
-    list_display = ["name", "property_address", "email", "tenant_name", "last_synced_at"]
-    actions = [invite]
+    list_display = ["name", "property_address", "email", "tenant_name", "active", "inactive_since", "last_synced_at"]
+    list_filter = ["active"]
+    actions = [invite, mark_inactive]
 
 
 admin.site.register(ViolationType, list_display=["name", "reference", "default_cure_days", "default_fine"])

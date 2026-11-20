@@ -1,0 +1,10 @@
+{% extends "violations/base.html" %}{% block title %}Former owners{% endblock %}{% block content %}
+<h1>Former owners</h1>
+<p class="mut">Owners and households that moved out or sold. Their records, violations, letters and emails are kept for {{ years }} years after they were marked inactive, then may be purged. They no longer appear in lists, on the map or in the violation form, and their logins are switched off.</p>
+<form method="get" class="row" style="margin-bottom:10px"><input name="q" value="{{ q }}" placeholder="Search name, address, lot, email, tenant, account #" style="flex:3 1 300px"><button style="flex:0 0 auto;min-width:0">Search</button></form>
+<div class="card" style="padding:0;overflow:auto"><table><tr><th>Owner<th>Address<th>Inactive since<th>Kept until<th>Violations<th></tr>
+{% for o in owners %}<tr><td><b>{{ o.name }}</b>{% if o.second_owner_name %} &amp; {{ o.second_owner_name }}{% endif %}{% if o.tenant_name %}<div class="mut">Tenant: {{ o.tenant_name }}</div>{% endif %}<div class="mut">{{ o.email }}</div>
+<td>{{ o.property_address }}{% if o.lot_no %}<div class="mut">Lot {{ o.lot_no }}</div>{% endif %}<td>{{ o.inactive_since|date:"M j, Y" }}<div class="mut">{{ o.inactive_reason }}</div><td>{{ o.keep_until|date:"M j, Y" }}
+<td>{% if o.n %}<a href="{% url 'owner_correspondence' o.pk %}">{{ o.n }} case{{ o.n|pluralize }}: letters &amp; emails</a>{% else %}<span class="mut">none</span>{% endif %}
+<td><form method="post">{% csrf_token %}<input type="hidden" name="id" value="{{ o.pk }}"><button class="sec" onclick="return confirm('Make {{ o.name }} active again?')">Reactivate</button></form></tr>
+{% empty %}<tr><td colspan="6" class="mut">{% if q %}No former owner matches "{{ q }}".{% else %}No former owners yet.{% endif %}</tr>{% endfor %}</table></div>{% endblock %}

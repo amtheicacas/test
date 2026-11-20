@@ -35,7 +35,7 @@ def _norm_addr(text):
 class Owner(models.Model):
     name = models.CharField(max_length=200, help_text="Homeowner name 1 (as Vantaca lists it).")
     second_owner_name = models.CharField(max_length=200, blank=True, help_text="Homeowner name 2. Added to letters as the second person.")
-    property_address = models.CharField(max_length=250, unique=True, help_text="The physical address. Default mailing address.")
+    property_address = models.CharField(max_length=250, help_text="The physical address. Default mailing address. Only one ACTIVE owner can have an address; former owners keep theirs.")
     lot_no = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True, help_text="Leave blank to send by mail only.")
     additional_emails = models.TextField(blank=True, help_text="More owner emails, separated by ';'. All of them get violation emails.")
@@ -63,12 +63,32 @@ class Owner(models.Model):
                                    help_text="Vantaca Homeowner ID (set by the import / sync).")
     account_number = models.CharField(max_length=50, blank=True, help_text="Vantaca Account Number.")
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    inactive_since = models.DateField(null=True, blank=True, help_text="When the owner was marked inactive (moved out or sold). Kept for the retention period.")
+    inactive_reason = models.CharField(max_length=200, blank=True)
 
     class Meta:
         ordering = ["property_address"]
+        constraints = [models.UniqueConstraint(fields=["property_address"], condition=models.Q(active=True), name="one_active_owner_per_address")]
 
     def __str__(self):
         return f"{self.name} — {self.property_address}"
+
+    def save(self, *args, **kwargs):
+        if not self.active and self.inactive_since is None:
+            self.inactive_since = date.today()
+        elif self.active and self.inactive_since is not None:
+            self.inactive_since, self.inactive_reason = None, ""
+        super().save(*args, **kwargs)
+
+    @property
+    def keep_until(self):
+        """Inactive records are kept this long (ARCHIVE_RETENTION_YEARS) before they may be purged."""
+        if self.inactive_since is None:
+            return None
+        try:
+            return self.inactive_since.replace(year=self.inactive_since.year + settings.ARCHIVE_RETENTION_YEARS)
+        except ValueError:                       # Feb 29
+            return self.inactive_since.replace(year=self.inactive_since.year + settings.ARCHIVE_RETENTION_YEARS, day=28)
 
     # ---- who gets the notice ----
     @property
@@ -239,6 +259,8 @@ class CommitteeMember(models.Model):
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.MEMBER)
     year = models.PositiveSmallIntegerField(help_text="The year of service this roster entry covers.")
     active = models.BooleanField(default=True, help_text="Untick if the member left mid-year.")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                             help_text="Their login. It switches off by itself when they are not on the current year's roster.")
 
     class Meta:
         ordering = ["year", "name"]

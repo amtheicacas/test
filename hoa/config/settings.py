@@ -199,6 +199,7 @@ MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Max
 BOARD_REVIEW_TARGET_DAYS = int(env("BOARD_REVIEW_TARGET_DAYS", "14"))   # the dashboard flags a case "overdue" when the Board has not voted this many days after the cure period ended
 MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
 X_FRAME_OPTIONS = "SAMEORIGIN"   # lets the app show its own letter PDFs inside its pages
+ARCHIVE_RETENTION_YEARS = int(env("ARCHIVE_RETENTION_YEARS", "3"))   # how long former owners' records are kept before they may be purged
 STAFF_ADMIN_ACCESS = env("STAFF_ADMIN_ACCESS", "1") == "1"   # managers and board members get the same access, including the admin screens
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))

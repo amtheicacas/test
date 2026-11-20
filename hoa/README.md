@@ -162,3 +162,9 @@ The committee members are loaded once a year under **Committee members** (manage
 
 ### Zoom
 With Zoom connected, scheduling a meeting creates the Zoom meeting for you (waiting room on): its link, ID, passcode and dial-in numbers are filled in and go straight onto the hearing notices, so nobody has to go to Zoom. To connect it, a Zoom account admin creates a **Server-to-Server OAuth app** (Zoom App Marketplace, Develop, Build App) with the scope to create meetings, then set `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (and `ZOOM_HOST_EMAIL`, the Zoom user who hosts). This follows Zoom's documented API but has not been run against a live Zoom account: create one test meeting and check it. If Zoom can't be reached the app says so and you can paste a link as before.
+
+### Former owners (kept 3 years)
+Owners who move out or sell are never deleted by the sync: they are marked **inactive** with the date and a reason, their logins (and a tenant's, when the lease ends) switch off, and they drop out of lists, the map and the new-violation form. Their violations, letters and emails stay attached to them. When Vantaca shows a different owner at an address (a sale), the old owner is archived and the new owner gets a fresh record, so the new owner starts with a clean history. Find them under **Former owners** (search by name, address, lot, email, tenant or account number), where they can also be reactivated. Records are kept `ARCHIVE_RETENTION_YEARS` (3) years; `python manage.py purge_archived_owners` lists what is past that and, only with `--yes`, deletes it. In Admin you can also tick owners and "Mark as moved out / sold".
+
+### Committee logins
+Committee members change each year. On the roster you can link a member to their login; that login then switches on and off by itself with the current year's roster (the daily job and every roster edit apply it). The roster page lists committee logins that aren't linked to anyone.

@@ -3,6 +3,7 @@ from functools import wraps
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Exists, OuterRef, Q, Sum
@@ -13,7 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
-from .models import short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from .models import Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -701,6 +702,30 @@ def _minutes_waiting(m):
                 .exclude(pk=m.pk).filter(starts_at__lt=timezone.now()).order_by("starts_at"))
 
 
+@staff_only
+def owner_archive(request):
+    """Former owners and tenants' records (moved out / sold), kept for ARCHIVE_RETENTION_YEARS and searchable here. Nothing is lost:
+    their violations, letters and emails stay attached to them."""
+    if request.method == "POST":
+        o = get_object_or_404(Owner, pk=request.POST.get("id") or 0, active=False)
+        if Owner.objects.filter(property_address=o.property_address, active=True).exists():
+            messages.error(request, f"{o.property_address} already has an active owner, so this record can't be reactivated.")
+        else:
+            o.active = True
+            o.save()
+            accounts.sync_account(o)
+            messages.success(request, f"{o.name} is active again.")
+        return redirect("owner_archive")
+    q = (request.GET.get("q") or "").strip()
+    qs = Owner.objects.filter(active=False).annotate(n=Count("violations"))
+    if q:
+        qs = qs.filter(Q(name__icontains=q) | Q(second_owner_name__icontains=q) | Q(property_address__icontains=q) | Q(lot_no__iexact=q)
+                       | Q(email__icontains=q) | Q(additional_emails__icontains=q) | Q(tenant_name__icontains=q) | Q(account_number__icontains=q)
+                       | Q(external_id__iexact=q))
+    return render(request, "violations/owner_archive.html", {"owners": qs.order_by("-inactive_since", "property_address"), "q": q,
+                                                              "years": settings.ARCHIVE_RETENTION_YEARS})
+
+
 @staff_or_committee
 def committee_members(request):
     """The committee roster by year. Managers and board members load it once a year; committee members can read it."""
@@ -716,12 +741,16 @@ def committee_members(request):
             raise PermissionDenied
         P, act = request.POST, request.POST.get("action")
         y = int(P.get("year") or year)
-        if act == "add" and (P.get("name") or "").strip():
-            CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member", year=y)
+        login = lambda: get_user_model().objects.filter(username__iexact=(P.get("login") or "").strip()).first() if (P.get("login") or "").strip() else None
+        if (P.get("login") or "").strip() and login() is None:
+            messages.error(request, f'There is no login named "{P["login"].strip()}". Create it first (Admin, Users) or leave this blank.')
+        elif act == "add" and (P.get("name") or "").strip():
+            CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
+                                           year=y, user=login())
             messages.success(request, "Member added.")
         elif act == "update":
             CommitteeMember.objects.filter(pk=P.get("id") or 0).update(name=(P.get("name") or "").strip()[:120] or "Unnamed", active=bool(P.get("active")),
-                                                                      role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member")
+                                                                      role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member", user=login())
             messages.success(request, "Saved.")
         elif act == "delete":
             CommitteeMember.objects.filter(pk=P.get("id") or 0).delete()
@@ -729,11 +758,15 @@ def committee_members(request):
         elif act == "copy":
             n = 0
             for old in CommitteeMember.objects.filter(year=y - 1, active=True):
-                _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role})
+                _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role, "user": old.user})
                 n += int(new)
             messages.success(request, f"Copied {n} member{'s' if n != 1 else ''} from {y - 1}.")
+        accounts.sync_committee_logins()
         return redirect(f"{reverse('committee_members')}?year={y}")
-    return render(request, "violations/committee_members.html", {"year": year, "members": CommitteeMember.objects.filter(year=year), "staff": staff,
+    listed = set(CommitteeMember.objects.filter(year=year, active=True).exclude(user=None).values_list("user_id", flat=True))
+    stray = [p.user for p in Profile.objects.filter(role="committee", user__is_active=True).select_related("user") if p.user_id not in listed]
+    return render(request, "violations/committee_members.html", {"year": year, "members": CommitteeMember.objects.filter(year=year).select_related("user"), "staff": staff,
+                                                                  "stray_logins": stray,
                                                                   "years": sorted(set(CommitteeMember.objects.values_list("year", flat=True)) | {year, year + 1})})
 
 

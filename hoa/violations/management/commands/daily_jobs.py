@@ -1,12 +1,14 @@
 from django.core.management.base import BaseCommand
 
-from violations import services
+from violations import accounts, services
 
 
 class Command(BaseCommand):
     help = "Run once a day: refer expired cure periods to the board and send deadline reminders."
 
     def handle(self, *a, **kw):
+        on, off = accounts.sync_committee_logins()
+        self.stdout.write(f"Committee logins: {on} switched on, {off} switched off (they follow the yearly roster).")
         self.stdout.write(f"{services.refresh_mail_tracking()} certified letter(s) had tracking updates.")
         self.stdout.write(f"{services.send_due_mailings()} held mailing(s) sent to the mail provider.")
         self.stdout.write(f"{services.send_hold_reminders()} hold-ending reminder(s) sent.")

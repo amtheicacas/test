@@ -182,7 +182,15 @@ def upsert_owner(row):
     if owner is None and d["account_number"]:
         owner = Owner.objects.filter(account_number=d["account_number"]).first()
     if owner is None:
-        owner = Owner.objects.filter(property_address__iexact=d["property_address"]).first()
+        owner = Owner.objects.filter(property_address__iexact=d["property_address"], active=True).first() \
+            or Owner.objects.filter(property_address__iexact=d["property_address"], external_id__isnull=True).first()
+        # The address belongs to a different Vantaca owner: the home was sold. Keep the old owner (and their violations) as a
+        # former owner and start a fresh record for the new one.
+        if owner is not None and owner.external_id and d["external_id"] and owner.external_id != d["external_id"]:
+            owner.active, owner.inactive_reason = False, "Home sold: the address now belongs to a different Vantaca owner"
+            owner.save()
+            accounts.sync_account(owner)
+            owner = None
     created = owner is None
     owner = owner or Owner()
     for f in ("name", "property_address", "email", "additional_emails", "phone"):
@@ -235,8 +243,8 @@ def sync_rows(rows, invite=False, deactivate_missing=False, force=False):
             raise SafetyStop(f"{len(missing)} of {total} owners are missing from the feed (over 20%); "
                              "looks like a partial feed. Re-run with --force if that is correct.")
         for o in missing:
-            o.active = False
-            o.save(update_fields=["active"])
+            o.active, o.inactive_reason = False, "No longer in the Vantaca feed"
+            o.save()
             accounts.sync_account(o)
             result["deactivated"] += 1
     return result

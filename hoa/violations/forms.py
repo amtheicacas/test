@@ -3,7 +3,7 @@ from datetime import date
 
 from django import forms
 
-from .models import Violation
+from .models import Owner, Violation
 
 
 class ViolationForm(forms.ModelForm):
@@ -21,6 +21,10 @@ class ViolationForm(forms.ModelForm):
         widgets = {"observed_on": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
                    "description": forms.Textarea(attrs={"rows": 3}),
                    "cure_required": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["owner"].queryset = Owner.objects.filter(active=True)   # former owners can't be given new violations
 
     def clean(self):
         data = super().clean()

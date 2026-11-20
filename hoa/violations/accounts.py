@@ -123,6 +123,34 @@ def send_access_link(email, request=None):
     return invite_member(owner, email, name, _relationship_for(owner, email), request) is not None
 
 
+def _still_listed(owner, email, relationship):
+    """Is this household member still on the owner record? Tenants only while the lease is active."""
+    e = (email or "").lower()
+    if relationship == "tenant":
+        return owner.has_tenant and e in {x.lower() for x in owner.tenant_emails}
+    return e in {x.lower() for x in owner.all_emails}
+
+
+def sync_committee_logins(year=None):
+    """Committee logins follow the roster: a member's login is on while they are an active member for the current year and off
+    otherwise (members change each year). Only logins linked to a roster entry are touched. Returns (switched_on, switched_off)."""
+    from .models import CommitteeMember
+    year = year or timezone.localdate().year
+    on = off = 0
+    linked = set(CommitteeMember.objects.exclude(user=None).values_list("user_id", flat=True))
+    current = set(CommitteeMember.objects.filter(year=year, active=True).exclude(user=None).values_list("user_id", flat=True))
+    for u in get_user_model().objects.filter(pk__in=linked):
+        if role_of(u) != "committee":
+            continue
+        want = u.pk in current
+        if u.is_active != want:
+            u.is_active = want
+            u.save(update_fields=["is_active"])
+            on += int(want)
+            off += int(not want)
+    return on, off
+
+
 def sync_account(owner):
     """Keep household logins in step with the owner record. Returns 'deactivated', 'updated' or None.
     If the owner left (inactive), every login in the household is switched off."""
@@ -142,6 +170,10 @@ def sync_account(owner):
             user.is_active = True
             user.save(update_fields=["is_active"])
             result = result or "updated"
+        elif user.is_active and profile.relationship != "owner" and not _still_listed(owner, user.email, profile.relationship):
+            user.is_active = False                    # a tenant whose lease ended or who was removed, or a co-owner no longer listed
+            user.save(update_fields=["is_active"])
+            result = "deactivated"
     if owner.active:
         owner_profile = next((p for p in profiles if p.relationship == "owner"), None)
         new = owner.email
