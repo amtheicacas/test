@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
@@ -33,6 +33,16 @@ def log(v, text, user=None):
 
 
 def _require(v, *allowed):
+    """The case must be in one of the `allowed` statuses RIGHT NOW. The check uses the database's current status, not the copy this
+    request loaded earlier, and (inside a transaction, on PostgreSQL) locks the row until the change is saved. So a double click, or two
+    people acting on the same case at once, cannot both succeed: the second one sees the new status and is refused."""
+    if v.pk:
+        qs = Violation.objects.filter(pk=v.pk)
+        if connection.in_atomic_block:
+            qs = qs.select_for_update()
+        current = qs.values_list("status", flat=True).first()
+        if current is not None:
+            v.status = current
     if v.status not in allowed:
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
 

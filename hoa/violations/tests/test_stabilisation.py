@@ -83,3 +83,25 @@ def test_a_next_address_on_this_site_is_still_honoured(client):
     client.force_login(boss)
     r = client.post(f"/violations/{v.pk}/board/", {"next": "/board/?page=2"})
     assert r["Location"] == "/board/?page=2"
+
+
+# ---------- F-03: two people (or a double click) acting on the same case at once ----------
+def test_a_stale_second_copy_of_a_case_cannot_issue_the_first_notice_twice(client):
+    from django.core import mail
+    from violations import services
+    from violations.models import Notice
+    o = Owner.objects.create(name="Alex", property_address="7 Race Way", email="race@example.com")
+    t = ViolationType.objects.get_or_create(name="Trash cans", defaults={"default_cure_days": 15})[0]
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status=S.DRAFT)
+    import io
+    from django.core.files.base import ContentFile
+    from PIL import Image
+    from violations.models import Photo
+    img = io.BytesIO(); Image.new("RGB", (20, 20), "red").save(img, "JPEG")
+    ph = Photo(violation=v, from_resident=False); ph.image.save("p.jpg", ContentFile(img.getvalue()), save=True)
+    first, second = Violation.objects.get(pk=v.pk), Violation.objects.get(pk=v.pk)           # two requests loaded the case while it was still a draft
+    services.issue_first_notice(first, None)
+    sent = len(mail.outbox)
+    with pytest.raises(services.WorkflowError):
+        services.issue_first_notice(second, None)
+    assert len(mail.outbox) == sent and Notice.objects.filter(violation=v, kind="violation").count() == 1
