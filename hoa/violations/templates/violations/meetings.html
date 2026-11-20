@@ -1,8 +1,11 @@
 {% extends "violations/base.html" %}{% block title %}Meetings{% endblock %}{% block content %}
 <h1>Compliance Committee meetings</h1>
+<p style="margin-top:-6px"><a href="{% url 'committee_members' %}">Committee members (roster)</a></p>
 <div class="card"><h2>{{ waiting|length }} board-approved case{{ waiting|length|pluralize }} waiting for a hearing</h2>
 {% for v in waiting %}<a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</div>
-<form class="card" method="post">{% csrf_token %}<h2>Schedule a meeting</h2>{{ form.non_field_errors }}<div class="row">{% for f in form %}<div>{{ f.label_tag }}{{ f }}{{ f.errors }}</div>{% endfor %}</div><button style="margin-top:8px">Create meeting</button></form>
+<form class="card" method="post">{% csrf_token %}<h2>Schedule a meeting</h2>{{ form.non_field_errors }}
+{% if zoom_ready %}<p class="mut" style="margin-top:0">Zoom is connected: tick <b>Create the Zoom meeting for me</b> and leave the Zoom fields blank. The link, ID, passcode and dial-in numbers are filled in and go on the hearing notices.</p>
+{% else %}<p class="mut" style="margin-top:0">Zoom is not connected yet, so paste the link from Zoom below (see the README to connect it).</p>{% endif %}<div class="row">{% for f in form %}<div>{{ f.label_tag }}{{ f }}{{ f.errors }}</div>{% endfor %}</div><button style="margin-top:8px">Create meeting</button></form>
 {% for m in meetings %}<div class="card"><h2>{{ m.starts_at|date:"l, F j, Y g:i A" }} — {{ m.n }} case{{ m.n|pluralize }}</h2><p class="mut">{{ m.place }}</p>
 <a href="{% url 'committee_meeting' m.pk %}">Open agenda</a>
 {% if waiting %}<form method="post" action="{% url 'meeting_assign_all' m.pk %}" style="margin-top:8px">{% csrf_token %}<button>Send all {{ waiting|length }} waiting case{{ waiting|length|pluralize }} to this meeting (emails notices and sends certified mail)</button></form>{% endif %}</div>{% endfor %}{% endblock %}

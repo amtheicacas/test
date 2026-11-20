@@ -156,3 +156,9 @@ The committee does not have to type minutes. On the meeting page they enter who 
 
 ### After the Committee decides
 Submitting the meeting's results sends them for **administrative review** (the Association's office, i.e. Board / Manager). Approving a fine posts it to the ledger and generates the Fine Imposed letter (Letter 3), which goes by certified mail through the print/mail provider with a copy by email. If the violation is still not corrected, the case is then **sent to legal** ("Fine imposed — sent to legal").
+
+### Committee roster
+The committee members are loaded once a year under **Committee members** (managers and board members edit; committee members can read it). "Copy last year's roster" carries the same people forward. On each meeting page the roster is listed and you tick **Present / Absent / Excused** for each member; the minutes use those ticks (with a note if fewer than three members were present, the number needed to vote on a fine). Extra members and other attendees can still be typed in.
+
+### Zoom
+With Zoom connected, scheduling a meeting creates the Zoom meeting for you (waiting room on): its link, ID, passcode and dial-in numbers are filled in and go straight onto the hearing notices, so nobody has to go to Zoom. To connect it, a Zoom account admin creates a **Server-to-Server OAuth app** (Zoom App Marketplace, Develop, Build App) with the scope to create meetings, then set `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` (and `ZOOM_HOST_EMAIL`, the Zoom user who hosts). This follows Zoom's documented API but has not been run against a live Zoom account: create one test meeting and check it. If Zoom can't be reached the app says so and you can paste a link as before.

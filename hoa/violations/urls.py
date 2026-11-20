@@ -24,6 +24,7 @@ urlpatterns = [
     path("committee/meetings/<int:pk>/save/", views.committee_meeting_save, name="committee_meeting_save"),
     path("committee/meetings/<int:pk>/submit/", views.committee_submit, name="committee_submit"),
     path("committee/meetings/<int:pk>/minutes/", views.meeting_minutes, name="meeting_minutes"),
+    path("committee/members/", views.committee_members, name="committee_members"),
     path("committee/meetings/<int:pk>/written-minutes/", views.committee_minutes, name="committee_minutes"),
     path("committee/meetings/<int:pk>/approve-minutes/", views.minutes_approve, name="minutes_approve"),
     path("committee/cases/<int:pk>/record/", views.committee_case_record, name="committee_case_record"),

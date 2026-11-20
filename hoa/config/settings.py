@@ -116,6 +116,11 @@ FINE_AGGREGATE_CAP = int(env("FINE_AGGREGATE_CAP", "1000"))
 FINE_PAYMENT_DAYS = int(env("FINE_PAYMENT_DAYS", "30"))       # fine due at least this many days after delivery of the decision letter...
 FINE_MAIL_BUFFER_DAYS = int(env("FINE_MAIL_BUFFER_DAYS", "5"))  # ...plus these days for mail to arrive
 HOA_DOCUMENTS_URL = env("HOA_DOCUMENTS_URL", "https://home.sunstatemanagement.com/login")   # where owners find the governing documents
+ZOOM_ACCOUNT_ID = env("ZOOM_ACCOUNT_ID", "")       # Zoom Server-to-Server OAuth app: lets the app create the hearing's Zoom meeting
+ZOOM_CLIENT_ID = env("ZOOM_CLIENT_ID", "")
+ZOOM_CLIENT_SECRET = env("ZOOM_CLIENT_SECRET", "")
+ZOOM_HOST_EMAIL = env("ZOOM_HOST_EMAIL", "")       # the Zoom user who hosts (blank = the app's own user)
+ZOOM_MEETING_MINUTES = int(env("ZOOM_MEETING_MINUTES", "120"))
 ATTORNEY_NAME = env("ATTORNEY_NAME", "")      # the Association's attorney: pre-fills the "send to legal" email draft
 ATTORNEY_EMAIL = env("ATTORNEY_EMAIL", "")
 DECISION_LETTER_DAYS = int(env("DECISION_LETTER_DAYS", "7"))    # the decision letter must go out within this many days of the hearing

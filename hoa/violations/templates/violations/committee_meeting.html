@@ -14,9 +14,17 @@
 <form class="card" method="post" action="{% url 'committee_meeting_save' m.pk %}" enctype="multipart/form-data"><h2>Meeting details <span class="pill{% if m.minutes_status == 'draft' %} flag{% endif %}">Minutes: {{ m.get_minutes_status_display }}</span></h2>{% csrf_token %}
 <p class="mut" style="margin-top:0">Fill in who was there, the times and your notes. The app writes the meeting minutes from these entries and the decisions below. <a href="{% url 'committee_minutes' m.pk %}" target="_blank">See the minutes so far</a>.</p>
 <div class="row"><div><label>Called to order at</label><input type="time" name="called_to_order" value="{{ m.called_to_order|time:'H:i' }}" {% if not minutes_open %}disabled{% endif %}></div><div><label>Adjourned at</label><input type="time" name="adjourned" value="{{ m.adjourned|time:'H:i' }}" {% if not minutes_open %}disabled{% endif %}></div></div>
-<div class="row"><div><label>Committee members present</label><textarea name="attendees" rows="3" {% if not minutes_open %}disabled{% endif %} placeholder="One name per line">{{ m.attendees }}</textarea></div>
-<div><label>Members absent</label><textarea name="members_absent" rows="3" {% if not minutes_open %}disabled{% endif %}>{{ m.members_absent }}</textarea></div>
-<div><label>Others present (owners, representatives, management)</label><textarea name="guests" rows="3" {% if not minutes_open %}disabled{% endif %}>{{ m.guests }}</textarea></div></div>
+<label>Who attended <span class="mut" style="font-weight:400">({{ present_count }} present{% if present_count < 3 and roster %} &middot; at least 3 members must vote on a fine{% endif %})</span></label>
+{% if roster %}<table style="margin-bottom:6px"><tr><th>Member<th style="text-align:center">Present<th style="text-align:center">Absent<th style="text-align:center">Excused</tr>
+{% for member in roster %}<tr><td>{{ member.name }} {% if member.role != "member" %}<span class="pill">{{ member.get_role_display }}</span>{% endif %}
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="present" {% if member.attended == "present" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}>
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="absent" {% if member.attended == "absent" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}>
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="excused" {% if member.attended == "excused" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}></tr>{% endfor %}</table>
+<p class="mut" style="margin:0 0 8px"><a href="{% url 'committee_members' %}">Edit the committee roster</a></p>
+{% else %}<p class="mut" style="margin:0 0 6px">No committee roster is loaded for this year. <a href="{% url 'committee_members' %}">Load the committee members</a> once and you can just tick who attended, or list them below.</p>{% endif %}
+<div class="row"><div><label>{% if roster %}Other members present (not on the roster){% else %}Committee members present{% endif %}</label><textarea name="attendees" rows="2" {% if not minutes_open %}disabled{% endif %} placeholder="One name per line">{{ m.attendees }}</textarea></div>
+{% if not roster %}<div><label>Members absent</label><textarea name="members_absent" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.members_absent }}</textarea></div>{% endif %}
+<div><label>Others present (owners, representatives, management)</label><textarea name="guests" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.guests }}</textarea></div></div>
 <label>Other business and notes</label><textarea name="notes" rows="3" {% if not minutes_open %}disabled{% endif %}>{{ m.notes }}</textarea>
 <label>Or upload your own minutes (optional)</label>{% if m.minutes %}<p style="margin:2px 0"><a href="{% url 'meeting_minutes' m.pk %}" target="_blank">View the uploaded file</a></p>{% endif %}
 {% if minutes_open %}<input type="file" name="minutes" accept=".pdf,.doc,.docx,.txt,image/*"><button style="margin-top:8px">Save meeting details</button>{% endif %}</form>

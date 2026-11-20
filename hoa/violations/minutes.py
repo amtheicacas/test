@@ -33,10 +33,17 @@ def build(m):
     sections.append(("Meeting", [
         f"The Compliance Committee of {settings.HOA_NAME} met on {_d(start)} ({m.place}).",
         f"The meeting was called to order at {_t(m.called_to_order)}."]))
-    present, absent, guests = _lines(m.attendees), _lines(m.members_absent), _lines(m.guests)
+    rows = list(m.attendance.select_related("member").order_by("member__name"))
+    label = lambda a: a.member.name + (f" ({a.member.get_role_display()})" if a.member.role != "member" else "")
+    present = [label(a) for a in rows if a.status == "present"] + _lines(m.attendees)
+    absent = [label(a) + (" (excused)" if a.status == "excused" else "") for a in rows if a.status != "present"] + _lines(m.members_absent)
+    guests = _lines(m.guests)
     people = ["Committee members present: " + (", ".join(present) if present else "(not recorded)") + "."]
     if absent:
         people.append("Committee members absent: " + ", ".join(absent) + ".")
+    quorum = len(present)
+    if quorum:
+        people.append(f"{quorum} member{'s were' if quorum != 1 else ' was'} present" + ("." if quorum >= 3 else " (fewer than the three needed to vote on a fine)."))
     if guests:
         people.append("Others present: " + ", ".join(guests) + ".")
     sections.append(("Attendance", people))

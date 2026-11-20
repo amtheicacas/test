@@ -171,9 +171,10 @@ class CommitteeMeeting(models.Model):
     zoom_meeting_id = models.CharField(max_length=40, blank=True)
     zoom_passcode = models.CharField(max_length=40, blank=True)
     zoom_dial_in = models.TextField(blank=True, help_text="'One tap mobile' lines from the Zoom invitation, one per line.")
+    zoom_api_id = models.CharField(max_length=40, blank=True, help_text="Set when the app created the Zoom meeting itself.")
     location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
     notes = models.TextField(blank=True)
-    attendees = models.TextField(blank=True, help_text="Committee members present.")
+    attendees = models.TextField(blank=True, help_text="Other committee members present who are not on the year's roster.")
     members_absent = models.TextField(blank=True)
     guests = models.TextField(blank=True, help_text="Others present (owners, representatives, management).")
     called_to_order = models.TimeField(null=True, blank=True)
@@ -207,6 +208,16 @@ class CommitteeMeeting(models.Model):
     def __str__(self):
         return f"Committee meeting {self.starts_at:%b %d, %Y %I:%M %p}"
 
+    def roster(self):
+        """This year's committee members. If none are loaded for the meeting's year, the most recent roster before it."""
+        from django.utils import timezone
+        year = timezone.localtime(self.starts_at).year
+        qs = CommitteeMember.objects.filter(active=True, year=year)
+        if not qs.exists():
+            last = CommitteeMember.objects.filter(active=True, year__lt=year).order_by("-year").values_list("year", flat=True).first()
+            qs = CommitteeMember.objects.filter(active=True, year=last) if last else CommitteeMember.objects.none()
+        return list(qs.order_by("name"))
+
     @property
     def place(self):
         return " · ".join(x for x in [f"Zoom: {self.zoom_link}" if self.zoom_link else "", self.location] if x) or "to be announced"
@@ -215,6 +226,34 @@ class CommitteeMeeting(models.Model):
     def has_occurred(self):
         from django.utils import timezone
         return self.starts_at <= timezone.now()
+
+
+class CommitteeMember(models.Model):
+    """A Compliance Committee member for a year. The roster is loaded once a year; the meeting page then just ticks who attended."""
+    class Role(models.TextChoices):
+        CHAIR = "chair", "Chair"
+        SECRETARY = "secretary", "Secretary"
+        MEMBER = "member", "Member"
+
+    name = models.CharField(max_length=120)
+    role = models.CharField(max_length=10, choices=Role.choices, default=Role.MEMBER)
+    year = models.PositiveSmallIntegerField(help_text="The year of service this roster entry covers.")
+    active = models.BooleanField(default=True, help_text="Untick if the member left mid-year.")
+
+    class Meta:
+        ordering = ["year", "name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.year})"
+
+
+class MeetingAttendance(models.Model):
+    meeting = models.ForeignKey("CommitteeMeeting", on_delete=models.CASCADE, related_name="attendance")
+    member = models.ForeignKey(CommitteeMember, on_delete=models.CASCADE, related_name="attendance")
+    status = models.CharField(max_length=8, choices=[("present", "Present"), ("absent", "Absent"), ("excused", "Absent (excused)")])
+
+    class Meta:
+        unique_together = ("meeting", "member")
 
 
 class Violation(models.Model):

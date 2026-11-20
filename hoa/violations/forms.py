@@ -118,6 +118,7 @@ class MeetingForm(forms.Form):
     zoom_passcode = forms.CharField(required=False, label="Zoom passcode")
     zoom_dial_in = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}), label="Zoom one-tap / dial-in lines (paste from the invitation)")
     location = forms.CharField(required=False, label="In-person location (optional)")
+    create_zoom = forms.BooleanField(required=False, initial=True, label="Create the Zoom meeting for me (leave the Zoom fields blank)")
 
 
 class AssignForm(forms.Form):

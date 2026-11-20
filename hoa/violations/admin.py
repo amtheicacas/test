@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 
 from . import accounts
-from .models import CannedReply, CommitteeMeeting, Owner, Profile, Violation, ViolationType
+from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, Violation, ViolationType
 
 
 @admin.action(description="Send portal invitation (creates homeowner login)")
@@ -21,6 +21,7 @@ class OwnerAdmin(admin.ModelAdmin):
 
 admin.site.register(ViolationType, list_display=["name", "reference", "default_cure_days", "default_fine"])
 admin.site.register(CommitteeMeeting, list_display=["starts_at", "zoom_link"])
+admin.site.register(CommitteeMember, list_display=["name", "role", "year", "active"], list_filter=["year"])
 admin.site.register(CannedReply, list_display=["title", "created_by", "created_at"])
 
 

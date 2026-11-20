@@ -696,12 +696,25 @@ def short_notice(meeting, today=None):
     return timezone.localtime(meeting.starts_at).date() < today + timedelta(days=settings.HEARING_NOTICE_RECOMMENDED_DAYS)
 
 
-def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in=""):
+def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in="", create_zoom=False):
+    """Create a committee meeting. With create_zoom (and Zoom connected) the Zoom meeting is scheduled for you and its link, ID,
+    passcode and dial-in numbers are filled in; they then appear on the hearing notices automatically."""
+    from . import zoom
     if isinstance(starts_at, datetime) and timezone.is_naive(starts_at):
         starts_at = timezone.make_aware(starts_at)
+    api_id = ""
+    if create_zoom and not zoom_link:
+        try:
+            z = zoom.create_meeting(f"{settings.HOA_NAME} Compliance Committee hearings", starts_at)
+        except zoom.ZoomError as e:
+            if not location:
+                raise WorkflowError(f"{e} Paste a Zoom link or add a location, then try again.")
+            z = None
+        if z:
+            zoom_link, zoom_meeting_id, zoom_passcode, zoom_dial_in, api_id = z["link"], z["meeting_id"], z["passcode"], z["dial_in"], z["api_id"]
     if not (zoom_link or location):
         raise WorkflowError("Add a Zoom link and/or a location for the meeting.")
-    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location,
+    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id,
                                            zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
 
 

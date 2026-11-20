@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import accounts, forms, geocoding, ledger, services, standards_search, vantaca
-from .models import short_date, CannedReply, MailPiece, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from .models import short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -641,11 +641,12 @@ def meetings(request):
         d = form.cleaned_data
         m = _run(request, services.create_meeting, d["starts_at"], d["zoom_link"], d["location"], request.user,
                  zoom_meeting_id=d["zoom_meeting_id"], zoom_passcode=d["zoom_passcode"], zoom_dial_in=d["zoom_dial_in"],
-                 ok="Meeting created.")
+                 create_zoom=d["create_zoom"], ok="Meeting created.")
         if m:
             return redirect("meetings")
+    from . import zoom
     return render(request, "violations/meetings.html", {
-        "form": form, "meetings": CommitteeMeeting.objects.annotate(n=Count("violations")),
+        "zoom_ready": zoom.configured(), "form": form, "meetings": CommitteeMeeting.objects.annotate(n=Count("violations")),
         "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner")})
 
 
@@ -701,6 +702,42 @@ def _minutes_waiting(m):
 
 
 @staff_or_committee
+def committee_members(request):
+    """The committee roster by year. Managers and board members load it once a year; committee members can read it."""
+    from django.utils import timezone
+    year = timezone.localdate().year
+    try:
+        year = int(request.GET.get("year") or year)
+    except ValueError:
+        pass
+    staff = accounts.role_of(request.user) in STAFF
+    if request.method == "POST":
+        if not staff:
+            raise PermissionDenied
+        P, act = request.POST, request.POST.get("action")
+        y = int(P.get("year") or year)
+        if act == "add" and (P.get("name") or "").strip():
+            CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member", year=y)
+            messages.success(request, "Member added.")
+        elif act == "update":
+            CommitteeMember.objects.filter(pk=P.get("id") or 0).update(name=(P.get("name") or "").strip()[:120] or "Unnamed", active=bool(P.get("active")),
+                                                                      role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member")
+            messages.success(request, "Saved.")
+        elif act == "delete":
+            CommitteeMember.objects.filter(pk=P.get("id") or 0).delete()
+            messages.success(request, "Removed.")
+        elif act == "copy":
+            n = 0
+            for old in CommitteeMember.objects.filter(year=y - 1, active=True):
+                _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role})
+                n += int(new)
+            messages.success(request, f"Copied {n} member{'s' if n != 1 else ''} from {y - 1}.")
+        return redirect(f"{reverse('committee_members')}?year={y}")
+    return render(request, "violations/committee_members.html", {"year": year, "members": CommitteeMember.objects.filter(year=year), "staff": staff,
+                                                                  "years": sorted(set(CommitteeMember.objects.values_list("year", flat=True)) | {year, year + 1})})
+
+
+@staff_or_committee
 def committee_minutes(request, pk):
     """The minutes the app wrote from the committee's entries (HTML, or ?pdf=1)."""
     from . import minutes
@@ -735,7 +772,12 @@ def committee_meeting(request, pk):
     can_edit = m.results_status == CommitteeMeeting.Results.OPEN
     rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED,
              "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count()} for v in summary["cases"]]
+    roster = m.roster()
+    have = {a.member_id: a.status for a in m.attendance.all()}
+    for member in roster:
+        member.attended = have.get(member.pk, "")
     return render(request, "violations/committee_meeting.html", {"m": m, "rows": rows, "S": S, "sum": summary, "can_edit": can_edit,
+                                                                  "roster": roster, "present_count": sum(1 for x in have.values() if x == "present"),
                                                                   "waiting_minutes": _minutes_waiting(m),
                                                                   "minutes_open": m.minutes_status == CommitteeMeeting.Minutes.DRAFT,
                                                                   "ready": can_edit and summary["n"] and not summary["undecided"]})
@@ -760,6 +802,12 @@ def committee_meeting_save(request, pk):
     P = request.POST
     m.attendees, m.notes = P.get("attendees", "").strip(), P.get("notes", "").strip()
     m.members_absent, m.guests = P.get("members_absent", "").strip(), P.get("guests", "").strip()
+    for member in m.roster():                                   # the roster tick-boxes: present / absent / excused (blank clears)
+        val = P.get(f"attend_{member.pk}", "")
+        if val in ("present", "absent", "excused"):
+            MeetingAttendance.objects.update_or_create(meeting=m, member=member, defaults={"status": val})
+        else:
+            MeetingAttendance.objects.filter(meeting=m, member=member).delete()
     m.called_to_order, m.adjourned = _parse_time(P.get("called_to_order")), _parse_time(P.get("adjourned"))
     f = request.FILES.get("minutes")
     if f:
