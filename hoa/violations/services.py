@@ -107,7 +107,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             pdf = render_notice_pdf(notice, who)
             subject = f"{notice.get_kind_display()} - {v.owner.property_address} (Case #{v.pk})"
             body = (f"Dear {name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "
-                    f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos of the cure through {settings.APP_NAME} here:\n"
+                    f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos of the cure through the {settings.APP_NAME} here:\n"
                     f"{v.resident_url()}{_signature()}")
             msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, emails)
             msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")

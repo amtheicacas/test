@@ -90,8 +90,8 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# What this website is called to owners, in letters, emails and on every page. (Vantaca's site is the "Homeowner Portal"; this one is not.)
-APP_NAME = env("APP_NAME", "My Heron Landing")
+# What this website is called to owners, in letters, emails and on every page. In a sentence it is "the {APP_NAME}". (Vantaca's site is the "Homeowner Portal"; this one is not.)
+APP_NAME = env("APP_NAME", "My Heron Landing Application")
 
 # ---- Sign-in security -----------------------------------------------------
 AUTHENTICATION_BACKENDS = ["axes.backends.AxesStandaloneBackend", "django.contrib.auth.backends.ModelBackend"]

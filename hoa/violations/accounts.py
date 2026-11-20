@@ -67,7 +67,7 @@ def send_signin_link(user, request=None):
     url = request.build_absolute_uri(path) if (request is not None and not settings.PRODUCTION) else settings.SITE_URL + path
     name = user.first_name or "there"
     EmailMessage(f"Your {settings.APP_NAME} sign-in link",
-                 f"Hello {name},\n\nClick this link to sign in to {settings.APP_NAME}, the online home of the {settings.HOA_NAME}:\n\n{url}\n\n"
+                 f"Hello {name},\n\nClick this link to sign in to the {settings.APP_NAME}:\n\n{url}\n\n"
                  f"The link works once and expires in {LINK_MINUTES} minutes. If you didn't ask for it, you can ignore this email.\n\n"
                  f"On behalf of the Board of Directors\n{settings.HOA_NAME}",
                  settings.DEFAULT_FROM_EMAIL, [user.email]).send()

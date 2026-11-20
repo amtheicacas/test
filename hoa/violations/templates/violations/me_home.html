@@ -20,7 +20,7 @@
 .chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.78rem;font-weight:600;background:var(--bg);border:1px solid var(--line)}.chip.soon{color:var(--warn);border-color:var(--warn)}
 </style>
 <div class="welcome"><h1>Welcome{% if RESIDENT_NAME %}, {{ RESIDENT_NAME }}{% endif %}</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}
-<p style="margin-top:8px;max-width:62ch">Use {{ APP_NAME }} as your single place to review your violations and your account. Choose a section below. In Violations, click into each one to see the details and the letters we sent, and to send us your progress, photos and questions. Your message goes to the Board.</p></div>
+<p style="margin-top:8px;max-width:62ch">Use the {{ APP_NAME }} as your single place to review your violations and your account. Choose a section below. In Violations, click into each one to see the details and the letters we sent, and to send us your progress, photos and questions. Your message goes to the Board.</p></div>
 {% for m, vs, days in hearings %}<a class="card" href="{% url 'my_hearing' m.pk %}" style="display:flex;gap:14px;align-items:center;text-decoration:none;color:inherit;border-color:var(--bad);border-width:2px">
 <span style="font-size:2rem">&#128197;</span><span style="flex:1"><b style="font-size:1.1rem">You have a homeowner hearing {% if days == 0 %}today{% elif days == 1 %}tomorrow{% else %}in {{ days }} days{% endif %}</b><br>
 <span>{{ m.starts_at|date:"l, F j, Y" }} at {{ m.starts_at|date:"g:i A" }}{% if days > 1 %} &middot; <b>{{ days }} days remaining</b>{% endif %} &middot; {{ vs|length }} violation{{ vs|length|pluralize }} on your agenda</span></span>

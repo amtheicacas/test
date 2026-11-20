@@ -23,7 +23,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 - Don't modify docs by deleting; append or mark superseded.
 
 ## Naming
-This app is called **My Heron Landing** (`settings.APP_NAME`; use it, never hard-code it, in templates, emails and letters). **"Homeowner Portal" is Vantaca's site** (governing documents live there): never use "portal" for this app in owner-facing text. The header shows My Heron Landing with the association name beneath it.
+This app is called the **My Heron Landing Application** (`settings.APP_NAME` = "My Heron Landing Application"; in a sentence "the {APP_NAME}"; use the setting, never hard-code it, in templates, emails and letters). **"Homeowner Portal" is Vantaca's site** (governing documents live there): never use "portal" for this app in owner-facing text. The header shows the name with the association name beneath it.
 
 ## Known gotchas
 Cache-backed throttles are cleared per test (`conftest.py`). `Violation.OPEN` includes `referred_legal`; `OWNER_CLOSED` (owner list grouping) is different. `/` routes by role; staff dashboard is `/workspace/`. `load_standards` overwrites violation-type rows.

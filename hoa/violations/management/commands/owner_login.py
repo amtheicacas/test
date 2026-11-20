@@ -7,7 +7,7 @@ from violations.management import dev_guard
 
 class Command(BaseCommand):
     help = ("Give an EXISTING owner (found by part of the address) a homeowner login with a password you choose, so you can see the "
-            "resident portal exactly as that owner does. For testing; real owners get an emailed invitation instead.")
+            "owner site (the My Heron Landing Application) exactly as that owner does. For testing; real owners get an emailed invitation instead.")
 
     def add_arguments(self, p):
         p.add_argument("--address", required=True, help='Part of the property address, e.g. "7316 Great Egret".')
@@ -28,4 +28,4 @@ class Command(BaseCommand):
         u.set_password(o["password"])
         u.save()
         Profile.objects.update_or_create(user=u, defaults=dict(role="homeowner", owner=owner))
-        self.stdout.write(f"Done. Log in as '{username}' / '{o['password']}' to see the portal for {owner.display_name}, {owner.property_address}.")
+        self.stdout.write(f"Done. Log in as '{username}' / '{o['password']}' to see the My Heron Landing Application as {owner.display_name} sees it, {owner.property_address}.")
