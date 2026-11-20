@@ -3,6 +3,7 @@ real hosting settings, so the tests say up front that they are not one (see viol
 import os
 
 os.environ.setdefault("DJANGO_DEBUG", "1")
+os.environ.setdefault("SUSPENSION_ENABLED", "1")     # the older tests exercise suspension; tests of the default (off) override this
 os.environ.setdefault("HOA_ENV_FILE", "no-local-env-file-while-testing")   # never read the developer's own local.env
 
 from .settings import *  # noqa: E402,F401,F403

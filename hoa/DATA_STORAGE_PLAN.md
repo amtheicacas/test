@@ -170,3 +170,13 @@ and as the owner. Then confirm the object exists in the bucket and that the app 
 2. Whether production starts empty or carries current test files.
 3. How long photos and minutes must be kept (ask the association's attorney; the plan assumes "indefinitely" because
    the cost is negligible).
+
+
+---
+
+## Addendum (Part A): saved copies of every letter sent
+- New private files: `sent-letters/<year>/<random>.pdf` in the same storage as photos and minutes (MEDIA_ROOT locally; the private bucket when `STORAGE_BUCKET` is set). The database row (`SentLetter`) holds who/when/channel/tracking and a SHA-256 fingerprint; the application re-checks the fingerprint when a copy is opened and in the case-file index.
+- These are legal records: they must be in the file backups, bucket versioning on, and the app key must not be able to delete (see section 4). A restore test must open at least one saved letter and confirm its fingerprint.
+- The app never deletes a saved letter (no page does, the admin is read-only). Deleting a violation through the admin (or `clear_test_data`, `purge_archived_owners`) still removes the database rows, not the files in the bucket.
+- The vendor is still undecided: the settings are vendor-neutral (S3 API). The recommended pairing in section 3 stands (Backblaze B2 live + Cloudflare R2 copy).
+- A live site now refuses to start without `STORAGE_BUCKET` or `MEDIA_ROOT` (a persistent disk path), so files can never silently land on a disk that is wiped at every update.

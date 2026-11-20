@@ -158,3 +158,12 @@ share a database, bucket, secret key or API key.
 
 High: SEC-01, SEC-02, SEC-03, SEC-04, SEC-05, SEC-06, SEC-07, SEC-08. Medium: SEC-09 – SEC-18. Low: SEC-19 – SEC-28.
 Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
+
+
+---
+
+## Addendum (Part A)
+- [ ] Set `STORAGE_BUCKET` (+ `STORAGE_ENDPOINT_URL`, `STORAGE_REGION`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`) or `MEDIA_ROOT` (persistent disk): the live site will not start without one. The saved copy of every letter lives there.
+- [ ] Upload test in staging: send a test notice, open its saved copy, redeploy, open it again (fingerprint must still match).
+- [ ] `SUSPENSION_ENABLED` is not set (suspension is hidden).
+- [ ] The saved-letters prefix is in the nightly file copy to the second vendor.

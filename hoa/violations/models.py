@@ -1,3 +1,4 @@
+import hashlib
 import re
 import secrets
 from datetime import date
@@ -8,13 +9,19 @@ def short_date(d):
     return f"{d:%b} {d.day}, {d.year}"
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 
 
 def photo_path(instance, filename):
     from .uploads import safe_ext        # the name the uploader typed is never trusted: only picture extensions are kept
     return f"photos/{secrets.token_hex(16)}.{safe_ext(filename)}"
+
+
+def sent_letter_path(instance, filename):
+    return f"sent-letters/{timezone.now():%Y}/{secrets.token_hex(16)}.pdf"      # random name: never guessable, never the owner's name
 
 
 def split_emails(text):
@@ -632,6 +639,68 @@ class EmailLog(models.Model):
 
     class Meta:
         ordering = ["sent_at"]
+
+
+class SentLetter(models.Model):
+    """The EXACT PDF of a letter at the moment it was emailed or handed to the mail service, kept for the case file. Add-only: a saved copy
+    can never be edited or deleted through the application (no page offers it, and the admin shows it read-only). If the owner and the
+    tenant each get their own letter, each is saved; a letter that goes by email and by mail is saved for each channel."""
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        FIRST_CLASS = "first_class", "First-class mail"
+        CERTIFIED = "certified", "Certified mail, return receipt"
+
+    class Origin(models.TextChoices):
+        SENT = "sent", "Exact copy saved when it was sent"
+        UPLOADED = "uploaded", "Original PDF uploaded by staff"
+        REBUILT = "rebuilt", "Rebuilt copy (not the exact original)"
+
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="sent_letters")
+    notice = models.ForeignKey(Notice, on_delete=models.CASCADE, related_name="sent_copies")
+    kind = models.CharField(max_length=20, help_text="Which letter (the notice's kind when it was sent).")
+    recipient = models.CharField(max_length=20, help_text="Which version: owner, owner_property (property address) or tenant.")
+    recipient_name = models.CharField(max_length=200, blank=True)
+    sent_to = models.TextField(blank=True, help_text="The email addresses, or the mailing address, it went to.")
+    channel = models.CharField(max_length=20, choices=Channel.choices)
+    tracking_number = models.CharField(max_length=100, blank=True, help_text="Certified-mail tracking number, if known when it was sent.")
+    mail_piece = models.ForeignKey("MailPiece", null=True, blank=True, on_delete=models.SET_NULL, related_name="saved_copies")
+    sent_at = models.DateTimeField(default=timezone.now, editable=False)
+    sent_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                                help_text="Blank when the application sent it by itself (for example a held mailing released by the daily job).")
+    file = models.FileField(upload_to=sent_letter_path)
+    sha256 = models.CharField(max_length=64, db_index=True)
+    size = models.PositiveIntegerField(default=0)
+    origin = models.CharField(max_length=10, choices=Origin.choices, default=Origin.SENT)
+    note = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["sent_at", "pk"]
+
+    def __str__(self):
+        return f"Case #{self.violation_id} {self.get_kind_display()} ({self.get_channel_display()}) {self.sent_at:%Y-%m-%d}"
+
+    def get_kind_display(self):
+        return dict(Notice.Kind.choices).get(self.kind, self.kind)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("A saved copy of a letter can never be changed.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionDenied("A saved copy of a letter can never be deleted.")
+
+    def read_bytes(self):
+        with self.file.open("rb") as f:
+            return f.read()
+
+    def intact(self):
+        """True if the stored file still matches the fingerprint taken when it was saved."""
+        try:
+            return hashlib.sha256(self.read_bytes()).hexdigest() == self.sha256
+        except Exception:       # noqa: BLE001  (file missing or storage unreachable)
+            return False
 
 
 class Response(models.Model):

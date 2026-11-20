@@ -1,0 +1,4 @@
+{% extends "violations/base.html" %}{% block title %}Saved letter{% endblock %}{% block content %}
+<div class="card" style="max-width:560px;margin:30px auto"><h1>This saved copy cannot be opened</h1><p>{{ why }}</p>
+<p class="mut">Letter: {{ s.get_kind_display }}, sent {{ s.sent_at|date:"M j, Y" }}. Please tell the person who looks after the website; the backup copy of the file can be restored.</p>
+<p><a href="{{ s.violation.get_absolute_url }}">Back to case #{{ s.violation_id }}</a></p></div>{% endblock %}

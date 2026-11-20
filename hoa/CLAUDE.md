@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 462 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 498 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -21,6 +21,9 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 - New model fields need a migration (`makemigrations`); data fixes go in migrations with `RunPython`.
 - Integrations (Lob, Zoom, Vantaca API/ledger, Census geocoder) are written to documented shapes but **never run live**: say so when touching them.
 - Don't modify docs by deleting; append or mark superseded.
+
+## Saved letters, case file, suspension (Part A, done)
+Every letter emailed or handed to Lob is saved as the EXACT PDF (`SentLetter`, add-only: no edit/delete in code, admin read-only; `letters.py`; hooks in `services.send_notice` / `mailing.dispatch` via `services._keep_copy`; SHA-256 fingerprint, deduped by hash). The hearing notice attaches the saved ORIGINAL Notice of Violation only (`letters.original_notice_copy`, pypdf merge in `pdf.render_notice_pdf`); with no saved original it falls back to the old rebuilt copy and logs a NOTE. Case page: "Exact copies of letters sent" card + "Download the case file (zip)" (`casefile.py`, staff only, each download logged as an Event). Files live in default storage (MEDIA_ROOT locally; private S3-compatible bucket when STORAGE_BUCKET is set; a live site must set one or MEDIA_ROOT). Suspension is hidden everywhere in screens/workflow unless `SUSPENSION_ENABLED=1` (tests run with it ON via `config/test_settings.py`; `test_suspension_hidden.py` covers OFF). **The letters' wording and layout are frozen until the attorney's final Word files arrive (Part B); do not edit them.** New dependency `pypdf` (start-site.bat now runs `pip install -r requirements.txt`).
 
 ## Naming
 This app is called the **My Heron Landing Application** (`settings.APP_NAME` = "My Heron Landing Application"; in a sentence "the {APP_NAME}"; use the setting, never hard-code it, in templates, emails and letters). **"Homeowner Portal" is Vantaca's site** (governing documents live there): never use "portal" for this app in owner-facing text. The header shows the name with the association name beneath it.

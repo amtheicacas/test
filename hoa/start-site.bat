@@ -7,6 +7,8 @@ if not exist ".venv\Scripts\activate.bat" (
   exit /b 1
 )
 call .venv\Scripts\activate.bat
+echo Making sure the add-ons are installed (this is quick when nothing is new)...
+python -m pip install -q -r requirements.txt
 set DJANGO_DEBUG=1
 set MFA_REQUIRED_ROLES=none
 echo Updating the database if needed...

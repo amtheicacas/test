@@ -89,10 +89,25 @@ def add_business_days(start, n):
     return d
 
 
+def _keep_copy(notice, pdf, who, channel, to, name, user, errors, tracking="", piece=None):
+    """Save the exact PDF that just went out (emailed or mailed). A failure is recorded on the case, never hidden and never fatal."""
+    from . import letters
+    try:
+        letters.save_sent_copy(notice, pdf, who, channel, to=to, name=name, user=user, tracking=tracking, piece=piece)
+    except Exception as e:      # noqa: BLE001  (storage unreachable, disk full...)
+        errors.append(f"saving the copy ({channel}): {e}"[:150])
+        log(notice.violation, f"WARNING: the exact copy of the {notice.get_kind_display().lower()} ({channel}) could not be saved: {e}"[:480], user)
+
+
 def send_notice(v, kind, user=None, hold_mail_days=0):
     """Create a notice, email each recipient (owner, and tenant if rented) their own copy with the PDF attached, and print/mail it.
     With hold_mail_days > 0 the email goes now but the printed copy waits that many business days (see send_due_mailings).
     A failure to email or mail is recorded on the notice and never stops the case."""
+    if kind == Notice.Kind.HEARING:
+        from . import letters
+        if letters.original_notice_copy(v) is None:
+            log(v, "NOTE: no exact copy of the original Notice of Violation was on file (it was sent before copies were kept), so a REBUILT copy "
+                   "is attached to this Notice of Hearing.", user)
     notice = Notice.objects.create(violation=v, kind=kind)
     if hold_mail_days:
         notice.mail_hold_until = add_business_days(date.today(), hold_mail_days)
@@ -100,7 +115,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
         log(v, f"{notice.get_kind_display()}: mailed copy held until {notice.mail_hold_until:%b %d, %Y} "
             f"({hold_mail_days} business days) in case it is corrected first")
     else:
-        mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
+        mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
     sent_to, errors = [], []
     for who, emails, name in recipient_groups(v):
         try:
@@ -112,6 +127,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             msg = EmailMessage(subject, body, settings.DEFAULT_FROM_EMAIL, emails)
             msg.attach(f"case-{v.pk}-{kind}.pdf", pdf, "application/pdf")
             msg.send()
+            _keep_copy(notice, pdf, who, "email", ", ".join(emails), name, user, errors)
             sent_to += emails
             EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=body, to=", ".join(emails), recipient=who)
         except Exception as e:  # SMTP down, bad address...
@@ -155,11 +171,11 @@ def issue_first_notice(v, user=None, today=None, timing=None):
     return notice
 
 
-def _mail_due(notice):
+def _mail_due(notice, user=None):
     """Hand a held notice to the mail provider now (it stays on the print list when no provider is on)."""
     notice.mail_tried_on = date.today()
     notice.save()
-    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who))
+    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
 
 
 def cancel_held_mailings(v, reason="corrected before the mail date; postage saved"):
@@ -177,7 +193,7 @@ def mail_now(notice, user=None):
     if not notice.mail_held:
         raise WorkflowError("This notice is not waiting to be mailed.")
     log(notice.violation, f"{notice.get_kind_display()}: mailed copy released early", user)
-    _mail_due(notice)
+    _mail_due(notice, user)
 
 
 def send_due_mailings(today=None):
@@ -241,7 +257,7 @@ def mark_cured(v, user=None, note="", today=None):
 def record_payment(v, paid_on, user=None):
     _require(v, S.FINE_APPROVED)
     if not v.fine_amount:
-        raise WorkflowError("There is no fine to pay (suspension only).")
+        raise WorkflowError("There is no fine to pay" + (" (suspension only)." if settings.SUSPENSION_ENABLED else "."))
     v.fine_paid_on = paid_on
     log(v, f"Fine of ${v.fine_amount:,.2f} paid {paid_on:%b %d, %Y}", user)
     _close_if_done(v, user)
@@ -333,8 +349,11 @@ def legal_email_draft(v, user=None):
         lines += ["TIMELINE"] + [f"- {t}" for _, t in tl] + [""]
     lines.append("STATUS")
     if v.legal_path == "after_fine":
-        amt = (f"a fine of {_money(v.fine_amount)}" if v.fine_amount else "a suspension of privileges") + (
-            f" and a suspension of {v.suspension}" if v.fine_amount and v.suspension else "")
+        if settings.SUSPENSION_ENABLED:
+            amt = (f"a fine of {_money(v.fine_amount)}" if v.fine_amount else "a suspension of privileges") + (
+                f" and a suspension of {v.suspension}" if v.fine_amount and v.suspension else "")
+        else:
+            amt = f"a fine of {_money(v.fine_amount)}" if v.fine_amount else "a fine"
         due = f", due {d(v.fine_due_on)}" if v.fine_due_on else ""
         paid = (" The fine has been paid." if v.fine_paid_on else (" The fine has not been paid." if v.fine_amount else ""))
         lines.append(f"This matter was issued {amt}{due}, following the Association's notice and hearing process, but the violation is not complete: it has not been corrected.{paid}")
@@ -657,11 +676,13 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
     or give the votes. (Suspensions are still supported here but the app no longer offers them: the Association has no amenities.)"""
     _require(v, S.PENDING_BOARD)
     v.board_meeting_date = meeting_date
+    if not settings.SUSPENSION_ENABLED:     # suspension is switched off: anything sent for it is ignored, never saved
+        suspension, suspension_days = "", None
     if decision == "proceed":
         fine = Decimal(fine) if fine not in (None, "") else None
         suspension = (suspension or "").strip()
         if not fine and not suspension:
-            raise WorkflowError("Enter the proposed fine amount and/or suspension the Board voted on.")
+            raise WorkflowError("Enter the proposed fine amount" + (" and/or suspension" if settings.SUSPENSION_ENABLED else "") + " the Board voted on.")
         if not (by_majority or (votes_for is not None and votes_against is not None and votes_for > votes_against)):
             raise WorkflowError("A fine needs approval by a majority of the Board. Confirm that the Board approved it at its meeting "
                                 "(or enter votes for and against, with more for than against).")
@@ -1006,7 +1027,8 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
         cancel_held_mailings(v, "waived by the Compliance Committee")
         _email_owner(v, f"Violation waived: {v.owner.property_address}",
                      f"The Compliance Committee reviewed the {v.vtype.name.lower()} violation at {v.owner.property_address} and waived it. "
-                     "No fine or suspension will be imposed and this matter is closed. Thank you for your attention to it.")
+                     "No fine" + (" or suspension" if settings.SUSPENSION_ENABLED else "") + " will be imposed and this matter is closed. "
+                     "Thank you for your attention to it.")
         log(v, "Board processed: violation waived and closed" + (f" ({note.strip()})" if note and note.strip() else ""), user)
     else:   # the committee rejected the fine
         v.status, v.fine_amount, v.suspension = S.FINE_REJECTED, None, ""

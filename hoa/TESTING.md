@@ -43,6 +43,10 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - Verify the CC&R text (it was read from a scan) and which document wins where it conflicts with the Community Standards.
 
 ## 6. Added since the first checklist (please test)
+- [ ] **Saved letters:** send a notice (the first notice of a test case). On the case page, "Exact copies of letters sent" lists it; click "Open the exact copy": it is the same PDF that was emailed. Try the "Download the case file (zip)" button: unzip it and open `00-INDEX.html`. The case history shows "Case file downloaded".
+- [ ] **Hearing notice attachment:** send a case to a hearing. The hearing notice PDF ends with a page titled "ATTACHMENT - Copy of Notice of Violation" followed by the exact first notice. The Second Notice is not attached.
+- [ ] **Suspension:** no screen (Board vote, committee pages, case pages, owner pages, dashboard) mentions suspension.
+- [ ] After `git pull`, double-click `start-site.bat`: it now also installs the new add-on (pypdf) and runs `migrate`.
 - [ ] **Dashboard tabs:** under "Needs your attention" there is a row of status tabs (All, To do, To approve & send, Owner says fixed, Re-inspect, Messages, Imposed / unpaid, Cure periods...). Click one to see only that status; "All" shows everything. A link such as the overdue "messages" bar opens the right tab.
 - [ ] **Photo limits:** on a case, add a text file as a "photo": a yellow message names it and says why; add 12 pictures at once: 10 are kept and the message says so.
 - [ ] **Sign-in links:** ask for a link twice; only the newest works.

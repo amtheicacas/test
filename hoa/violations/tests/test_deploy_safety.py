@@ -47,7 +47,7 @@ def test_good_live_settings_have_no_problems():
     ({"allowed_hosts": []}, "ALLOWED_HOSTS"), ({"allowed_hosts": ["*"]}, "ALLOWED_HOSTS"),
     ({"site_url": "http://localhost:8000"}, "SITE_URL"), ({"database_url": ""}, "DATABASE_URL"),
     ({"email_host": ""}, "EMAIL_HOST"), ({"from_email": "violations@example.org"}, "DEFAULT_FROM_EMAIL"), ({"from_email": ""}, "DEFAULT_FROM_EMAIL"),
-    ({"mfa_roles": ()}, "Two-step"),
+    ({"mfa_roles": ()}, "Two-step"), ({"file_storage": False}, "File storage"),
 ])
 def test_each_unsafe_live_setting_is_named(change, mention):
     problems = deploy.production_problems(**{**GOOD, **change})
@@ -57,7 +57,7 @@ def test_each_unsafe_live_setting_is_named(change, mention):
 def _load_settings(**extra):
     """Import config.settings in a fresh Python the way a live host would, with none of the developer's own settings."""
     env = {k: v for k, v in os.environ.items() if k not in (
-        "DJANGO_DEBUG", "SECRET_KEY", "ALLOWED_HOSTS", "SITE_URL", "DATABASE_URL", "EMAIL_HOST", "DEFAULT_FROM_EMAIL", "MFA_REQUIRED_ROLES")}
+        "DJANGO_DEBUG", "SECRET_KEY", "ALLOWED_HOSTS", "SITE_URL", "DATABASE_URL", "EMAIL_HOST", "DEFAULT_FROM_EMAIL", "MFA_REQUIRED_ROLES", "MEDIA_ROOT", "STORAGE_BUCKET")}
     env.update(HOA_ENV_FILE="no-such-file", **extra)
     return subprocess.run([sys.executable, "-c",
                            "import config.settings as s; print('OK', s.DEBUG, s.PRODUCTION, s.DATABASES['default']['ENGINE'], "
@@ -66,7 +66,8 @@ def _load_settings(**extra):
 
 
 LIVE = dict(DJANGO_DEBUG="0", SECRET_KEY="k" * 50, ALLOWED_HOSTS="hoa.example.com", SITE_URL="https://hoa.example.com",
-            DATABASE_URL="postgres://u:p@h:5432/db", EMAIL_HOST="smtp.example.com", DEFAULT_FROM_EMAIL="violations@heronlanding.org")
+            DATABASE_URL="postgres://u:p@h:5432/db", EMAIL_HOST="smtp.example.com", DEFAULT_FROM_EMAIL="violations@heronlanding.org",
+            MEDIA_ROOT="/var/data/media")
 
 
 def test_a_site_with_no_settings_is_treated_as_live_and_refuses_to_start():

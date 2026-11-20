@@ -14,3 +14,9 @@ def _fresh_cache():
     cache.clear()
     yield
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _files_in_a_temporary_folder(settings, tmp_path):
+    """Photos and the saved copies of letters are written to MEDIA_ROOT: never into the project's own media folder while testing."""
+    settings.MEDIA_ROOT = tmp_path / "media"

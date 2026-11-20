@@ -126,7 +126,7 @@ def refresh_piece(piece):
         return False
 
 
-def dispatch(notice, render):
+def dispatch(notice, render, user=None):
     """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
     while the lease is active the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
     'owner_property' or 'tenant'. Returns True if anything was handed to a provider."""
@@ -153,6 +153,10 @@ def dispatch(notice, render):
                 piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
                                                  tracking_number=r.get("tracking_number") or "")
                 apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
+                from .services import _keep_copy
+                _keep_copy(notice, pdf, variant, "certified" if svc == "certified" else "first_class",
+                           f"{addr['name']}, {addr['line1']}, {addr['city']}, {addr['state']} {addr['zip']}", addr["name"], user, errors,
+                           tracking=piece.tracking_number, piece=piece)
             except Exception as e:  # never block the workflow on the provider
                 errors.append(f"{label}/{svc}: {e}")
     notice.provider, notice.provider_ids = "lob", ",".join(ids)[:500]

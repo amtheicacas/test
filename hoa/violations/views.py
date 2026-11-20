@@ -1,3 +1,4 @@
+import hashlib
 from datetime import date, timedelta
 from functools import wraps
 
@@ -13,8 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import accounts, forms, geocoding, ledger, services, standards_search, throttle, uploads, vantaca
-from .models import Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
+from . import accounts, casefile, forms, geocoding, ledger, services, standards_search, throttle, uploads, vantaca
+from .models import SentLetter, Profile, short_date, CannedReply, CommitteeMember, MailPiece, MeetingAttendance, CommitteeMeeting, Notice, Owner, Photo, Response, Violation
 from .pdf import render_notice_pdf
 
 S = Violation.Status
@@ -503,8 +504,33 @@ def violation_detail(request, pk):
         "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
         "impose_form": forms.ImposeForm(), "ledger_configured": ledger.configured(),
         "history": services.owner_history(v),
+        "sent_letters": v.sent_letters.select_related("sent_by"),
+        "no_copy": [n for n in v.notices.all() if not n.sent_copies.exists()],
     }
     return render(request, "violations/detail.html", ctx)
+
+
+@staff_only
+def sent_letter(request, pk):
+    """Open the exact copy of a letter that was sent (Board and manager only). Refuses a file that no longer matches its fingerprint."""
+    s = get_object_or_404(SentLetter, pk=pk)
+    try:
+        data = s.read_bytes()
+    except Exception:       # noqa: BLE001
+        return render(request, "violations/sent_letter_problem.html", {"s": s, "why": "The saved file could not be read from storage."}, status=404)
+    if hashlib.sha256(data).hexdigest() != s.sha256:
+        return render(request, "violations/sent_letter_problem.html", {"s": s, "why": "The saved file no longer matches its fingerprint, so it may have been changed."}, status=409)
+    return HttpResponse(data, content_type="application/pdf", headers={
+        "Content-Disposition": f'inline; filename="case-{s.violation_id}-{s.kind}-{s.sent_at:%Y-%m-%d}.pdf"', "Cache-Control": "private, max-age=300"})
+
+
+@staff_only
+def case_file(request, pk):
+    """One zip with everything about the case (Board and manager only). Every download is recorded in the case history."""
+    v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
+    services.log(v, "Case file downloaded", request.user)
+    data, name = casefile.build_case_file(v, request.user)
+    return HttpResponse(data, content_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 @staff_only

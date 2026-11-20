@@ -117,9 +117,19 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"      # `collectstatic` gathers the CSS/JS/images here on the live host
+STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}}
 if not DEBUG:
-    STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-                "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"}}
+    STORAGES["staticfiles"] = {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"}
+# Private file storage for uploaded photos, minutes and the saved copy of every letter sent. Nothing in it has a public address: files are
+# only ever opened through pages that check who is asking. Locally (and until a bucket is chosen) files go to MEDIA_ROOT on disk.
+# With STORAGE_BUCKET set they go to a private S3-compatible bucket instead (any vendor: Backblaze B2, Cloudflare R2, AWS S3...).
+if env("STORAGE_BUCKET"):
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {
+        "bucket_name": env("STORAGE_BUCKET"), "endpoint_url": env("STORAGE_ENDPOINT_URL") or None,
+        "region_name": env("STORAGE_REGION") or None, "access_key": env("STORAGE_ACCESS_KEY_ID", ""),
+        "secret_key": env("STORAGE_SECRET_ACCESS_KEY", ""), "default_acl": None, "querystring_auth": True,
+        "file_overwrite": False, "signature_version": "s3v4"}}
 MEDIA_URL = "media/"
 MEDIA_ROOT = Path(env("MEDIA_ROOT", str(BASE_DIR / "media")))
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -250,12 +260,16 @@ X_FRAME_OPTIONS = "SAMEORIGIN"   # lets the app show its own letter PDFs inside 
 ARCHIVE_RETENTION_YEARS = int(env("ARCHIVE_RETENTION_YEARS", "3"))   # how long former owners' records are kept before they may be purged
 STAFF_ADMIN_ACCESS = env("STAFF_ADMIN_ACCESS", "1") == "1"   # managers and board members get the same access, including the admin screens
 SUSPENSION_MAX_DAYS = int(env("SUSPENSION_MAX_DAYS", "60"))
+# Suspension of Common Area use is in the Declaration but does not apply today (there are no amenities), so the application does not show or
+# offer it. Set SUSPENSION_ENABLED=1 to bring it back (nothing is deleted from the database either way).
+SUSPENSION_ENABLED = env("SUSPENSION_ENABLED", "0") == "1"
 FINE_LIEN_THRESHOLD = int(env("FINE_LIEN_THRESHOLD", "1000"))
 
 # ---- Refuse to start a live site with unsafe settings -------------------------
 if PRODUCTION:
     _problems = deploy.production_problems(
         secret_key=SECRET_KEY, allowed_hosts=ALLOWED_HOSTS, site_url=SITE_URL, database_url=env("DATABASE_URL", ""),
-        email_host=env("EMAIL_HOST", ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES)
+        email_host=env("EMAIL_HOST", ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES,
+        file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")))
     if _problems:
         raise ImproperlyConfigured(deploy.explain(_problems))

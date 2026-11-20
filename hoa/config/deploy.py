@@ -25,7 +25,7 @@ def database_from_url(url, conn_max_age=60, ssl_require=False):
     return cfg
 
 
-def production_problems(*, secret_key, allowed_hosts, site_url, database_url, email_host, from_email, mfa_roles):
+def production_problems(*, secret_key, allowed_hosts, site_url, database_url, email_host, from_email, mfa_roles, file_storage=True):
     """Plain-language list of what is wrong for a live site (empty list = fine)."""
     out = []
     if not secret_key or secret_key == DEV_SECRET or secret_key.startswith("django-insecure") or len(secret_key) < 32:
@@ -43,6 +43,9 @@ def production_problems(*, secret_key, allowed_hosts, site_url, database_url, em
                    "server log instead of being emailed.")
     if not from_email or from_email.lower().endswith("@example.org"):
         out.append("DEFAULT_FROM_EMAIL must be a real address on the association's domain.")
+    if not file_storage:
+        out.append("File storage must be set: STORAGE_BUCKET (a private bucket) or MEDIA_ROOT (a persistent disk). Otherwise the saved copies "
+                   "of every letter sent, the photos and the minutes would be lost each time the site is updated.")
     if not mfa_roles:
         out.append("Two-step login is switched off (MFA_REQUIRED_ROLES is empty or 'none'). Remove that setting on the live site.")
     return out

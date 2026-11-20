@@ -93,7 +93,8 @@ def _photo(v, stamp_dt=None):
     if not ph:
         return []
     try:
-        img = Image(ph.image.path)
+        with ph.image.open("rb") as fh:          # read through the storage, so it also works when files are not on this computer's disk
+            img = Image(BytesIO(fh.read()))
         img._restrictSize(2.0 * inch, 1.45 * inch)
         img.hAlign = "RIGHT"
         return [_p(_stamp(stamp_dt or timezone.now()), STAMP), img, _p(_caption(ph.shown_at), ParagraphStyle("cap", parent=STAMP, fontSize=6.5, leading=8))]
@@ -264,7 +265,7 @@ def _zoom_block(v):
     return [Spacer(1, 6)] + [Paragraph(x, BODY) for x in lines]
 
 
-def _hearing_notice(notice, v, to_name, block, dated):
+def _hearing_notice(notice, v, to_name, block, dated, rebuilt_copy=True):
     """Notice of Hearing (Fining Resolution Exhibit 2) in the Association's 'Hearing Panel Review' layout."""
     cert = "SENT BY CERTIFIED MAIL RETURN RECEIPT" + (" and by regular U.S. Mail" if settings.HEARING_REGULAR_COPY else "")
     if notice.tracking_number:
@@ -308,9 +309,10 @@ def _hearing_notice(notice, v, to_name, block, dated):
         s.append(_p(OWNER_LIABILITY_HEARING + (OWNER_SUSPENSION_SENTENCE if v.proposed_suspension else "")
                     + " Owners have the right to attend the Committee Hearing."))
     s += _signoff() + _zoom_block(v)
-    first_stamp = nov.created_at if nov else notice.created_at
-    s += [PageBreak(), _p("ATTACHMENT - Copy of Notice of Violation", TITLE)]
-    s += _nov_body(v, K.VIOLATION, to_name, block, timezone.localtime(first_stamp).date(), first_stamp)
+    if rebuilt_copy:        # no saved original on file: rebuild it (the saved exact copy is attached instead whenever there is one)
+        first_stamp = nov.created_at if nov else notice.created_at
+        s += [PageBreak(), _p("ATTACHMENT - Copy of Notice of Violation", TITLE)]
+        s += _nov_body(v, K.VIOLATION, to_name, block, timezone.localtime(first_stamp).date(), first_stamp)
     return s
 
 
@@ -378,8 +380,15 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
     dated = timezone.localtime(notice.created_at).date()
     title = notice.get_kind_display()
 
+    saved = None
     if notice.kind == K.HEARING:
-        s = _hearing_notice(notice, v, to_name, block, dated)
+        from . import letters
+        saved = letters.original_notice_copy(v, recipient)       # the exact Notice of Violation that was sent, if we kept it
+        try:
+            saved_pdf = saved.read_bytes() if saved is not None else None
+        except Exception:    # noqa: BLE001  (the stored file cannot be read: fall back to a rebuilt copy rather than fail)
+            saved_pdf = None
+        s = _hearing_notice(notice, v, to_name, block, dated, rebuilt_copy=saved_pdf is None)
     elif notice.kind == K.FINE:
         s = _decision_letter(notice, v, to_name, block, dated)
     elif notice.kind in (K.VIOLATION, K.SECOND):
@@ -394,7 +403,14 @@ def render_notice_pdf(notice: Notice, recipient: str = "owner") -> bytes:
             when = f"{v.cure_deadline:%B %d, %Y}" if v.cure_deadline else f"a new date; please see the {settings.APP_NAME} for the deadline"
             s.append(_p(f"The time to cure the violation at {v.owner.property_address} ({v.vtype}) has been extended to {when}."))
         s += [_respond_line(v)] + _signoff()
-    buf = BytesIO()
-    SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.9 * inch, rightMargin=0.9 * inch, topMargin=0.55 * inch,
-                      bottomMargin=0.55 * inch, title=f"{title} #{v.pk}").build(s)
-    return buf.getvalue()
+    def build(flow):
+        buf = BytesIO()
+        SimpleDocTemplate(buf, pagesize=letter, leftMargin=0.9 * inch, rightMargin=0.9 * inch, topMargin=0.55 * inch,
+                          bottomMargin=0.55 * inch, title=f"{title} #{v.pk}").build(flow)
+        return buf.getvalue()
+
+    out = build(s)
+    if notice.kind == K.HEARING and saved_pdf is not None:     # the same title page the rebuilt copy had, then the exact copy that was sent
+        from . import letters
+        out = letters.merge_pdfs(out, build([_p("ATTACHMENT - Copy of Notice of Violation", TITLE)]), saved_pdf)
+    return out

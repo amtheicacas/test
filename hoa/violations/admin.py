@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin
 from django.conf import settings
 
 from . import accounts
-from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, Violation, ViolationType
+from .models import CannedReply, CommitteeMeeting, CommitteeMember, Owner, Profile, SentLetter, Violation, ViolationType
 
 
 @admin.action(description=f"Send {settings.APP_NAME} invitation (creates homeowner login)")
@@ -62,3 +62,20 @@ admin.site.unregister(User)
 class UserAdminWithRole(UserAdmin):
     inlines = [ProfileInline]
     list_display = ["username", "email", "first_name", "last_name", "is_staff"]
+
+
+@admin.register(SentLetter)
+class SentLetterAdmin(admin.ModelAdmin):
+    """The saved exact copies of letters sent: look only. Nobody can add, change or delete one here."""
+    list_display = ["violation", "kind", "recipient_name", "channel", "sent_at", "tracking_number", "sha256"]
+    list_filter = ["kind", "channel", "origin"]
+    search_fields = ["violation__owner__property_address", "recipient_name", "tracking_number", "sha256"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

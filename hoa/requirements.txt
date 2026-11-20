@@ -6,3 +6,4 @@ django-axes
 qrcode
 anthropic
 openpyxl
+pypdf>=5,<7          # joins the saved original notice onto the hearing notice

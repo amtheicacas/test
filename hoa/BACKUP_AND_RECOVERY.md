@@ -168,3 +168,9 @@ where the last Vantaca owner export is kept.
 2. Retention periods (attorney).
 3. Whether Render's plan with point-in-time recovery is worth the extra cost over the nightly dump alone.
 4. Second vendor for off-site copies (recommended: Cloudflare R2 free tier).
+
+
+---
+
+## Addendum (Part A): what the file backups must now include
+`sent-letters/` (the exact PDF of every letter sent) is added to the uploads that must be backed up (photos, minutes). Treat it as the most important file area: it is the proof of what each owner was sent. Quarterly restore test: pick one saved letter from the database, restore it from the backup copy, and check that its SHA-256 equals the fingerprint on the case page / in the case-file manifest.
