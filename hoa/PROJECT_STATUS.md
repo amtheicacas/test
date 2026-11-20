@@ -122,3 +122,6 @@ SEC-01, SEC-03, SEC-11, SEC-12, SEC-20, SEC-21 (plus: a mail-server failure on t
 - Sign-in links: asking again cancels earlier links; one-step claim so two clicks sign in once; `accounts.revoke_links` (for the email-change work in Phase 4); `daily_jobs` clears old links and runs `clearsessions`. Live-site link addresses always come from `SITE_URL`.
 - Password reset: `ThrottledPasswordResetView` (3 per address, 10 per visitor per hour; refused requests look identical).
 NEXT: Phase 3 (private object storage, SEC-06 / SEC-15; needs the user's storage choice), Phase 4 (email-change action, account audit log, admin restrictions, 2FA gaps, session hygiene).
+
+## 16. Dashboard status tabs (user request)
+`dashboard.html`: each "Needs your attention" card carries `data-tab` / `data-label`; a small script builds a tab bar (All + one tab per card, with counts), remembers the choice in the address (`#tab=key`), opens the right tab for in-page links like `#awaiting`, and leaves everything visible if scripts are off. Tests: `tests/test_dashboard_tabs.py` (structure) and a Playwright check in the sandbox (switching, hash, no-script fallback). 453 tests.

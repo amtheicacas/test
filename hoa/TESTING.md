@@ -43,6 +43,7 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - Verify the CC&R text (it was read from a scan) and which document wins where it conflicts with the Community Standards.
 
 ## 6. Added since the first checklist (please test)
+- [ ] **Dashboard tabs:** under "Needs your attention" there is a row of status tabs (All, To do, To approve & send, Owner says fixed, Re-inspect, Messages, Imposed / unpaid, Cure periods...). Click one to see only that status; "All" shows everything. A link such as the overdue "messages" bar opens the right tab.
 - [ ] **Photo limits:** on a case, add a text file as a "photo": a yellow message names it and says why; add 12 pictures at once: 10 are kept and the message says so.
 - [ ] **Sign-in links:** ask for a link twice; only the newest works.
 - [ ] **Roster:** Committee members page: pick members from the owner list; they get the committee role on their own owner login; copy the roster to next year.
