@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 local.env
 staticfiles/
+local.*.env
