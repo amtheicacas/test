@@ -5,3 +5,4 @@ __pycache__/
 local.env
 staticfiles/
 local.*.env
+backup-private-key*

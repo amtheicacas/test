@@ -270,7 +270,9 @@ BACKUP_ENDPOINT_URL = env("BACKUP_ENDPOINT_URL", "")
 BACKUP_REGION = env("BACKUP_REGION", "auto")
 BACKUP_ACCESS_KEY_ID = env("BACKUP_ACCESS_KEY_ID", "")
 BACKUP_SECRET_ACCESS_KEY = env("BACKUP_SECRET_ACCESS_KEY", "")
-BACKUP_HEARTBEAT_URL = env("BACKUP_HEARTBEAT_URL", "")      # optional: a monitor address pinged only after a fully successful run
+BACKUP_HEARTBEAT_URL = env("BACKUP_HEARTBEAT_URL", "")      # optional: a monitor address pinged only after a fully successful FILE backup
+BACKUP_DB_HEARTBEAT_URL = env("BACKUP_DB_HEARTBEAT_URL", "")    # the same for the DATABASE backup (a separate monitor, so each can be noticed if it stops)
+BACKUP_PUBLIC_KEY = env("BACKUP_PUBLIC_KEY", "")            # the age PUBLIC key database backups are encrypted to (it cannot decrypt them; not secret)
 
 # ---- Refuse to start a live site with unsafe settings -------------------------
 if PRODUCTION:

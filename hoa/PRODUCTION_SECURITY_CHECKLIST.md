@@ -191,3 +191,8 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] `backup_files` run for real from the PC (dry run first); R2 shows the same folders; a second run copies nothing.
 - [ ] `backup_files` scheduled nightly on the host with its own R2 token and `BACKUP_HEARTBEAT_URL`; a deliberately failed run produces an alert.
 - [ ] The R2 backup token is NOT the same as any other key and is not available to the website process.
+
+- [ ] Backup key pair created on the PC with `make_backup_key`; the private key is stored in two places (the user and one other person) and deleted from the PC; the PUBLIC key is in `BACKUP_PUBLIC_KEY` (never the private one).
+- [ ] `backup_database` run for real (dry run first); the file appears under `database/` in R2 and is not readable without the private key.
+- [ ] A restore rehearsal was done with the stored private key: download from R2 -> `decrypt_backup` -> `pg_restore` into a scratch database -> counts match.
+- [ ] `backup_database` scheduled nightly on the host with its own heartbeat; a deliberately failed run produces an alert.

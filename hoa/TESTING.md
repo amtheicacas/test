@@ -72,3 +72,8 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] `backup-files.bat --dry-run` lists what it would copy and writes nothing.
 - [ ] `backup-files.bat` copies; a second run says everything is already in the backup.
 - [ ] In the Cloudflare R2 bucket the same folders (`photos/`, `minutes/`, ...) appear; delete nothing there by hand.
+
+## Database backup
+- [ ] `python manage.py make_backup_key` prints a public key and writes `backup-private-key.txt` without showing it; running it again refuses to overwrite.
+- [ ] `python manage.py backup_database --dry-run` says it dumped and encrypted and stored nothing.
+- [ ] After the real run a file under `database/` appears in the R2 bucket; `decrypt_backup` turns it back into a database file.

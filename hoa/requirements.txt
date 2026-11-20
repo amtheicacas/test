@@ -7,3 +7,4 @@ qrcode
 anthropic
 openpyxl
 pypdf>=5,<7          # joins the saved original notice onto the hearing notice
+pyrage>=1.2,<2        # encrypts the database backups (standard 'age' format, so the 'age' tool can also open them)

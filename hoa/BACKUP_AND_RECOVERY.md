@@ -188,3 +188,7 @@ Uploaded minutes (PDF/.docx) live under `minutes/`; keep that prefix in the nigh
 
 ## Addendum: the file copy is built (`backup_files`)
 Replaces the `rclone copy` idea for files: `python manage.py backup_files` copies every uploaded file from the live bucket to the backup bucket, never overwrites or deletes, verifies each new copy by fingerprint, and checks that every file the database refers to is in the backup. Run it nightly as a Render cron job (after the database dump) with `BACKUP_HEARTBEAT_URL` set. Quarterly restore test is unchanged (restore one saved letter and compare its SHA-256).
+
+
+## Addendum: the database backup is built (`backup_database`)
+Replaces the shell script in section 3: `python manage.py backup_database` dumps (pg_dump custom format on the live site), encrypts to the public key `BACKUP_PUBLIC_KEY` with `age` (pyrage), writes `database/hoa-<date-time>.dump.age` to the R2 bucket, never overwrites, verifies the upload, and pings `BACKUP_DB_HEARTBEAT_URL` only on success. Restore: download the file, `python manage.py decrypt_backup <file.age> <private key file> hoa.dump` (or `age -d -i <key> file.age > hoa.dump`), then `pg_restore --no-owner --no-acl -d <NEW empty database> hoa.dump` (section 6, R2). **Private key custody: the Board member who runs the site holds it and shares it with one other person** (record their roles here and on the sealed recovery sheet). The cron job host must have a `pg_dump` at least as new as the database server (still to confirm on Render).

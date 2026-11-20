@@ -53,6 +53,16 @@ class S3Target:
                 return out
             token = r["NextContinuationToken"]
 
+    def exists(self, key):
+        from botocore.exceptions import ClientError
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+
     def put(self, key, data, sha):
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data, Metadata={"sha256": sha})
 
