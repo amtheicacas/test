@@ -120,7 +120,8 @@ def test_zoom_not_connected_says_so(db, settings):
 def test_meetings_page_form_creates_the_zoom_meeting(client, staff, zoom_on):
     start = (timezone.localtime(timezone.now()) + timedelta(days=21)).strftime("%Y-%m-%dT%H:%M")
     with mock.patch.object(zoom, "_request", side_effect=fake_zoom([])):
-        assert "Zoom is connected" in client.get("/meetings/").content.decode()
+        page = client.get("/meetings/").content.decode()
+        assert "Create the Zoom meeting for me" in page and 'id="id_create_zoom" checked' in page
         client.post("/meetings/", {"starts_at": start, "create_zoom": "on"})
     assert CommitteeMeeting.objects.get().zoom_link == ZOOM_REPLY["join_url"]
 
@@ -165,3 +166,117 @@ def test_zoom_meeting_settings_recording_cameras_and_alternative_hosts(zoom_on, 
     s = calls[1][2]["settings"]
     assert s["auto_recording"] == "cloud" and s["host_video"] is True and s["participant_video"] is True
     assert s["alternative_hosts"] == "alt1@example.org,alt2@example.org" and s["waiting_room"] is True
+
+
+def test_series_creates_one_meeting_and_one_zoom_meeting_per_date(zoom_on):
+    from datetime import datetime
+    calls = []
+    third_monday = timezone.make_aware(datetime(2027, 1, 18, 18, 0))                  # the 3rd Monday of January 2027
+    with mock.patch.object(zoom, "_request", side_effect=fake_zoom(calls)):
+        made, err = services.create_meeting_series(third_monday, 4, create_zoom=True)
+    assert err == "" and len(made) == 4 and {m.series for m in made} == {"3rd Monday of each month"}
+    local = [timezone.localtime(m.starts_at) for m in made]
+    assert [(d.month, d.day, d.hour) for d in local] == [(1, 18, 18), (2, 15, 18), (3, 15, 18), (4, 19, 18)]
+    assert all(d.weekday() == 0 for d in local) and len([c for c in calls if "/meetings" in c[1]]) == 4    # one Zoom meeting each
+
+
+def test_a_fifth_weekday_means_the_last_one(db):
+    from datetime import datetime
+    label, dates = services.series_dates(timezone.make_aware(datetime(2027, 3, 29, 18, 0)), 3)      # 5th Monday of March 2027
+    assert label == "last Monday of each month" and [(d.month, d.day) for d in dates] == [(3, 29), (4, 26), (5, 31)]
+
+
+def test_assign_selected_cases_to_a_picked_future_meeting_and_the_notice_carries_that_meetings_zoom(client, staff):
+    from violations.models import Owner, Notice, ViolationType, Violation
+    from violations.pdf import render_notice_pdf
+    import subprocess, tempfile, os
+    soon = CommitteeMeeting.objects.create(starts_at=timezone.now() + timedelta(days=30), zoom_link="https://zoom.us/j/AAA111", zoom_meeting_id="111 111", zoom_passcode="aaa")
+    later = CommitteeMeeting.objects.create(starts_at=timezone.now() + timedelta(days=60), zoom_link="https://zoom.us/j/BBB222", zoom_meeting_id="222 222", zoom_passcode="bbb")
+    vt = ViolationType.objects.create(name="Batch")
+    cases = []
+    for i in range(3):
+        o = Owner.objects.create(name=f"O{i}", property_address=f"{i + 1} Batch Way", email=f"o{i}@example.com")
+        cases.append(Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="hearing_needed", proposed_fine=100, board_meeting_date=timezone.localdate()))
+    page = client.get("/meetings/").content.decode()
+    assert "3 Board-approved violations waiting" in page and "Assign selected" in page and "days away" in page
+    client.post("/meetings/assign-selected/", {"meeting": later.pk, "pick": [cases[0].pk, cases[1].pk]})
+    for v in cases:
+        v.refresh_from_db()
+    assert [v.status for v in cases] == ["hearing_scheduled", "hearing_scheduled", "hearing_needed"]      # the unticked one stays waiting
+    assert cases[0].committee_meeting_id == later.pk
+    n = cases[0].notices.get(kind="hearing")
+    pdf = render_notice_pdf(n, "owner")
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+        f.write(pdf)
+    text = " ".join(subprocess.run(["pdftotext", f.name, "-"], capture_output=True, text=True).stdout.split())
+    os.unlink(f.name)
+    assert "https://zoom.us/j/BBB222" in text and "222 222" in text and "bbb" in text and "AAA111" not in text
+    from django.core import mail
+    body = " ".join(m.body for m in mail.outbox if "hearing" in m.subject.lower())
+    assert mail.outbox and all(m.attachments for m in mail.outbox if "hearing" in m.subject.lower())     # the same PDF is attached to the email
+
+
+def test_creating_a_meeting_under_twenty_days_warns(client, staff):
+    start = (timezone.localtime(timezone.now()) + timedelta(days=10)).strftime("%Y-%m-%dT%H:%M")
+    r = client.post("/meetings/", {"starts_at": start, "zoom_link": "https://zoom.us/j/1"}, follow=True)
+    import html as _h
+    text = _h.unescape(r.content.decode())
+    assert "under 20 days away" in text and "14 days' notice is required" in text
+    page = client.get("/meetings/").content.decode()
+    assert "days' notice is required for a hearing" in page                                        # the pop-up text is on the page
+
+
+def _assigned(client, days=40):
+    from violations.models import Owner, ViolationType, Violation
+    m = CommitteeMeeting.objects.create(starts_at=timezone.now() + timedelta(days=days), zoom_link="https://zoom.us/j/OLD", zoom_api_id="999")
+    o = Owner.objects.create(name="Move Me", property_address="9 Move Way", email="mv@example.com")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="Mv"), description="d", cure_required="c", status="hearing_needed",
+                                 proposed_fine=100, board_meeting_date=timezone.localdate())
+    services.assign_to_meeting(v, m)
+    v.refresh_from_db()
+    return m, v
+
+
+def test_meetings_are_clickable_and_can_be_rescheduled_with_new_notices_and_zoom_updated(client, staff, zoom_on):
+    from django.core import mail
+    m, v = _assigned(client)
+    assert f"/meetings/{m.pk}/" in client.get("/meetings/").content.decode()
+    assert "Reschedule" in client.get(f"/meetings/{m.pk}/").content.decode()
+    new = (timezone.localtime(timezone.now()) + timedelta(days=45)).replace(microsecond=0)
+    calls = []
+    mail.outbox.clear()
+    with mock.patch.object(zoom, "_request", side_effect=fake_zoom(calls)):
+        client.post(f"/meetings/{m.pk}/", {"action": "reschedule", "starts_at": new.strftime("%Y-%m-%dT%H:%M"), "notify": "on"})
+    m.refresh_from_db(); v.refresh_from_db()
+    assert timezone.localtime(m.starts_at).replace(second=0) == new.replace(second=0) and v.hearing_date == m.starts_at
+    assert v.notices.filter(kind="hearing").count() == 2 and mail.outbox                       # a fresh certified + email notice
+    patch = [c for c in calls if c[0] == "PATCH"][0]
+    assert patch[1].endswith("/v2/meetings/999") and patch[2]["start_time"].startswith(new.strftime("%Y-%m-%dT%H:%M"))
+
+
+def test_rescheduling_needs_fourteen_days_notice_when_cases_are_assigned(client, staff):
+    m, v = _assigned(client)
+    client.post(f"/meetings/{m.pk}/", {"action": "reschedule", "starts_at": (timezone.localtime(timezone.now()) + timedelta(days=5)).strftime("%Y-%m-%dT%H:%M")})
+    m.refresh_from_db()
+    assert (m.starts_at - timezone.now()).days >= 39
+
+
+def test_cancelling_returns_cases_to_waiting_emails_owners_and_deletes_the_zoom_meeting(client, staff, zoom_on):
+    from django.core import mail
+    m, v = _assigned(client)
+    mail.outbox.clear()
+    calls = []
+    with mock.patch.object(zoom, "_request", side_effect=fake_zoom(calls)):
+        client.post(f"/meetings/{m.pk}/", {"action": "cancel", "notify": "on"})
+    v.refresh_from_db()
+    assert not CommitteeMeeting.objects.filter(pk=m.pk).exists()
+    assert v.status == "hearing_needed" and v.committee_meeting_id is None and v.hearing_date is None
+    assert any("cancelled" in x.subject.lower() for x in mail.outbox)
+    assert [c[0] for c in calls if "/meetings/999" in c[1]] == ["DELETE"]
+
+
+def test_a_meeting_with_decisions_cannot_be_moved_or_cancelled(client, staff):
+    m, v = _assigned(client)
+    v.committee_outcome = "confirm"; v.save()
+    client.post(f"/meetings/{m.pk}/", {"action": "cancel"})
+    assert CommitteeMeeting.objects.filter(pk=m.pk).exists()

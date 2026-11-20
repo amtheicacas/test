@@ -1,5 +1,6 @@
 {% extends "violations/base.html" %}{% block title %}Dashboard{% endblock %}{% block content %}
 <style>
+.spd{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.spd div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.spd b{display:block;font-size:1.5rem;line-height:1.1}.spd span{color:var(--mut);font-size:.8rem}
 .hero{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:16px;background:linear-gradient(135deg,var(--card) 0%,var(--bg) 100%)}
 .hero img{height:64px;width:auto;flex:0 0 auto}
 .hero h1{margin:0 0 4px;font-size:1.5rem}
@@ -14,12 +15,12 @@
 .bars{display:grid;gap:8px;margin-top:8px}
 .bar{display:grid;grid-template-columns:200px 1fr 34px;gap:10px;align-items:center;font-size:.9rem;text-decoration:none;color:inherit}
 .bar .t{height:12px;background:var(--bg);border-radius:6px;overflow:hidden}
-.bar .t i{display:block;height:100%;background:var(--acc);border-radius:0 4px 4px 0;min-width:2px}
+.bar .t i{display:block;height:100%;background:var(--btn);border-radius:0 4px 4px 0;min-width:2px}
 .bar.zero .t i{min-width:0}.bar.zero{opacity:.55}
 .bar em{font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
 .cols{display:flex;gap:10px;align-items:flex-end;height:120px;margin-top:10px}
 .cols div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:.8rem;color:var(--mut)}
-.cols i{display:block;width:100%;max-width:44px;background:var(--acc);border-radius:4px 4px 0 0;margin-bottom:4px;min-height:2px}
+.cols i{display:block;width:100%;max-width:44px;background:var(--btn);border-radius:4px 4px 0 0;margin-bottom:4px;min-height:2px}
 .cols b{color:var(--ink);font-weight:600}
 @media(max-width:640px){.hero{flex-direction:column;align-items:flex-start}.hero .go{margin-left:0}.bar{grid-template-columns:110px 1fr 28px}}
 </style>
@@ -47,13 +48,19 @@
     <h3 style="margin:16px 0 4px;font-size:1rem">Overdue {% if overdue_total %}<span class="pill late">{{ overdue_total }}</span>{% else %}<span class="pill">none</span>{% endif %}</h3>
     <div class="bars">{% for o in overdue %}<a class="bar{% if not o.n %} zero{% endif %}" title="{{ o.label }}: {{ o.hint }}" href="{% if o.key == 'replies' %}#awaiting{% else %}{% url 'violation_list' %}?overdue={{ o.key }}{% endif %}" style="grid-template-columns:200px 1fr 34px"><span>{{ o.label }}</span><span class="t"><i style="width:{% if o.n %}100{% else %}0{% endif %}%;background:var(--bad)"></i></span><em{% if o.n %} class="late"{% endif %}>{{ o.n }}</em></a>{% endfor %}</div>
   </div>
-  <div class="card"><h2>Most common violations</h2>
+  <div class="card"><h2>Most common violations <span style="font-weight:400;font-size:.82rem;margin-left:6px">{% for k,l in ranges %}<a href="?range={{ k }}" style="{% if k == range %}font-weight:700;text-decoration:none;color:var(--btn){% else %}color:var(--mut){% endif %}">{{ l }}</a>{% if not forloop.last %} &middot; {% endif %}{% endfor %}</span></h2>
     {% if top_types %}<div class="bars">{% for t in top_types %}<div class="bar"><span title="{{ t.vtype__name }}">{{ t.vtype__name|truncatechars:30 }}</span><span class="t"><i style="width:{{ t.pct }}%"></i></span><em>{{ t.n }}</em></div>{% endfor %}</div>
-    {% else %}<p class="mut">Nothing recorded yet.</p>{% endif %}
+    {% else %}<p class="mut">Nothing recorded in this period.</p>{% endif %}
   </div>
 </div>
-<div class="card"><h2>Violations observed, last 6 months</h2>
-  <div class="cols">{% for t in trend %}<div title="{{ t.label }}: {{ t.n }}"><b>{{ t.n }}</b><i style="height:{{ t.pct }}%"></i>{{ t.label }}</div>{% endfor %}</div>
+<div class="card"><h2>How long cases take <span style="font-weight:400;font-size:.82rem;margin-left:6px" class="mut">notice issued to the Committee's decision &middot; {% for k,l in ranges %}{% if k == range %}{{ l }}{% endif %}{% endfor %}</span></h2>
+{% if speed.n %}<div class="spd"><div><b>{{ speed.median }}</b><span>days, typical (median)</span></div><div><b>{{ speed.avg }}</b><span>days, average</span></div><div><b>{{ speed.fastest }}</b><span>fastest</span></div><div><b>{{ speed.slowest }}</b><span>slowest</span></div><div><b>{{ speed.n }}</b><span>case{{ speed.n|pluralize }} decided</span></div></div>
+<p class="mut" style="margin:12px 0 4px"><b>Where the time goes</b> (average days)</p>
+<div style="display:flex;height:24px;border-radius:8px;overflow:hidden;background:var(--bg)">{% for s in speed.segs %}<div title="{{ s.label }}: {{ s.days }} days" style="width:{{ s.pct }}%;background:{{ s.color }}"></div>{% endfor %}</div>
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:.85rem">{% for s in speed.segs %}<span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{{ s.color }};margin-right:5px"></i>{{ s.label }}: <b>{{ s.days }} days</b></span>{% endfor %}</div>
+<p class="mut" style="margin:14px 0 0"><b>Average days by month of decision</b></p>
+<div class="cols">{% for b in speed.bars %}<div title="{{ b.label }}: {{ b.avg }} days on average, {{ b.n }} case{{ b.n|pluralize }}"><b>{{ b.avg }}</b><i style="height:{{ b.pct }}%"></i>{{ b.label }}</div>{% endfor %}</div>
+{% else %}<p class="mut" style="margin:0">No cases have had a Committee decision {% if range == '30d' %}in the last 30 days{% elif range == '12m' %}in the last 12 months{% endif %} yet. Once they do, this shows how long they take and where the time goes.</p>{% endif %}
 </div>
 
 <h2 style="margin:22px 0 8px">Needs your attention</h2>

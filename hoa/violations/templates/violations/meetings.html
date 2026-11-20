@@ -1,11 +1,48 @@
 {% extends "violations/base.html" %}{% block title %}Meetings{% endblock %}{% block content %}
 <h1>Compliance Committee meetings</h1>
 <p style="margin-top:-6px"><a href="{% url 'committee_members' %}">Committee members (roster)</a></p>
-<div class="card"><h2>{{ waiting|length }} board-approved case{{ waiting|length|pluralize }} waiting for a hearing</h2>
-{% for v in waiting %}<a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</div>
-<form class="card" method="post">{% csrf_token %}<h2>Schedule a meeting</h2>{{ form.non_field_errors }}
-{% if zoom_ready %}<p class="mut" style="margin-top:0">Zoom is connected: tick <b>Create the Zoom meeting for me</b> and leave the Zoom fields blank. The link, ID, passcode and dial-in numbers are filled in and go on the hearing notices.</p>
-{% else %}<p class="mut" style="margin-top:0">Zoom is not connected yet, so paste the link from Zoom below (see the README to connect it).</p>{% endif %}<div class="row">{% for f in form %}<div>{{ f.label_tag }}{{ f }}{{ f.errors }}</div>{% endfor %}</div><button style="margin-top:8px">Create meeting</button></form>
-{% for m in meetings %}<div class="card"><h2>{{ m.starts_at|date:"l, F j, Y g:i A" }} — {{ m.n }} case{{ m.n|pluralize }}</h2><p class="mut">{{ m.place }}</p>
-<a href="{% url 'committee_meeting' m.pk %}">Open agenda</a>
-{% if waiting %}<form method="post" action="{% url 'meeting_assign_all' m.pk %}" style="margin-top:8px">{% csrf_token %}<button>Send all {{ waiting|length }} waiting case{{ waiting|length|pluralize }} to this meeting (emails notices and sends certified mail)</button></form>{% endif %}</div>{% endfor %}{% endblock %}
+
+<form class="card" method="post" id="mform" data-recommended="{{ recommended }}" data-minimum="{{ minimum }}">{% csrf_token %}<h2>Schedule a meeting</h2>{{ form.non_field_errors }}
+<div class="row" style="align-items:flex-end"><div style="flex:1 1 260px"><label>{{ form.starts_at.label }}</label>{{ form.starts_at }}{{ form.starts_at.errors }}</div></div>
+<label style="font-weight:400;margin-top:10px"><input type="checkbox" name="create_zoom" id="id_create_zoom" {% if zoom_ready %}checked{% else %}disabled{% endif %}> <b>Create the Zoom meeting for me</b>
+{% if not zoom_ready %}<span class="mut"> (Zoom isn't connected yet: see the README. For now fill in the Zoom details below.)</span>{% endif %}</label>
+<div id="zoom-extra" style="display:{% if zoom_ready %}none{% else %}block{% endif %};margin:6px 0 4px 22px;padding:10px 12px;border:1px solid var(--line);border-radius:10px">
+<p class="mut" style="margin:0 0 6px">Paste these from Zoom (or give an in-person location).</p>
+<div class="row"><div>{{ form.zoom_link.label_tag }}{{ form.zoom_link }}{{ form.zoom_link.errors }}</div><div>{{ form.zoom_meeting_id.label_tag }}{{ form.zoom_meeting_id }}</div><div>{{ form.zoom_passcode.label_tag }}{{ form.zoom_passcode }}</div></div>
+<div class="row"><div>{{ form.zoom_dial_in.label_tag }}{{ form.zoom_dial_in }}</div><div>{{ form.location.label_tag }}{{ form.location }}</div></div></div>
+<label style="font-weight:400;margin-top:10px"><input type="checkbox" name="repeat" id="id_repeat"> <span id="repeat-label">Repeat every month</span></label>
+<div id="repeat-extra" style="display:none;margin:4px 0 0 22px"><label style="display:inline;font-weight:400">For </label><select name="repeat_months" style="width:auto;display:inline-block"><option value="3">3 months</option><option value="6">6 months</option><option value="12" selected>12 months</option></select>
+<span class="mut"> Each date gets its own Zoom meeting, so each hearing notice carries that date's link.</span></div>
+<p style="margin-bottom:0"><button style="margin-top:10px">Create meeting</button></p></form>
+
+<form class="card" method="post" action="{% url 'meeting_assign_selected' %}" id="aform">{% csrf_token %}<h2>{{ waiting|length }} Board-approved violation{{ waiting|length|pluralize }} waiting for a hearing</h2>
+{% if waiting %}{% if upcoming %}<p class="mut" style="margin-top:0">Tick the violations, pick the meeting, and assign them all at once. The hearing notice goes by certified mail and email with that meeting's Zoom link.</p>
+<table><tr><th style="width:30px"><input type="checkbox" id="pickall" checked><th>Violation<th>Property / owner<th>Board voted</tr>
+{% for v in waiting %}<tr><td><input type="checkbox" name="pick" value="{{ v.pk }}" class="pick" checked><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype.name }}</a><td>{{ v.owner.property_address }}<div class="mut">{{ v.owner.display_name }}</div><td>{{ v.board_meeting_date|date:"M j, Y" }}</tr>{% endfor %}</table>
+<div class="row" style="align-items:flex-end;margin-top:10px"><div style="flex:3 1 320px"><label>Assign to this meeting</label><select name="meeting" id="ameeting">{% for m in upcoming %}<option value="{{ m.pk }}" data-days="{{ m.days_away }}">{{ m.starts_at|date:"l, F j, Y g:i A" }} ({{ m.days_away }} days away){% if m.short %} &mdash; under {{ recommended }} days{% endif %}{% if m.series %} &middot; {{ m.series }}{% endif %}</option>{% endfor %}</select></div>
+<div style="flex:0 0 auto;min-width:0"><button>Assign selected</button></div></div>
+{% else %}<p class="mut">Create a meeting above first, then assign these to it.</p>{% endif %}{% else %}<p class="mut" style="margin:0">Nothing is waiting.</p>{% endif %}</form>
+
+<h2 style="margin:18px 0 6px">Upcoming meetings</h2>
+{% for m in upcoming %}<div class="card"><h3 style="margin:0"><a href="{% url 'meeting_manage' m.pk %}">{{ m.starts_at|date:"l, F j, Y g:i A" }}</a> <span class="mut" style="font-weight:400">&middot; {{ m.days_away }} days away &middot; {{ m.n }} case{{ m.n|pluralize }}</span>{% if m.short %} <span class="pill flag">under {{ recommended }} days</span>{% endif %}</h3>
+<p class="mut" style="margin:4px 0">{{ m.place }}{% if m.series %} &middot; {{ m.series }}{% endif %}</p><a href="{% url 'meeting_manage' m.pk %}">Open, reschedule or cancel</a> &middot; <a href="{% url 'committee_meeting' m.pk %}">Agenda</a></div>
+{% empty %}<div class="card mut">No upcoming meetings. Schedule one above.</div>{% endfor %}
+{% if past %}<h2 style="margin:18px 0 6px">Recent meetings</h2>{% for m in past %}<div class="card"><a href="{% url 'meeting_manage' m.pk %}">{{ m.starts_at|date:"F j, Y" }}</a> &middot; {{ m.n }} case{{ m.n|pluralize }}</div>{% endfor %}{% endif %}
+
+<script>(function(){
+var f=document.getElementById("mform"),start=document.getElementById("id_starts_at"),z=document.getElementById("id_create_zoom"),extra=document.getElementById("zoom-extra"),
+rep=document.getElementById("id_repeat"),repx=document.getElementById("repeat-extra"),lab=document.getElementById("repeat-label");
+var REC=+f.dataset.recommended,MIN=+f.dataset.minimum;
+function daysAway(v){if(!v)return null;var d=new Date(v);if(isNaN(d))return null;var t=new Date();t.setHours(0,0,0,0);var s=new Date(d);s.setHours(0,0,0,0);return Math.round((s-t)/864e5);}
+function toggleZoom(){extra.style.display=(z.checked&&!z.disabled)?"none":"block";}
+function ordinal(n){return n===-1?"last":["1st","2nd","3rd","4th"][n-1];}
+function repLabel(){var v=start.value;if(!v){lab.textContent="Repeat every month";return;}var d=new Date(v);var nth=Math.floor((d.getDate()-1)/7)+1;if(nth===5)nth=-1;
+lab.textContent="Repeat on the "+ordinal(nth)+" "+d.toLocaleDateString("en-US",{weekday:"long"})+" of every month";}
+z.addEventListener("change",toggleZoom);rep.addEventListener("change",function(){repx.style.display=rep.checked?"block":"none";});start.addEventListener("input",repLabel);toggleZoom();repLabel();
+f.addEventListener("submit",function(e){var n=daysAway(start.value);if(n===null)return;
+if(n<REC){var msg="This meeting is only "+n+" day"+(n===1?"":"s")+" away.\n\n"+MIN+" days' notice is required for a hearing, and we recommend at least "+REC+" days so there is time to get the notices printed and into the mail.\n\nSchedule it anyway?";
+if(!confirm(msg))e.preventDefault();}});
+var a=document.getElementById("aform");if(a){var all=document.getElementById("pickall"),picks=[].slice.call(a.querySelectorAll(".pick")),sel=document.getElementById("ameeting");
+if(all)all.addEventListener("change",function(){picks.forEach(function(p){p.checked=all.checked;});});
+a.addEventListener("submit",function(e){if(!sel)return;var n=+sel.options[sel.selectedIndex].dataset.days;if(n<REC&&!confirm("That meeting is only "+n+" days away. "+MIN+" days' notice is required and we recommend "+REC+" so the hearing notices can be printed and mailed in time.\n\nAssign anyway?"))e.preventDefault();});}
+})();</script>{% endblock %}

@@ -61,6 +61,9 @@ def build(m):
         bits.append("The owner or a representative attended the hearing." if v.committee_owner_present else "The owner did not attend the hearing.")
         if v.committee_findings:
             bits.append("Findings: " + v.committee_findings.split("\n[Returned")[0].strip())
+        abst = list(v.abstentions.select_related("member"))
+        if abst:
+            bits.append("Abstaining: " + ", ".join(f"{a.member.name} ({a.reason.lower()})" for a in abst) + ".")
         if v.committee_outcome:
             d = f"Decision: the Committee {word[v.committee_outcome]}"
             if v.committee_outcome == "amend" and v.committee_amended_fine:

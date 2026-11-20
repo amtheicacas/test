@@ -2,8 +2,8 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="{% static 'violations/heron-landing-logo.png' %}">
 <title>{% block title %}Violations{% endblock %} · {{ HOA_NAME }}</title>
 <style>
-:root{--bg:#f4f4f5;--card:#fff;--ink:#0b0b0c;--mut:#5f6368;--line:#d1d2d4;--acc:#111113;--acc-ink:#fff;--bad:#b42318;--ok:#067647;--warn:#b54708}
-@media(prefers-color-scheme:dark){:root{--bg:#0e0e0f;--card:#19191a;--ink:#f2f2f3;--mut:#a3a5a9;--line:#2e2f31;--acc:#d1d2d4;--acc-ink:#0b0b0c;--bad:#ff8a80;--ok:#5fd39a;--warn:#f5b45a}}
+:root{--btn:#2563c9;--bg:#f4f4f5;--card:#fff;--ink:#0b0b0c;--mut:#5f6368;--line:#d1d2d4;--acc:#111113;--acc-ink:#fff;--bad:#b42318;--ok:#067647;--warn:#b54708}
+@media(prefers-color-scheme:dark){:root{--btn:#3b82e6;--bg:#0e0e0f;--card:#19191a;--ink:#f2f2f3;--mut:#a3a5a9;--line:#2e2f31;--acc:#d1d2d4;--acc-ink:#0b0b0c;--bad:#ff8a80;--ok:#5fd39a;--warn:#f5b45a}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
 a{color:var(--ink);text-underline-offset:2px}header{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 a.nav{display:inline-flex;flex-direction:column;align-items:center;line-height:1.2;text-decoration:none}a.nav span{text-decoration:underline;text-underline-offset:3px}a.nav small{font-size:.74rem;color:var(--mut);font-weight:600}a.nav small.hot{color:var(--warn)}
@@ -11,6 +11,9 @@ header .brand{margin-right:auto;display:flex;align-items:center;gap:10px;text-de
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
 h1{font-size:1.65rem;margin:.2em 0 .6em;letter-spacing:-.01em}h2{font-size:1.1rem;margin:0 0 .6em}
 header{position:sticky;top:0;z-index:50;box-shadow:0 1px 0 var(--line),0 4px 14px rgba(0,0,0,.05)}
+a.newbtn{background:#12805c;color:#fff;font-weight:700;padding:8px 14px;border-radius:8px;text-decoration:none;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+a.newbtn:hover{background:#0e6a4c}
+@media(prefers-color-scheme:dark){a.newbtn{background:#1fa774}a.newbtn:hover{background:#188a60}}
 a.nav:hover span{text-decoration-thickness:2px}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
 button:hover,.btn:hover{filter:brightness(1.18)}button.sec:hover,.btn.sec:hover{filter:none;background:var(--bg)}
@@ -24,7 +27,7 @@ th{color:var(--mut);font-weight:600;font-size:.8rem;text-transform:uppercase}
 .msg{padding:9px 12px;border-radius:8px;margin-bottom:10px;border:1px solid var(--line)}.msg.error{color:var(--bad)}.msg.success{color:var(--ok)}.msg.warning{color:var(--warn)}
 input,select,textarea{width:100%;padding:7px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
 input[type=checkbox],input[type=radio]{width:auto}label{display:block;font-weight:600;margin:8px 0 2px;font-size:.88rem}
-button,.btn{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-block}
+button,.btn{background:var(--btn);color:#fff;border:0;border-radius:6px;padding:7px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-block}
 button.sec{background:transparent;color:var(--ink);border:1px solid var(--line)}button.bad{background:var(--bad)}
 .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}.mut{color:var(--mut)}.photos img{max-width:220px;border-radius:8px;border:1px solid var(--line);margin:0 8px 8px 0}
 .late{color:var(--bad);font-weight:600}ul.tl{list-style:none;padding:0;margin:0}ul.tl li{padding:4px 0;border-bottom:1px solid var(--line)}
@@ -55,16 +58,19 @@ details summary{cursor:pointer;text-decoration:underline}
 </style></head><body>
 <header><a class="brand" href="/"><img src="{% static 'violations/heron-landing-logo.png' %}" alt="Heron Landing"><span class="brandname">{{ HOA_NAME }}</span></a>
 {% if user.is_authenticated %}
-{% if ROLE == "manager" or ROLE == "board" %}
+{% if NAVMODE == "owner" %}<span style="font-weight:600" title="Signed in as {{ RESIDENT_NAME }}">Welcome, {{ RESIDENT_NAME }}</span><a class="nav" href="{% url 'my_home' %}"><span>Home</span><small>&nbsp;</small></a><a class="nav" href="{% url 'my_violations' %}"><span>Violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{{ HOA_DOCUMENTS_URL }}" target="_blank" rel="noopener">HOA Documents</a><a href="{% url 'my_household' %}">Account</a>{% if ROLE == "manager" or ROLE == "board" %}<a class="newbtn" style="background:#6d4fc2" href="{% url 'dashboard' %}">Board / Manager workspace &rarr;</a>{% elif ROLE == "committee" %}<a class="newbtn" style="background:#6d4fc2" href="{% url 'committee_home' %}">Committee &rarr;</a>{% endif %}
+{% elif ROLE == "manager" or ROLE == "board" %}
 <a class="nav" href="{% url 'dashboard' %}" title="Items waiting on you"><span>Dashboard</span><small class="{% if NAV.attention %}hot{% endif %}">{{ NAV.attention }} to do</small></a>
 <a class="nav" href="{% url 'violation_list' %}?status=open" title="{{ NAV.open }} open of {{ NAV.total }} violations in all"><span>Violations</span><small>{{ NAV.open }} open</small></a>
 <a class="nav" href="{% url 'board_queue' %}" title="{{ NAV.board_tip }}"><span>Board queue</span><small class="{% if NAV.board %}hot{% endif %}">{{ NAV.board }}</small></a>
 <a class="nav" href="{% url 'meetings' %}" title="Upcoming Compliance Committee meetings"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
 <a class="nav" href="{% url 'results_list' %}" title="Compliance Committee results, meeting by meeting"><span>Committee results</span><small class="{% if NAV.results %}hot{% endif %}">{% if NAV.results %}{{ NAV.results }} to review{% else %}all meetings{% endif %}</small></a>
 <a class="nav" href="{% url 'map' %}" title="Active homes"><span>Map</span><small>{{ NAV.homes }} homes</small></a>
-<a class="nav" href="{% url 'violation_create' %}"><span>+ New</span><small>&nbsp;</small></a>
-<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Saved replies</a><a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'owner_archive' %}">Former owners</a><a href="{% url 'admin:index' %}">Admin</a>
+<a class="newbtn" href="{% url 'violation_create' %}">+ New violation</a>
+<form method="get" action="{% url 'violation_list' %}" style="display:inline"><input name="q" placeholder="Search address, owner…" style="width:180px"></form><a href="{% url 'canned_replies' %}">Standard Responses</a><a href="{% url 'import_owners' %}">Import owners</a><a href="{% url 'owner_archive' %}">Former owners</a><a href="{% url 'admin:index' %}">Admin</a>
+{% if IS_OWNER %}<a href="{% url 'my_home' %}">My violations</a>{% endif %}
 {% elif ROLE == "committee" %}<a class="nav" href="{% url 'committee_home' %}"><span>Committee meetings</span><small>{{ NAV.meetings }} upcoming</small></a>
-{% elif ROLE == "homeowner" %}<span style="font-weight:600" title="Signed in as {{ RESIDENT_NAME }}">Welcome, {{ RESIDENT_NAME }}</span><a class="nav" href="{% url 'my_home' %}"><span>Home</span><small>&nbsp;</small></a><a class="nav" href="{% url 'my_violations' %}"><span>Violations</span><small>{{ NAV.mine|default:0 }} open</small></a><a href="{{ HOA_DOCUMENTS_URL }}" target="_blank" rel="noopener">HOA Documents</a><a href="{% url 'my_household' %}">Account</a>{% endif %}
+{% if IS_OWNER %}<a href="{% url 'my_home' %}">My violations</a>{% endif %}
+{% endif %}
 <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button class="sec">Log out</button></form>{% endif %}</header>
 <main class="{% block mainclass %}{% endblock %}">{% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}{% block content %}{% endblock %}</main></body></html>

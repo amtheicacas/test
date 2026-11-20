@@ -92,7 +92,7 @@ def signin_link(request, token):
         ll.used_at = timezone.now()
         ll.save(update_fields=["used_at"])
         auth_login(request, ll.user, backend="django.contrib.auth.backends.ModelBackend")
-        return redirect("dashboard")
+        return redirect("home_root")
     return render(request, "violations/signin_link_confirm.html", {"who": ll.user.first_name or "your account"})
 
 

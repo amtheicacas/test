@@ -142,7 +142,7 @@ def test_staff_menu_shows_a_count_under_each_heading(client):
     assert n["Board queue"] == "3"                           # 1 awaiting vote + 1 waiting for hearing + 1 awaiting posting
     assert n["Committee meetings"] == "1 upcoming" and n["Map"] == "5 homes"
     assert n["Dashboard"] == "4 to do"                       # the 3 board items + 1 extension request
-    assert "+ New" in n
+    assert "+ New" not in n  # it is a button now, not a menu heading
 
 
 def test_menu_counts_at_zero_and_titles(client):
@@ -976,3 +976,66 @@ def test_administrative_review_wording(db):
     assert Violation.Status.LEDGER_PENDING.label == "Committee decided: administrative review"
     assert Violation.Status.FINE_APPROVED.label == "Fine imposed — awaiting payment / cure"
     assert CommitteeMeeting.Results.SUBMITTED.label == "Awaiting administrative review"
+
+
+def test_violation_type_filter_lists_only_types_that_have_violations(db, client, django_user_model):
+    from violations.models import Owner, ViolationType, Violation, Profile
+    used = ViolationType.objects.create(name="Used Type")
+    ViolationType.objects.create(name="ATV / dirt bike (never used)")
+    o = Owner.objects.create(name="F O", property_address="40 Filter Way")
+    Violation.objects.create(owner=o, vtype=used, description="d", cure_required="c")
+    Violation.objects.create(owner=o, vtype=used, description="d2", cure_required="c")
+    u = django_user_model.objects.create_user("mg50", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    page = client.get("/violations/").content.decode()
+    assert "Used Type" in page and "ATV / dirt bike" not in page and page.count("Used Type</option>") == 1        # appears once, not per violation
+    Violation.objects.create(owner=o, vtype=ViolationType.objects.get(name__startswith="ATV"), description="d", cure_required="c")
+    assert "ATV / dirt bike" in client.get("/violations/").content.decode()                                    # shows up once something uses it
+
+
+def test_dashboard_most_common_chart_defaults_to_twelve_months_and_can_be_widened(db, client, django_user_model):
+    from datetime import date, timedelta
+    from violations.models import Owner, ViolationType, Violation, Profile
+    o = Owner.objects.create(name="C H", property_address="41 Chart Way")
+    recent = ViolationType.objects.create(name="RecentType"); old = ViolationType.objects.create(name="AncientType")
+    Violation.objects.create(owner=o, vtype=recent, description="d", cure_required="c", status="cured", observed_on=date.today() - timedelta(days=5))
+    Violation.objects.create(owner=o, vtype=old, description="d", cure_required="c", status="cured", observed_on=date.today() - timedelta(days=900))
+    u = django_user_model.objects.create_user("mg51", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    page = client.get("/workspace/").content.decode()
+    assert "RecentType" in page and "AncientType" not in page and "12 months" in page
+    assert "AncientType" in client.get("/workspace/?range=all").content.decode()
+    assert "AncientType" not in client.get("/workspace/?range=30d").content.decode()
+
+
+def test_saved_replies_are_now_called_standard_responses(db, client, django_user_model):
+    from violations.models import Profile
+    u = django_user_model.objects.create_user("mg52", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "board"})
+    client.force_login(u)
+    assert "Standard Responses" in client.get("/workspace/").content.decode() and "Saved replies" not in client.get("/workspace/").content.decode()
+    assert "<h1>Standard Responses</h1>" in client.get("/replies/").content.decode()
+
+
+def test_dashboard_shows_how_long_cases_take_from_notice_to_committee_decision(db, client, django_user_model):
+    from datetime import date, timedelta
+    from django.utils import timezone
+    from violations.models import Owner, ViolationType, Violation, Notice, Profile
+    vt = ViolationType.objects.create(name="Speed")
+    o = Owner.objects.create(name="S P", property_address="42 Speed Way")
+    today = date.today()
+    def case(opened_days_ago, cure_days, board_days_ago, decided_days_ago):
+        v = Violation.objects.create(owner=o, vtype=vt, description="d", cure_required="c", status="fine_approved", committee_outcome="confirm",
+                                     cure_deadline=today - timedelta(days=opened_days_ago - cure_days), board_meeting_date=today - timedelta(days=board_days_ago),
+                                     hearing_date=timezone.now() - timedelta(days=decided_days_ago))
+        n = Notice.objects.create(violation=v, kind="violation")
+        Notice.objects.filter(pk=n.pk).update(created_at=timezone.now() - timedelta(days=opened_days_ago))
+    case(60, 15, 30, 3)                        # opened 60 days ago, decided 3 days ago: 57 days
+    case(40, 10, 20, 2)                        # 38 days
+    u = django_user_model.objects.create_user("mg53", password="x"); Profile.objects.update_or_create(user=u, defaults={"role": "manager"})
+    client.force_login(u)
+    ctx = client.get("/workspace/").context
+    sp = ctx["speed"]
+    assert sp["n"] == 2 and sp["fastest"] == 38 and sp["slowest"] == 57 and sp["avg"] == 48 and sp["median"] == 48
+    assert [s["label"] for s in sp["segs"]] == ["Cure period", "Waiting for the Board vote", "Waiting for the hearing"] and sp["segs"][0]["days"] == 12
+    html = client.get("/workspace/").content.decode()
+    assert "How long cases take" in html and "Where the time goes" in html and "Violations observed" not in html

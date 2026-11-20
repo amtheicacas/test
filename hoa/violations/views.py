@@ -38,12 +38,32 @@ def role_required(*roles):
 
 staff_only = role_required(*STAFF)
 staff_or_committee = role_required(*STAFF, "committee")
-homeowner_only = role_required("homeowner")
+def owner_only(fn):
+    """Pages about the signed-in person's OWN violations. Anyone whose login is linked to an owner record can use them, including a
+    committee or Board member (one login for everything)."""
+    @wraps(fn)
+    def wrapper(request, *a, **kw):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if accounts.owner_of(request.user) is None:
+            raise PermissionDenied
+        return fn(request, *a, **kw)
+    return wrapper
+
+
+homeowner_only = owner_only
+
+
+def owns(user, v):
+    o = accounts.owner_of(user)
+    return bool(o) and v.owner_id == o.id and v.status != S.DRAFT
 
 
 def can_view(user, v):
     """Per-case access: staff see all; committee only cases sent to a meeting; homeowners only their own."""
     role = accounts.role_of(user)
+    if owns(user, v):                       # your own violation: always visible to you, whatever other role you hold
+        return True
     if role in STAFF:
         return True
     if role == "committee":
@@ -121,15 +141,26 @@ def _verify_list():
 
 # ---------- landing / dashboard ----------
 def home(request):
+    """Where "/" leads: owners (even when also on the committee or Board) start on their own violations; others go to their workspace."""
     if not request.user.is_authenticated:
         return redirect_to_login("/")
     role = accounts.role_of(request.user)
-    if role == "homeowner":
+    if accounts.owner_of(request.user) is not None:
         return redirect("my_home")
     if role == "committee":
         return redirect("committee_home")
     if role not in STAFF:
         raise PermissionDenied
+    return _dashboard(request)
+
+
+@staff_only
+def workspace(request):
+    """The Board / Manager dashboard (also reachable from an owner's home when they hold a Board or manager role)."""
+    return _dashboard(request)
+
+
+def _dashboard(request):
     services.advance_expired()
     counts = dict(Violation.objects.values_list("status").annotate(c=Count("id")))
     ctx = {
@@ -153,7 +184,7 @@ def home(request):
         "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
         "today": date.today(),
     }
-    ctx.update(_dashboard_visuals(counts))
+    ctx.update(_dashboard_visuals(counts, request.GET.get("range", "12m")))
     return render(request, "violations/dashboard.html", ctx)
 
 
@@ -184,32 +215,63 @@ PIPELINE = [("Re-inspect (verify)", "reinspect"), ("Cure period", "notice_sent")
             ("Imposed", "fine_approved"), ("On hold", "on_hold")]
 
 
-def _dashboard_visuals(counts):
+RANGES = [("30d", "30 days", 30), ("12m", "12 months", 365), ("all", "All time", None)]
+
+
+def _decision_speed(days, today):
+    """How long cases take from the notice being issued to the Compliance Committee's decision (the hearing date), over the chosen window:
+    summary numbers, where the time goes (cure period, waiting for the Board, waiting for the hearing) and a monthly average."""
+    import statistics
+    qs = (Violation.objects.exclude(status=S.DRAFT).exclude(committee_outcome="").filter(hearing_date__isnull=False)
+          .prefetch_related("notices"))
+    rows, phases, monthly = [], {"cure": [], "board": [], "hearing": []}, {}
+    for v in qs:
+        decided = timezone.localtime(v.hearing_date).date()
+        if days and decided < today - timedelta(days=days):
+            continue
+        first = next((n for n in v.notices.all() if n.kind == "violation"), None)
+        opened = timezone.localtime(first.created_at).date() if first else timezone.localtime(v.created_at).date()
+        total = max((decided - opened).days, 0)
+        rows.append(total)
+        monthly.setdefault((decided.year, decided.month), []).append(total)
+        cure_end = v.cure_deadline if v.cure_deadline and opened <= v.cure_deadline <= decided else None
+        if cure_end:
+            phases["cure"].append((cure_end - opened).days)
+        if v.board_meeting_date and decided >= v.board_meeting_date >= (cure_end or opened):
+            phases["board"].append((v.board_meeting_date - (cure_end or opened)).days)
+            phases["hearing"].append((decided - v.board_meeting_date).days)
+    if not rows:
+        return {"n": 0}
+    avg = lambda xs: round(sum(xs) / len(xs)) if xs else 0
+    parts = [("Cure period", avg(phases["cure"])), ("Waiting for the Board vote", avg(phases["board"])), ("Waiting for the hearing", avg(phases["hearing"]))]
+    sum_parts = sum(d for _, d in parts) or 1
+    colors = ["#2563c9", "#d9822b", "#7a5cc7"]
+    segs = [{"label": l, "days": d, "pct": round(100 * d / sum_parts), "color": colors[i]} for i, (l, d) in enumerate(parts)]
+    months = sorted(monthly)[-12:]
+    peak = max((avg(monthly[k]) for k in months), default=1) or 1
+    bars = [{"label": date(y, m, 1).strftime("%b %y" if len(months) > 6 else "%b"), "avg": avg(monthly[(y, m)]), "n": len(monthly[(y, m)]),
+             "pct": round(100 * avg(monthly[(y, m)]) / peak)} for y, m in months]
+    return {"n": len(rows), "median": round(statistics.median(rows)), "avg": avg(rows), "fastest": min(rows), "slowest": max(rows),
+            "segs": segs, "bars": bars}
+
+
+def _dashboard_visuals(counts, rng="12m"):
     """Numbers behind the dashboard graphics: pipeline, top rule types, 6-month trend, headline tiles."""
     today = date.today()
     counts = {**counts, "reinspect": Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()}
     peak = max([counts.get(k, 0) for _, k in PIPELINE] + [1])
     pipeline = [{"label": l, "key": k, "n": counts.get(k, 0), "pct": round(100 * counts.get(k, 0) / peak)}
                 for l, k in PIPELINE]
-    top = list(Violation.objects.values("vtype__name").annotate(n=Count("id")).order_by("-n")[:6])
+    days = {k: d for k, _, d in RANGES}.get(rng, 365)
+    rng = rng if rng in {k for k, _, _ in RANGES} else "12m"
+    top_qs = Violation.objects.exclude(status=S.DRAFT)
+    if days:   # after years of data an all-time chart stops being useful, so it defaults to the last 12 months
+        top_qs = top_qs.filter(observed_on__gte=today - timedelta(days=days))
+    top = list(top_qs.values("vtype__name").annotate(n=Count("id")).order_by("-n", "vtype__name")[:6])
     top_peak = max([t["n"] for t in top] + [1])
     for t in top:
         t["pct"] = round(100 * t["n"] / top_peak)
-    months = []
-    y, m = today.year, today.month
-    for _ in range(6):
-        months.append((y, m))
-        m -= 1
-        if m == 0:
-            y, m = y - 1, 12
-    months.reverse()
-    trend = []
-    for y, m in months:
-        trend.append({"label": date(y, m, 1).strftime("%b"),
-                      "n": Violation.objects.filter(observed_on__year=y, observed_on__month=m).count()})
-    t_peak = max([t["n"] for t in trend] + [1])
-    for t in trend:
-        t["pct"] = round(100 * t["n"] / t_peak)
+    speed = _decision_speed(days, today)
     open_qs = Violation.objects.filter(status__in=Violation.OPEN)
     cured_30 = Violation.objects.filter(cured_on__gte=today - timedelta(days=30)).count()
     total = Violation.objects.count()
@@ -220,7 +282,7 @@ def _dashboard_visuals(counts):
                     "hint": f"no staff reply within {settings.REPLY_TARGET_HOURS} hours", "n": late_replies})
     return {
         "overdue": overdue, "overdue_total": sum(o["n"] for o in overdue),
-        "pipeline": pipeline, "top_types": top, "trend": trend,
+        "pipeline": pipeline, "top_types": top, "speed": speed, "ranges": [(k, l) for k, l, _ in RANGES], "range": rng,
         "kpi_open": open_qs.count(),
         "kpi_homes": open_qs.values("owner").distinct().count(),
         "kpi_cured30": cured_30,
@@ -256,7 +318,7 @@ def violation_list(request):
         qs = qs.filter(observed_on__lte=g["to"])
     from .models import ViolationType
     return render(request, "violations/list.html", {"violations": qs, "status": status, "q": q, "statuses": S.choices,
-                                                    "types": ViolationType.objects.all(), "vtype": vtype,
+                                                    "types": ViolationType.objects.filter(violation__isnull=False).distinct().order_by("name"), "vtype": vtype,
                                                     "frm": g.get("from", ""), "to": g.get("to", "")})
 
 
@@ -328,7 +390,7 @@ def recipient_summary(o):
 
 @staff_only
 def canned_replies(request):
-    """Saved replies the board and manager share. Anyone on the team can add, edit or delete one."""
+    """Standard responses the board and manager share. Anyone on the team can add, edit or delete one."""
     if request.method == "POST":
         P = request.POST
         act, title, body = P.get("action"), (P.get("title") or "").strip()[:80], (P.get("body") or "").strip()
@@ -336,7 +398,7 @@ def canned_replies(request):
             CannedReply.objects.filter(pk=P.get("id") or 0).delete()
             messages.success(request, "Deleted.")
         elif not title or not body:
-            messages.error(request, "A saved reply needs a title and the text.")
+            messages.error(request, "A standard response needs a title and the text.")
         elif act == "update":
             CannedReply.objects.filter(pk=P.get("id") or 0).update(title=title, body=body)
             messages.success(request, "Saved.")
@@ -475,9 +537,9 @@ def violation_action(request, pk, action):
             title = (P.get("save_title") or "").strip()
             if P.get("save_reply") and title:
                 CannedReply.objects.create(title=title[:80], body=f.cleaned_data["message"], created_by=u)
-                messages.success(request, f'Saved as a canned reply: "{title[:80]}". The whole team can use it.')
+                messages.success(request, f'Saved as a standard response: "{title[:80]}". The whole team can use it.')
             elif P.get("save_reply"):
-                messages.warning(request, "Give the saved reply a short title to keep it.")
+                messages.warning(request, "Give the standard response a short title to keep it.")
     elif action == "extension":
         f = forms.ExtensionForm(P)
         if f.is_valid():
@@ -640,15 +702,88 @@ def meetings(request):
     form = forms.MeetingForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         d = form.cleaned_data
-        m = _run(request, services.create_meeting, d["starts_at"], d["zoom_link"], d["location"], request.user,
-                 zoom_meeting_id=d["zoom_meeting_id"], zoom_passcode=d["zoom_passcode"], zoom_dial_in=d["zoom_dial_in"],
-                 create_zoom=d["create_zoom"], ok="Meeting created.")
-        if m:
+        extra = dict(zoom_meeting_id=d["zoom_meeting_id"], zoom_passcode=d["zoom_passcode"], zoom_dial_in=d["zoom_dial_in"])
+        first = None
+        if d["repeat"]:
+            made, err = services.create_meeting_series(d["starts_at"], int(d["repeat_months"] or 12), request.user, d["zoom_link"], d["location"],
+                                                       create_zoom=d["create_zoom"], **extra)
+            if made:
+                first = made[0]
+                messages.success(request, f"Created {len(made)} meeting{'s' if len(made) != 1 else ''} ({made[0].series}).")
+            if err:
+                messages.error(request, f"Stopped at {err}")
+        else:
+            first = _run(request, services.create_meeting, d["starts_at"], d["zoom_link"], d["location"], request.user,
+                         create_zoom=d["create_zoom"], ok="Meeting created.", **extra)
+        if first and services.short_notice(first):
+            messages.warning(request, f"The first meeting is under {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days away. {settings.HEARING_NOTICE_DAYS} days' notice is "
+                                      f"required, and the extra days allow for printing and mailing the hearing notices.")
+        if first:
             return redirect("meetings")
     from . import zoom
+    upcoming = list(CommitteeMeeting.objects.filter(starts_at__gte=timezone.now()).annotate(n=Count("violations")).order_by("starts_at"))
+    today = timezone.localdate()
+    for m in upcoming:
+        m.days_away = (timezone.localtime(m.starts_at).date() - today).days
+        m.short = m.days_away < settings.HEARING_NOTICE_RECOMMENDED_DAYS
     return render(request, "violations/meetings.html", {
-        "zoom_ready": zoom.configured(), "form": form, "meetings": CommitteeMeeting.objects.annotate(n=Count("violations")),
-        "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner")})
+        "zoom_ready": zoom.configured(), "form": form, "upcoming": upcoming,
+        "past": CommitteeMeeting.objects.filter(starts_at__lt=timezone.now()).annotate(n=Count("violations"))[:8],
+        "waiting": Violation.objects.filter(status=S.HEARING_NEEDED).select_related("owner", "vtype"),
+        "recommended": settings.HEARING_NOTICE_RECOMMENDED_DAYS, "minimum": settings.HEARING_NOTICE_DAYS})
+
+
+@staff_only
+def meeting_manage(request, pk):
+    """One meeting: its details and agenda, and the way to move or cancel it."""
+    m = get_object_or_404(CommitteeMeeting, pk=pk)
+    if request.method == "POST":
+        act = request.POST.get("action")
+        notify = bool(request.POST.get("notify"))
+        if act == "reschedule":
+            try:
+                start = forms.MeetingForm.base_fields["starts_at"].clean(request.POST.get("starts_at"))
+            except Exception:
+                messages.error(request, "Enter the new date and time.")
+                return redirect("meeting_manage", pk=pk)
+            warns = _run(request, services.reschedule_meeting, m, start, request.user, notify, ok="Meeting moved.")
+            for w in warns or []:
+                messages.warning(request, w)
+        elif act == "cancel":
+            n = m.violations.count()
+            warns = _run(request, services.cancel_meeting, m, request.user, notify, ok="Meeting cancelled." + (f" {n} violation{'s' if n != 1 else ''} went back to waiting for a hearing." if n else ""))
+            if warns is not None:
+                for w in warns:
+                    messages.warning(request, w)
+                return redirect("meetings")
+        return redirect("meeting_manage", pk=pk)
+    cases = m.violations.select_related("owner", "vtype").order_by("owner__property_address")
+    locked = m.results_status != CommitteeMeeting.Results.OPEN or any(v.committee_outcome or v.status != S.HEARING_SCHEDULED for v in cases)
+    return render(request, "violations/meeting_manage.html", {"m": m, "cases": cases, "locked": locked,
+                                                              "days_away": (timezone.localtime(m.starts_at).date() - timezone.localdate()).days,
+                                                              "minimum": settings.HEARING_NOTICE_DAYS, "recommended": settings.HEARING_NOTICE_RECOMMENDED_DAYS})
+
+
+@staff_only
+@require_POST
+def meeting_assign_selected(request):
+    """Pick a future meeting from the list and assign the ticked waiting cases to it."""
+    m = get_object_or_404(CommitteeMeeting, pk=request.POST.get("meeting") or 0)
+    ids = [int(x) for x in request.POST.getlist("pick") if x.isdigit()]
+    cases = list(Violation.objects.filter(pk__in=ids, status=S.HEARING_NEEDED))
+    if not cases:
+        messages.error(request, "Tick at least one waiting violation.")
+        return redirect("meetings")
+    done, skipped = services.assign_all_to_meeting(m, request.user, cases=cases)
+    if done:
+        messages.success(request, f"{len(done)} violation{'s' if len(done) != 1 else ''} assigned to the {timezone.localtime(m.starts_at):%B} "
+                                  f"{timezone.localtime(m.starts_at).day} meeting; hearing notices emailed and sent for certified mailing.")
+        if services.short_notice(m):
+            messages.warning(request, f"This meeting is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
+                                      f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
+    for v, why in skipped:
+        messages.error(request, f"Case #{v.pk} not added: {why}")
+    return redirect("meetings")
 
 
 @staff_only
@@ -742,7 +877,24 @@ def committee_members(request):
         P, act = request.POST, request.POST.get("action")
         y = int(P.get("year") or year)
         login = lambda: get_user_model().objects.filter(username__iexact=(P.get("login") or "").strip()).first() if (P.get("login") or "").strip() else None
-        if (P.get("login") or "").strip() and login() is None:
+        pick = (P.get("owner_pick") or "").strip()
+        if act == "add" and pick:                                 # picked from the owner list
+            pk, _, which = pick.partition(":")
+            o = Owner.objects.filter(pk=pk if pk.isdigit() else 0, active=True).first()
+            if o is None:
+                messages.error(request, "Pick an owner from the list.")
+            else:
+                second = which == "2" and o.second_owner_name
+                name = o.second_owner_name if second else o.name
+                email = (o.co_owner_email if second else o.email) or o.email
+                user = accounts.ensure_login(o, email, name, "co_owner" if second else "owner")
+                if CommitteeMember.objects.filter(year=y, owner=o, name=name).exists():
+                    messages.error(request, f"{name} is already on the {y} roster.")
+                else:
+                    CommitteeMember.objects.create(name=name, role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
+                                                   year=y, owner=o, user=user)
+                    messages.success(request, f"{name} added." + ("" if user else " They have no email on file, so they have no login yet: fix it in Vantaca."))
+        elif (P.get("login") or "").strip() and login() is None:
             messages.error(request, f'There is no login named "{P["login"].strip()}". Create it first (Admin, Users) or leave this blank.')
         elif act == "add" and (P.get("name") or "").strip():
             CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
@@ -758,14 +910,22 @@ def committee_members(request):
         elif act == "copy":
             n = 0
             for old in CommitteeMember.objects.filter(year=y - 1, active=True):
-                _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role, "user": old.user})
+                _, new = CommitteeMember.objects.get_or_create(year=y, name=old.name, defaults={"role": old.role, "user": old.user, "owner": old.owner})
                 n += int(new)
             messages.success(request, f"Copied {n} member{'s' if n != 1 else ''} from {y - 1}.")
         accounts.sync_committee_logins()
         return redirect(f"{reverse('committee_members')}?year={y}")
     listed = set(CommitteeMember.objects.filter(year=year, active=True).exclude(user=None).values_list("user_id", flat=True))
     stray = [p.user for p in Profile.objects.filter(role="committee", user__is_active=True).select_related("user") if p.user_id not in listed]
-    return render(request, "violations/committee_members.html", {"year": year, "members": CommitteeMember.objects.filter(year=year).select_related("user"), "staff": staff,
+    people = []
+    if staff:
+        taken = set(CommitteeMember.objects.filter(year=year).values_list("owner_id", "name"))
+        for o in Owner.objects.filter(active=True).order_by("name"):
+            people.append((f"{o.pk}:1", f"{o.name} ({o.property_address})", (o.pk, o.name) in taken))
+            if o.second_owner_name:
+                people.append((f"{o.pk}:2", f"{o.second_owner_name} ({o.property_address})", (o.pk, o.second_owner_name) in taken))
+    return render(request, "violations/committee_members.html", {"year": year, "members": CommitteeMember.objects.filter(year=year).select_related("user", "owner"), "staff": staff,
+                                                                  "people": [p for p in people if not p[2]],
                                                                   "stray_logins": stray,
                                                                   "years": sorted(set(CommitteeMember.objects.values_list("year", flat=True)) | {year, year + 1})})
 
@@ -803,7 +963,11 @@ def committee_meeting(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     summary = _meeting_summary(m)
     can_edit = m.results_status == CommitteeMeeting.Results.OPEN
-    rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED,
+    present_ids = set(m.attendance.filter(status="present").values_list("member_id", flat=True))
+    rows = [{"v": v, "outcomes": Violation.OUTCOMES, "editable": can_edit and v.status == S.HEARING_SCHEDULED and not owns(request.user, v),
+             "mine": owns(request.user, v), "conflicts": services.conflicted_members(v),
+             "abstained": {a.member_id for a in v.abstentions.all()},
+             "voters": [x for x in m.roster() if x.pk in present_ids or not present_ids],
              "pit": v.owner.violations.filter(non_curable=True).exclude(pk=v.pk).exclude(status=S.DRAFT).count()} for v in summary["cases"]]
     roster = m.roster()
     have = {a.member_id: a.status for a in m.attendance.all()}
@@ -860,6 +1024,9 @@ def committee_case_record(request, pk):
     if not can_view(request.user, v):
         raise PermissionDenied
     P = request.POST
+    if owns(request.user, v) or any(m.user_id == request.user.pk for m in services.conflicted_members(v)):
+        messages.error(request, "This is your own violation (or your household's), so you abstain: you can't record the committee's decision on it.")
+        return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
 
     def num(k):
         try:
@@ -868,7 +1035,7 @@ def committee_case_record(request, pk):
             return None
     amount = P.get("amount") or None
     _run(request, services.committee_record, v, P.get("outcome", ""), request.user, amount, num("votes_for"), num("votes_against"),
-         P.get("findings", ""), bool(P.get("owner_present")), ok=f"Saved decision for {v.owner.property_address}.")
+         P.get("findings", ""), bool(P.get("owner_present")), P.getlist("abstain"), ok=f"Saved decision for {v.owner.property_address}.")
     return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
 
 
@@ -1044,7 +1211,7 @@ def my_violations(request):
 @homeowner_only
 def my_violation(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype"), pk=pk)
-    if not can_view(request.user, v):
+    if not owns(request.user, v):           # staff and committee roles must not reach other owners' cases through the owner pages
         raise Http404
     form = forms.ResidentForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -1088,7 +1255,7 @@ def my_household(request):
 @homeowner_only
 def my_violation_state(request, pk):
     v = get_object_or_404(Violation, pk=pk)
-    if not can_view(request.user, v):
+    if not owns(request.user, v):
         raise Http404
     return JsonResponse({"sig": f"{v.status}:{v.notices.count()}:{v.responses.count()}:{v.photos.count()}"})
 

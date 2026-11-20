@@ -30,17 +30,21 @@ def _staff_counts():
 
 def hoa(request):
     role = accounts.role_of(request.user)
-    ctx = {"HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role, "HOA_DOCUMENTS_URL": settings.HOA_DOCUMENTS_URL}
+    o = accounts.owner_of(request.user)
+    ctx = {"HOA_NAME": settings.HOA_NAME, "MANAGER_PHONE": settings.OFFICE_PHONE, "MANAGER_EMAIL": settings.MANAGER_EMAIL, "ROLE": role, "HOA_DOCUMENTS_URL": settings.HOA_DOCUMENTS_URL,
+           "IS_OWNER": o is not None}
+    # NAVMODE: which menu to show. An owner who is also on the committee or Board sees the owner menu on their own pages (/me/...) and the
+    # committee or Board menu elsewhere, with a link between the two.
+    mode = "owner" if (o is not None and (role == "homeowner" or request.path.startswith("/me/") or request.path == "/")) else role
+    ctx["NAVMODE"] = mode
     if role in accounts.STAFF_ROLES:
         ctx["NAV"] = _staff_counts()
     elif role == "committee":
         from .models import CommitteeMeeting
         ctx["NAV"] = {"meetings": CommitteeMeeting.objects.filter(starts_at__gte=timezone.now() - timedelta(hours=12)).count()}
-    elif role == "homeowner":
-        o = accounts.owner_of(request.user)
-        if o:
-            from .models import Violation
-            ctx["NAV"] = {"mine": o.violations.exclude(status="draft").filter(status__in=Violation.OPEN).exclude(status__in=Violation.OWNER_CLOSED).count()}
+    if o is not None:
+        from .models import Violation
+        ctx["NAV"] = {**ctx.get("NAV", {}), "mine": o.violations.exclude(status="draft").filter(status__in=Violation.OPEN).exclude(status__in=Violation.OWNER_CLOSED).count()}
         u = request.user
-        ctx["RESIDENT_NAME"] = (u.get_full_name() or (o.display_name if o else "") or u.first_name or u.get_username()).strip()
+        ctx["RESIDENT_NAME"] = (u.get_full_name() or o.display_name or u.first_name or u.get_username()).strip()
     return ctx

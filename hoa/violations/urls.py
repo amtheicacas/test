@@ -3,7 +3,8 @@ from django.urls import path
 from . import security_views, views
 
 urlpatterns = [
-    path("", views.home, name="dashboard"),
+    path("", views.home, name="home_root"),
+    path("workspace/", views.workspace, name="dashboard"),
     path("violations/", views.violation_list, name="violation_list"),
     path("violations/new/", views.violation_create, name="violation_create"),
     path("violations/standards/search/", views.standards_search_api, name="standards_search"),
@@ -18,6 +19,8 @@ urlpatterns = [
     path("notices/<int:pk>/pdf/", views.notice_pdf, name="notice_pdf"),
     path("board/", views.board_queue, name="board_queue"),
     path("meetings/", views.meetings, name="meetings"),
+    path("meetings/<int:pk>/", views.meeting_manage, name="meeting_manage"),
+    path("meetings/assign-selected/", views.meeting_assign_selected, name="meeting_assign_selected"),
     path("meetings/<int:pk>/assign-all/", views.meeting_assign_all, name="meeting_assign_all"),
     path("committee/", views.committee_home, name="committee_home"),
     path("committee/meetings/<int:pk>/", views.committee_meeting, name="committee_meeting"),

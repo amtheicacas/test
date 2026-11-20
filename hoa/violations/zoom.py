@@ -67,3 +67,26 @@ def create_meeting(topic, starts_at, minutes=None):
         dial.append(f"{n.get('number', '')} {n.get('city') or n.get('country_name') or ''}".strip())
     return {"link": r.get("join_url", ""), "meeting_id": str(r.get("id", "")), "passcode": r.get("password", ""),
             "dial_in": "\n".join(x for x in dial if x), "api_id": str(r.get("id", ""))}
+
+
+def update_meeting_time(api_id, starts_at):
+    """Move an existing Zoom meeting to a new start time (its link stays the same)."""
+    from django.utils import timezone
+    if not (configured() and api_id):
+        return
+    start = timezone.localtime(starts_at)
+    try:
+        _request("PATCH", f"https://api.zoom.us/v2/meetings/{api_id}", {"start_time": start.strftime("%Y-%m-%dT%H:%M:%S"), "timezone": settings.TIME_ZONE},
+                 {"Authorization": f"Bearer {access_token()}", "Content-Type": "application/json"})
+    except Exception as e:
+        raise ZoomError(f"Zoom was not updated ({e}).")
+
+
+def delete_meeting(api_id):
+    """Delete a Zoom meeting the app created."""
+    if not (configured() and api_id):
+        return
+    try:
+        _request("DELETE", f"https://api.zoom.us/v2/meetings/{api_id}", None, {"Authorization": f"Bearer {access_token()}"})
+    except Exception as e:
+        raise ZoomError(f"The Zoom meeting was not deleted ({e}).")

@@ -1,7 +1,7 @@
-{% extends "violations/base.html" %}{% block title %}Saved replies{% endblock %}{% block content %}
-<h1>Saved replies</h1>
-<p class="mut">Ready-made answers for owners. On any violation, pick one under <b>Insert a saved reply</b>, edit it if needed, then send. Everyone on the board and management team shares this list.</p>
-<form class="card" method="post"><h2>Add a saved reply</h2>{% csrf_token %}<input type="hidden" name="action" value="add">
+{% extends "violations/base.html" %}{% block title %}Standard Responses{% endblock %}{% block content %}
+<h1>Standard Responses</h1>
+<p class="mut">Ready-made answers for owners. On any violation, pick one under <b>Insert a standard response</b>, edit it if needed, then send. Everyone on the board and management team shares this list.</p>
+<form class="card" method="post"><h2>Add a standard response</h2>{% csrf_token %}<input type="hidden" name="action" value="add">
 <label>Title</label><input name="title" maxlength="80" placeholder="Short name, e.g. Photo requested">
 <label>Reply text</label><textarea name="body" rows="3"></textarea><button style="margin-top:8px">Save</button></form>
 {% for r in replies %}<form class="card" method="post">{% csrf_token %}<input type="hidden" name="id" value="{{ r.pk }}">

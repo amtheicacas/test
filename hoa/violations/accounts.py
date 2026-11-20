@@ -24,8 +24,10 @@ def role_of(user):
 
 
 def owner_of(user):
+    """The owner record this login belongs to. A committee, board or manager login can ALSO be an owner's login: the same person
+    signs in once, lands on their own violations, and reaches the extra role from there."""
     p = getattr(user, "profile", None)
-    return p.owner if p and p.role == Profile.Role.HOMEOWNER else None
+    return p.owner if p and p.owner_id else None
 
 
 LINK_MINUTES = 15          # an emailed sign-in link works for this long, once
@@ -116,7 +118,7 @@ def send_access_link(email, request=None):
     User = get_user_model()
     user = User.objects.filter(username__iexact=email).first() or User.objects.filter(email__iexact=email).first()
     if user:
-        if user.is_active and role_of(user) == "homeowner":
+        if user.is_active and owner_of(user) is not None:      # owners, including owners who are also on the committee or Board
             send_signin_link(user, request)
         return True
     name = owner.tenant_name if _relationship_for(owner, email) == "tenant" else owner.display_name
@@ -131,6 +133,22 @@ def _still_listed(owner, email, relationship):
     return e in {x.lower() for x in owner.all_emails}
 
 
+def ensure_login(owner, email="", name="", relationship="owner"):
+    """The owner's login, created quietly (no email sent) if they don't have one yet. Used when an owner is picked for the committee."""
+    User = get_user_model()
+    email = (email or owner.email or "").strip().lower()
+    existing = owner.profiles.filter(user__username__iexact=email).select_related("user").first() or \
+        owner.profiles.filter(relationship=relationship).select_related("user").first() or owner.profiles.select_related("user").first()
+    if existing:
+        return existing.user
+    if not email or User.objects.filter(username__iexact=email).exists():
+        return User.objects.filter(username__iexact=email).first() if email else None
+    first, _, last = (name or owner.display_name).partition(" ")
+    user = User.objects.create_user(email, email, secrets.token_urlsafe(24), first_name=first[:150], last_name=last[:150])
+    Profile.objects.create(user=user, role=Profile.Role.HOMEOWNER, owner=owner, relationship=relationship)
+    return user
+
+
 def sync_committee_logins(year=None):
     """Committee logins follow the roster: a member's login is on while they are an active member for the current year and off
     otherwise (members change each year). Only logins linked to a roster entry are touched. Returns (switched_on, switched_off)."""
@@ -140,10 +158,18 @@ def sync_committee_logins(year=None):
     linked = set(CommitteeMember.objects.exclude(user=None).values_list("user_id", flat=True))
     current = set(CommitteeMember.objects.filter(year=year, active=True).exclude(user=None).values_list("user_id", flat=True))
     for u in get_user_model().objects.filter(pk__in=linked):
-        if role_of(u) != "committee":
+        p = getattr(u, "profile", None)
+        if p is None or p.role in (Profile.Role.MANAGER, Profile.Role.BOARD):
             continue
         want = u.pk in current
-        if u.is_active != want:
+        if p.owner_id:                       # an owner who serves on the committee: one login, the committee role comes and goes with the roster
+            new = Profile.Role.COMMITTEE if want else Profile.Role.HOMEOWNER
+            if p.role != new:
+                p.role = new
+                p.save()
+                on += int(want)
+                off += int(not want)
+        elif p.role == Profile.Role.COMMITTEE and u.is_active != want:
             u.is_active = want
             u.save(update_fields=["is_active"])
             on += int(want)

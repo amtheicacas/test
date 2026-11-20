@@ -192,6 +192,7 @@ class CommitteeMeeting(models.Model):
     zoom_passcode = models.CharField(max_length=40, blank=True)
     zoom_dial_in = models.TextField(blank=True, help_text="'One tap mobile' lines from the Zoom invitation, one per line.")
     zoom_api_id = models.CharField(max_length=40, blank=True, help_text="Set when the app created the Zoom meeting itself.")
+    series = models.CharField(max_length=60, blank=True, help_text="Set when it was created as part of a repeating series, e.g. '3rd Monday of each month'.")
     location = models.CharField(max_length=250, blank=True, help_text="In-person place, if any.")
     notes = models.TextField(blank=True)
     attendees = models.TextField(blank=True, help_text="Other committee members present who are not on the year's roster.")
@@ -261,6 +262,8 @@ class CommitteeMember(models.Model):
     active = models.BooleanField(default=True, help_text="Untick if the member left mid-year.")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
                              help_text="Their login. It switches off by itself when they are not on the current year's roster.")
+    owner = models.ForeignKey("Owner", null=True, blank=True, on_delete=models.SET_NULL, related_name="committee_seats",
+                              help_text="Picked from the owner list (which comes from Vantaca), so they sign in once with their owner login.")
 
     class Meta:
         ordering = ["year", "name"]
@@ -724,3 +727,13 @@ class CannedReply(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class CaseAbstention(models.Model):
+    """A committee member who did not vote on a case: automatically when it is their own violation, or by choice (a conflict)."""
+    violation = models.ForeignKey(Violation, on_delete=models.CASCADE, related_name="abstentions")
+    member = models.ForeignKey(CommitteeMember, on_delete=models.CASCADE, related_name="abstentions")
+    reason = models.CharField(max_length=120, default="Abstained")
+
+    class Meta:
+        unique_together = ("violation", "member")

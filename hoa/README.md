@@ -174,3 +174,12 @@ When an owner has a case assigned to an upcoming committee meeting, their home p
 
 ### Zoom meeting settings
 Set in `local.env` (see `local.env.example`): `ZOOM_AUTO_RECORDING` (cloud/local/none, default cloud), `ZOOM_ALTERNATIVE_HOSTS` (comma-separated emails of licensed Zoom users), `ZOOM_HOST_VIDEO`, `ZOOM_PARTICIPANT_VIDEO`, `ZOOM_WAITING_ROOM`. Meeting chat is not a per-meeting option in Zoom's scheduling API: turn it off in your Zoom account settings (Settings, In Meeting (Basic), Chat), where it can also be locked.
+
+### One login for owners who are also committee or Board members
+Committee and Board members live in the community, so they use their **owner login** (emailed sign-in link, or their password) for everything. They land on their own violations, and a button at the top ("Committee" or "Board / Manager workspace") takes them to the extra role; menus switch accordingly and "My violations" brings them back. The owner pages only ever show their own cases, whatever else they can do. The two-step code (required for committee, Board and manager roles) is asked for only when they open that role's pages, not for their own violations.
+- **Committee:** pick the member from the owner list (the list comes from Vantaca) on the roster page. The committee role is added to their owner login for that year and switches off when they are not on the next year's roster (they remain an owner).
+- **Board / manager:** in Admin, Users, open their login and set the Profile's role to Board or Manager (keeping the owner link).
+- **Abstaining:** if the violation is their own (or their household's) the member is marked as abstaining automatically, cannot enter the committee's decision on it, and the minutes say so. Other members present can be ticked as abstaining on any case (a conflict of interest).
+
+### Dashboard
+"Most common violations" shows the last 12 months by default (30 days / 12 months / all time). "How long cases take" shows the median and average days from the notice being issued to the Committee's decision, where the time goes (cure period, waiting for the Board vote, waiting for the hearing) and the average by month.

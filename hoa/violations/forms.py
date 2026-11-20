@@ -117,12 +117,14 @@ class BoardForm(forms.Form):
 class MeetingForm(forms.Form):
     starts_at = forms.DateTimeField(widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
                                     input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"], label="Meeting date and time")
+    create_zoom = forms.BooleanField(required=False, initial=True, label="Create the Zoom meeting for me")
+    repeat = forms.BooleanField(required=False, label="Repeat every month")
+    repeat_months = forms.ChoiceField(required=False, initial="12", choices=[("3", "3 months"), ("6", "6 months"), ("12", "12 months")], label="For")
     zoom_link = forms.URLField(required=False, label="Zoom link", assume_scheme="https")
     zoom_meeting_id = forms.CharField(required=False, label="Zoom meeting ID")
     zoom_passcode = forms.CharField(required=False, label="Zoom passcode")
     zoom_dial_in = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}), label="Zoom one-tap / dial-in lines (paste from the invitation)")
     location = forms.CharField(required=False, label="In-person location (optional)")
-    create_zoom = forms.BooleanField(required=False, initial=True, label="Create the Zoom meeting for me (leave the Zoom fields blank)")
 
 
 class AssignForm(forms.Form):

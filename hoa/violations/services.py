@@ -15,7 +15,7 @@ from django.core.mail import EmailMessage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
+from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
 from . import ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
@@ -696,7 +696,45 @@ def short_notice(meeting, today=None):
     return timezone.localtime(meeting.starts_at).date() < today + timedelta(days=settings.HEARING_NOTICE_RECOMMENDED_DAYS)
 
 
-def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in="", create_zoom=False):
+def nth_weekday(year, month, weekday, nth):
+    """The date of the nth (1-4) or last (nth=-1) given weekday (Monday=0) of a month."""
+    import calendar
+    days = [d for d in calendar.Calendar().itermonthdates(year, month) if d.month == month and d.weekday() == weekday]
+    return days[-1] if nth == -1 else days[nth - 1]
+
+
+def series_dates(first_start, months):
+    """The dates of a monthly series: the same weekday-of-the-month (3rd Monday...) and time as `first_start`, for `months` months.
+    Returns (label, [aware datetimes])."""
+    dt = timezone.localtime(first_start) if timezone.is_aware(first_start) else first_start
+    nth = (dt.day - 1) // 7 + 1
+    nth = -1 if nth == 5 else nth
+    ords = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", -1: "last"}
+    label = f"{ords[nth]} {dt:%A} of each month"
+    out = []
+    y, m = dt.year, dt.month
+    for _ in range(months):
+        day = nth_weekday(y, m, dt.weekday(), nth)
+        naive = datetime.combine(day, dt.time())
+        out.append(timezone.make_aware(naive) if timezone.is_naive(naive) else naive)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return label, out
+
+
+def create_meeting_series(first_start, months, user=None, zoom_link="", location="", create_zoom=False, **kw):
+    """Create a meeting for each month of a repeating series (each with its OWN Zoom meeting, so the hearing notice for a date carries
+    that date's link). Stops at the first problem. Returns (meetings_created, error_message_or_empty)."""
+    label, dates = series_dates(first_start, months)
+    made = []
+    for d in dates:
+        try:
+            made.append(create_meeting(d, zoom_link, location, user, create_zoom=create_zoom, series=label, **kw))
+        except WorkflowError as e:
+            return made, f"{timezone.localtime(d):%B} {timezone.localtime(d).day}: {e}"
+    return made, ""
+
+
+def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in="", create_zoom=False, series=""):
     """Create a committee meeting. With create_zoom (and Zoom connected) the Zoom meeting is scheduled for you and its link, ID,
     passcode and dial-in numbers are filled in; they then appear on the hearing notices automatically."""
     from . import zoom
@@ -714,8 +752,70 @@ def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting
             zoom_link, zoom_meeting_id, zoom_passcode, zoom_dial_in, api_id = z["link"], z["meeting_id"], z["passcode"], z["dial_in"], z["api_id"]
     if not (zoom_link or location):
         raise WorkflowError("Add a Zoom link and/or a location for the meeting.")
-    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id,
+    return CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id, series=series,
                                            zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
+
+
+def _meeting_changeable(m):
+    heard = [v for v in m.violations.all() if v.status != S.HEARING_SCHEDULED or v.committee_outcome]
+    if heard or m.results_status != CommitteeMeeting.Results.OPEN:
+        raise WorkflowError("The committee has already recorded decisions for this meeting, so it can't be moved or cancelled.")
+
+
+def reschedule_meeting(m, new_start, user=None, notify=True):
+    """Move a meeting. Its cases follow the new date, the Zoom meeting is moved too (same link), and, if cases are assigned and `notify`,
+    each owner gets a fresh hearing notice (certified mail and email) with the new date. Returns a list of warnings."""
+    from . import zoom
+    _meeting_changeable(m)
+    if isinstance(new_start, datetime) and timezone.is_naive(new_start):
+        new_start = timezone.make_aware(new_start)
+    if new_start <= timezone.now():
+        raise WorkflowError("Pick a date in the future.")
+    cases = list(m.violations.select_related("owner", "vtype"))
+    if cases and timezone.localtime(new_start).date() < date.today() + timedelta(days=settings.HEARING_NOTICE_DAYS):
+        raise WorkflowError(f"Owners with cases on this meeting must get at least {settings.HEARING_NOTICE_DAYS} days' notice of the new date.")
+    old = timezone.localtime(m.starts_at)
+    m.starts_at = new_start
+    m.save()
+    warnings = []
+    try:
+        zoom.update_meeting_time(m.zoom_api_id, new_start)
+    except zoom.ZoomError as e:
+        warnings.append(f"{e} Update the time in Zoom by hand.")
+    for v in cases:
+        v.hearing_date = new_start
+        v.save(update_fields=["hearing_date"])
+        log(v, f"Hearing moved from {old:%b} {old.day} to {timezone.localtime(new_start):%b} {timezone.localtime(new_start).day}", user)
+        if notify:
+            send_notice(v, Notice.Kind.HEARING, user)
+    if cases and not notify:
+        warnings.append("The owners were not sent new hearing notices.")
+    return warnings
+
+
+@transaction.atomic
+def cancel_meeting(m, user=None, notify=True):
+    """Cancel a meeting that hasn't been heard: its cases go back to 'waiting to be scheduled', the owners are emailed, the Zoom meeting
+    is deleted and the meeting is removed. Returns a list of warnings."""
+    from . import zoom
+    _meeting_changeable(m)
+    when = timezone.localtime(m.starts_at)
+    warnings = []
+    for v in list(m.violations.select_related("owner", "vtype")):
+        v.status, v.committee_meeting, v.hearing_date, v.hearing_location = S.HEARING_NEEDED, None, None, ""
+        v.save()
+        log(v, f"Hearing on {when:%b} {when.day} cancelled; waiting to be put on another meeting", user)
+        if notify:
+            _email_owner(v, f"Hearing cancelled: {v.owner.property_address}",
+                         f"The Compliance Committee hearing scheduled for {when:%A, %B} {when.day} at {when:%I:%M %p}".replace(" 0", " ") +
+                         " has been cancelled. You will receive a new notice, by certified mail and email, when it is rescheduled. "
+                         "You do not need to take any action for the cancelled date.")
+    try:
+        zoom.delete_meeting(m.zoom_api_id)
+    except zoom.ZoomError as e:
+        warnings.append(f"{e} Delete it in Zoom by hand.")
+    m.delete()
+    return warnings
 
 
 @transaction.atomic
@@ -735,10 +835,10 @@ def assign_to_meeting(v, meeting, user=None, today=None):
     return send_notice(v, Notice.Kind.HEARING, user)
 
 
-def assign_all_to_meeting(meeting, user=None, today=None):
-    """Batch: every board-approved case waiting for a hearing goes onto this meeting. Returns (done, skipped)."""
+def assign_all_to_meeting(meeting, user=None, today=None, cases=None):
+    """Batch: every board-approved case waiting for a hearing (or just the given `cases`) goes onto this meeting. Returns (done, skipped)."""
     done, skipped = [], []
-    for v in Violation.objects.filter(status=S.HEARING_NEEDED):
+    for v in (cases if cases is not None else Violation.objects.filter(status=S.HEARING_NEEDED)):
         try:
             assign_to_meeting(v, meeting, user, today)
             done.append(v)
@@ -774,7 +874,20 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
 
 
 # ---- Compliance Committee meeting results: the committee works the list, the Board reviews and processes it ----
-def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings="", owner_present=False):
+def conflicted_members(v):
+    """Committee members for this case's meeting whose own login belongs to the violation's owner: it is their own (or their household's)
+    violation, so they must abstain."""
+    if v.committee_meeting_id is None:
+        return []
+    out = []
+    for member in v.committee_meeting.roster():
+        p = getattr(member.user, "profile", None) if member.user_id else None
+        if (p is not None and p.owner_id == v.owner_id) or (member.owner_id and member.owner_id == v.owner_id):
+            out.append(member)
+    return out
+
+
+def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings="", owner_present=False, abstain_ids=()):
     """The committee's decision on one case at its meeting (saved; the case does not move until the meeting's results are submitted).
     A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes."""
     _require(v, S.HEARING_SCHEDULED)
@@ -809,6 +922,11 @@ def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_a
     v.committee_findings = findings.strip()
     v.committee_owner_present = bool(owner_present)
     v.save()
+    conflicts = {m.pk for m in conflicted_members(v)}
+    roster = {m.pk: m for m in v.committee_meeting.roster()}
+    v.abstentions.all().delete()
+    for pk in conflicts | {int(i) for i in abstain_ids if str(i).isdigit() and int(i) in roster}:
+        CaseAbstention.objects.create(violation=v, member=roster[pk], reason="Own violation" if pk in conflicts else "Abstained")
     log(v, f"Committee recorded: {dict(Violation.OUTCOMES)[outcome]}" + (f" (${v.committee_amended_fine})" if outcome == "amend" else ""), user)
 
 

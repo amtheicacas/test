@@ -79,9 +79,9 @@
 <div class="card"><h2>Conversation</h2>
 {% for r in v.responses.all %}<p><b>{% if r.from_resident %}{{ r.author.get_full_name|default:"Owner" }}{% else %}Staff{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span>{% if r.cure_reported %} <span class="pill">says it's fixed</span>{% endif %}{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}{% if r.extension_requested %} <span class="pill">extension request{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">No messages yet.</p>{% endfor %}
 <form method="post" action="{% url 'violation_action' v.pk 'reply' %}">{% csrf_token %}
-<select id="canned" style="margin-bottom:6px"><option value="">Insert a saved reply&hellip;</option>{% for c in canned %}<option value="{{ c.pk }}" data-body="{{ c.body|escape }}">{{ c.title }}</option>{% endfor %}</select>
+<select id="canned" style="margin-bottom:6px"><option value="">Insert a standard response&hellip;</option>{% for c in canned %}<option value="{{ c.pk }}" data-body="{{ c.body|escape }}">{{ c.title }}</option>{% endfor %}</select>
 {{ reply_form.message }}
-<div class="row" style="align-items:center;margin-top:6px"><label style="font-weight:400;margin:0;flex:0 0 auto"><input type="checkbox" name="save_reply"> Also save this as a canned reply</label><input name="save_title" placeholder="Short title for it (e.g. Photo requested)" style="flex:1 1 220px"></div>
+<div class="row" style="align-items:center;margin-top:6px"><label style="font-weight:400;margin:0;flex:0 0 auto"><input type="checkbox" name="save_reply"> Also save this as a standard response</label><input name="save_title" placeholder="Short title for it (e.g. Photo requested)" style="flex:1 1 220px"></div>
 <button class="sec" style="margin-top:6px">Reply (shows on owner's page)</button></form>
 <script>(function(){var s=document.getElementById("canned");if(!s)return;s.addEventListener("change",function(){var o=s.options[s.selectedIndex];if(!o.value)return;var t=document.getElementById("id_message")||s.form.querySelector("textarea");t.value=o.getAttribute("data-body");t.focus();s.selectedIndex=0;});})();</script></div>
 
