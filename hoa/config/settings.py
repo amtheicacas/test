@@ -143,10 +143,13 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 if env("EMAIL_HOST"):
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = env("EMAIL_HOST")
-    EMAIL_PORT = int(env("EMAIL_PORT", "587"))
+    EMAIL_USE_SSL = env("EMAIL_USE_SSL", "0") == "1"                       # port 465 style; the default is STARTTLS on port 587
+    EMAIL_USE_TLS = env("EMAIL_USE_TLS", "0" if EMAIL_USE_SSL else "1") == "1"
+    if EMAIL_USE_SSL and EMAIL_USE_TLS:
+        raise ImproperlyConfigured("Set only one of EMAIL_USE_SSL and EMAIL_USE_TLS.")
+    EMAIL_PORT = int(env("EMAIL_PORT", "465" if EMAIL_USE_SSL else "587"))
     EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
     EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
-    EMAIL_USE_TLS = env("EMAIL_USE_TLS", "1") == "1"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "violations@example.org")
@@ -257,6 +260,12 @@ MAP_SATELLITE_ATTRIBUTION = env("MAP_SATELLITE_ATTRIBUTION", "Tiles © Esri, Max
 # First notices go out by email at once; the printed/mailed copy waits this many business days (Mon-Fri) in case the owner fixes it (saves postage).
 BOARD_REVIEW_TARGET_DAYS = int(env("BOARD_REVIEW_TARGET_DAYS", "14"))   # the dashboard flags a case "overdue" when the Board has not voted this many days after the cure period ended
 MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
+EMAIL_TIMEOUT = int(env("EMAIL_TIMEOUT", "10"))        # seconds: a stalled mail server must not tie up the website
+# Sign-in link emails are sent in the background on a live site, so the sign-in page answers at the same speed for every address.
+EMAIL_BACKGROUND = env("EMAIL_BACKGROUND", "0" if DEBUG else "1") == "1"
+# The stored copy of each owner email (Email log) has its private /r/<token>/ link replaced, so a database leak or backup is not a set of keys.
+EMAILLOG_REDACT_LINKS = env("EMAILLOG_REDACT_LINKS", "1") == "1"
+AI_DAILY_LIMIT = int(env("AI_DAILY_LIMIT", "50"))      # "Ask AI" questions per day for the whole team (each one costs money)
 X_FRAME_OPTIONS = "SAMEORIGIN"   # lets the app show its own letter PDFs inside its pages
 ARCHIVE_RETENTION_YEARS = int(env("ARCHIVE_RETENTION_YEARS", "7"))   # how long former owners' records are kept before they may be purged
 STAFF_ADMIN_ACCESS = env("STAFF_ADMIN_ACCESS", "1") == "1"   # managers and board members get the same access, including the admin screens
@@ -282,6 +291,6 @@ if PRODUCTION:
     _problems = deploy.production_problems(
         secret_key=SECRET_KEY, allowed_hosts=ALLOWED_HOSTS, site_url=SITE_URL, database_url=env("DATABASE_URL", ""),
         email_host=env("EMAIL_HOST", ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES,
-        file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")))
+        file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")), vantaca_url=env("VANTACA_BASE_URL", ""))
     if _problems:
         raise ImproperlyConfigured(deploy.explain(_problems))

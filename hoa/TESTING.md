@@ -84,3 +84,9 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] Audit log page lists the changes and can be searched; nothing can be edited.
 - [ ] Admin: Owner email fields are read-only; the delete buttons are gone when the site is not in development mode.
 - [ ] Sign out, press the browser Back button: the previous page is not shown from the cache.
+
+## Smaller hardening (Phase 5)
+- [ ] Type a bad address (for example /no/such/page/): our "We can't find that page" screen appears.
+- [ ] Map page loads and shows markers (Leaflet is now served by the site itself).
+- [ ] Sign-in page: asking for a link for a known and an unknown address looks and feels the same.
+- [ ] Email log copy of a notice shows "[private link removed from this stored copy]"; the owner's real email still has the working link.

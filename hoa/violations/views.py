@@ -41,6 +41,14 @@ def role_required(*roles):
     return deco
 
 
+def _int(value, default=0):
+    """A number typed or posted by a person: anything that is not a whole number becomes `default` (never a server error)."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 staff_only = role_required(*STAFF)
 staff_or_committee = role_required(*STAFF, "committee")
 def owner_only(fn):
@@ -335,9 +343,13 @@ def standards_search_api(request):
     local = [standards_search.serialize(t) for t in standards_search.local_search(q)]
     out = {"results": local, "ai": False, "ai_available": standards_search.ai_available()}
     if request.GET.get("ai") == "1" and q:
-        ai = standards_search.ai_search(q)
+        if not throttle.hit(f"ai:{timezone.localdate()}", settings.AI_DAILY_LIMIT, 86400):
+            ai = standards_search.ai_search(q)
+        else:
+            ai = None
+            out["ai_note"] = f"The team's daily limit for AI search ({settings.AI_DAILY_LIMIT}) has been reached; showing keyword matches."
         if ai is None:
-            out["ai_note"] = "AI search isn't available right now; showing keyword matches."
+            out.setdefault("ai_note", "AI search isn't available right now; showing keyword matches.")
         else:
             out["ai"] = True
             seen = set()
@@ -403,15 +415,15 @@ def canned_replies(request):
         P = request.POST
         act, title, body = P.get("action"), (P.get("title") or "").strip()[:80], (P.get("body") or "").strip()
         if act == "delete":
-            gone = CannedReply.objects.filter(pk=P.get("id") or 0).first()
+            gone = CannedReply.objects.filter(pk=_int(P.get("id"))).first()
             if gone:
                 audit.record("standard_response.deleted", gone.title, "", request=request)
-            CannedReply.objects.filter(pk=P.get("id") or 0).delete()
+            CannedReply.objects.filter(pk=_int(P.get("id"))).delete()
             messages.success(request, "Deleted.")
         elif not title or not body:
             messages.error(request, "A standard response needs a title and the text.")
         elif act == "update":
-            CannedReply.objects.filter(pk=P.get("id") or 0).update(title=title, body=body)
+            CannedReply.objects.filter(pk=_int(P.get("id"))).update(title=title, body=body)
             audit.record("standard_response.changed", title, "", request=request)
             messages.success(request, "Saved.")
         else:
@@ -593,7 +605,7 @@ def violation_action(request, pk, action):
         messages.success(request, f"{n} photo(s) added.")
         _report_rejected(request, bad)
     elif action == "delete_photo":
-        _run(request, services.delete_photo, v, get_object_or_404(Photo, pk=P.get("photo"), violation=v), u, ok="Photo removed.")
+        _run(request, services.delete_photo, v, get_object_or_404(Photo, pk=_int(P.get("photo")), violation=v), u, ok="Photo removed.")
     elif action == "send_notice":
         _run(request, services.issue_first_notice, v, u, timing=P.get("timing") or None,
              ok="Notice issued: emailed now; the mailed copy follows per the chosen timing.")
@@ -602,7 +614,7 @@ def violation_action(request, pk, action):
         messages.success(request, f"Tracking checked: {n} update{'s' if n != 1 else ''}." if settings.MAIL_PROVIDER == "lob"
                          else "Tracking updates need the print/mail provider (Lob) turned on. Until then, log tracking numbers by hand under Mailing log.")
     elif action == "mail_now":
-        n = get_object_or_404(Notice, pk=P.get("notice"), violation=v)
+        n = get_object_or_404(Notice, pk=_int(P.get("notice")), violation=v)
         _run(request, services.mail_now, n, u, ok="Mailed copy released.")
     elif action == "reinspect":
         _run(request, services.mark_reinspect, v, u, P.get("note", ""), bool(P.get("notify")), ok="Marked for re-inspection.")
@@ -641,7 +653,7 @@ def violation_action(request, pk, action):
         else:
             messages.error(request, "Enter the days to add, or an exact new deadline.")
     elif action in ("ext_approve", "ext_decline"):
-        resp = Response.objects.filter(pk=P.get("response_id") or 0, violation=v, extension_requested=True, handled=False).first()
+        resp = Response.objects.filter(pk=_int(P.get("response_id")), violation=v, extension_requested=True, handled=False).first()
         if not resp:
             messages.error(request, "That request has already been answered.")
         elif action == "ext_approve":
@@ -740,7 +752,7 @@ def board_bulk(request):
     """Record Board decisions for the ticked rows of the queue in one go. Each row carries its own decision, fine and meeting date
     (the toolbar just fills them in), so any row can differ."""
     P = request.POST
-    ids = [int(x) for x in P.getlist("pick") if x.isdigit()]
+    ids = [i for i in (_int(x, -1) for x in P.getlist("pick")) if i > 0]
     if not ids:
         messages.error(request, "Tick the violations you want to act on.")
         return redirect("board_queue")
@@ -755,7 +767,7 @@ def board_bulk(request):
         decision = P.get(f"decision_{v.pk}", "proceed")
         try:
             if decision == "extend":
-                days = int(P.get("days") or 0)
+                days = _int(P.get("days"))
                 if days <= 0:
                     raise services.WorkflowError("Enter the days to add.")
                 services.grant_extension(v, None, request.user, f"board {when}", days=days)
@@ -860,8 +872,8 @@ def meeting_manage(request, pk):
 @require_POST
 def meeting_assign_selected(request):
     """Pick a future meeting from the list and assign the ticked waiting cases to it."""
-    m = get_object_or_404(CommitteeMeeting, pk=request.POST.get("meeting") or 0)
-    ids = [int(x) for x in request.POST.getlist("pick") if x.isdigit()]
+    m = get_object_or_404(CommitteeMeeting, pk=_int(request.POST.get("meeting")))
+    ids = [i for i in (_int(x, -1) for x in request.POST.getlist("pick")) if i > 0]
     cases = list(Violation.objects.filter(pk__in=ids, status=S.HEARING_NEEDED))
     if not cases:
         messages.error(request, "Tick at least one waiting violation.")
@@ -934,7 +946,7 @@ def owner_archive(request):
     """Former owners and tenants' records (moved out / sold), kept for ARCHIVE_RETENTION_YEARS and searchable here. Nothing is lost:
     their violations, letters and emails stay attached to them."""
     if request.method == "POST":
-        o = get_object_or_404(Owner, pk=request.POST.get("id") or 0, active=False)
+        o = get_object_or_404(Owner, pk=_int(request.POST.get("id")), active=False)
         if Owner.objects.filter(property_address=o.property_address, active=True).exists():
             messages.error(request, f"{o.property_address} already has an active owner, so this record can't be reactivated.")
         else:
@@ -959,21 +971,18 @@ def committee_members(request):
     """The committee roster by year. Managers and board members load it once a year; committee members can read it."""
     from django.utils import timezone
     year = timezone.localdate().year
-    try:
-        year = int(request.GET.get("year") or year)
-    except ValueError:
-        pass
+    year = _int(request.GET.get("year"), year)
     staff = accounts.role_of(request.user) in STAFF
     if request.method == "POST":
         if not staff:
             raise PermissionDenied
         P, act = request.POST, request.POST.get("action")
-        y = int(P.get("year") or year)
+        y = _int(P.get("year"), year)
         login = lambda: get_user_model().objects.filter(username__iexact=(P.get("login") or "").strip()).first() if (P.get("login") or "").strip() else None
         pick = (P.get("owner_pick") or "").strip()
         if act == "add" and pick:                                 # picked from the owner list
             pk, _, which = pick.partition(":")
-            o = Owner.objects.filter(pk=pk if pk.isdigit() else 0, active=True).first()
+            o = Owner.objects.filter(pk=_int(pk), active=True).first()
             if o is None:
                 messages.error(request, "Pick an owner from the list.")
             else:
@@ -998,14 +1007,14 @@ def committee_members(request):
         elif act == "update":
             audit.record("roster.changed", f"roster entry {P.get('id')}", f"name: {(P.get('name') or '').strip()[:120]}; active: {bool(P.get('active'))}; "
                          f"role: {P.get('role')}; login: {(P.get('login') or '').strip() or 'none'}", request=request)
-            CommitteeMember.objects.filter(pk=P.get("id") or 0).update(name=(P.get("name") or "").strip()[:120] or "Unnamed", active=bool(P.get("active")),
+            CommitteeMember.objects.filter(pk=_int(P.get("id"))).update(name=(P.get("name") or "").strip()[:120] or "Unnamed", active=bool(P.get("active")),
                                                                       role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member", user=login())
             messages.success(request, "Saved.")
         elif act == "delete":
-            gone = CommitteeMember.objects.filter(pk=P.get("id") or 0).first()
+            gone = CommitteeMember.objects.filter(pk=_int(P.get("id"))).first()
             if gone:
                 audit.record("roster.removed", f"{gone.name} ({gone.year})", "", request=request)
-            CommitteeMember.objects.filter(pk=P.get("id") or 0).delete()
+            CommitteeMember.objects.filter(pk=_int(P.get("id"))).delete()
             messages.success(request, "Removed.")
         elif act == "copy":
             n = 0
@@ -1047,7 +1056,7 @@ def committee_minutes(request, pk):
 def minutes_approve(request, pk):
     """Approve the draft minutes of meeting `pk` at a later meeting (`at`)."""
     m = get_object_or_404(CommitteeMeeting, pk=pk)
-    at = get_object_or_404(CommitteeMeeting, pk=request.POST.get("at") or 0)
+    at = get_object_or_404(CommitteeMeeting, pk=_int(request.POST.get("at")))
     if m.minutes_status == CommitteeMeeting.Minutes.APPROVED or at.starts_at <= m.starts_at:
         messages.error(request, "These minutes can't be approved here.")
     else:
@@ -1126,16 +1135,26 @@ def committee_meeting_save(request, pk):
     return redirect("committee_meeting", pk=pk)
 
 
+def _back_to_meeting(v):
+    """Where to send someone after a committee action on case `v`: its meeting page, or (a case that is on no meeting) the committee home."""
+    if v.committee_meeting_id:
+        return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
+    return redirect("committee_home")
+
+
 @staff_or_committee
 @require_POST
 def committee_case_record(request, pk):
     v = get_object_or_404(Violation, pk=pk)
     if not can_view(request.user, v):
         raise PermissionDenied
+    if not v.committee_meeting_id:
+        messages.error(request, "This case is not on a committee meeting, so there is nothing to record yet.")
+        return _back_to_meeting(v)
     P = request.POST
     if owns(request.user, v) or any(m.user_id == request.user.pk for m in services.conflicted_members(v)):
         messages.error(request, "This is your own violation (or your household's), so you abstain: you can't record the committee's decision on it.")
-        return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
+        return _back_to_meeting(v)
 
     def num(k):
         try:
@@ -1145,7 +1164,7 @@ def committee_case_record(request, pk):
     amount = P.get("amount") or None
     _run(request, services.committee_record, v, P.get("outcome", ""), request.user, amount, num("votes_for"), num("votes_against"),
          P.get("findings", ""), bool(P.get("owner_present")), P.getlist("abstain"), ok=f"Saved decision for {v.owner.property_address}.")
-    return redirect(reverse("committee_meeting", args=[v.committee_meeting_id]) + f"#case-{v.pk}")
+    return _back_to_meeting(v)
 
 
 @staff_or_committee
@@ -1164,9 +1183,7 @@ def meeting_minutes(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     vid = request.GET.get("v")
     if vid:
-        row = get_object_or_404(m.minutes_files, pk=vid) if str(vid).isdigit() else None
-        if row is None:
-            raise Http404
+        row = get_object_or_404(m.minutes_files, pk=_int(vid, -1))
     else:
         row = minutesfiles.current(m)
     if row is not None:
@@ -1208,6 +1225,9 @@ def results_detail(request, pk):
 @require_POST
 def results_review(request, pk):
     v = get_object_or_404(Violation, pk=pk)
+    if not v.committee_meeting_id:
+        messages.error(request, "This case is not on a committee meeting, so there is nothing to review.")
+        return redirect("results_list")
     P = request.POST
     _run(request, services.board_review_item, v, request.user, P.get("action", ""), P.get("final", ""), P.get("amount") or None,
          P.get("note", ""), P.get("method", "manual"), P.get("reference", ""))
@@ -1242,7 +1262,7 @@ def committee_vote(request, pk):
 def photo_file(request, pk):
     p = get_object_or_404(Photo.objects.select_related("violation"), pk=pk)
     if not can_view(request.user, p.violation):
-        raise PermissionDenied
+        raise Http404            # the same answer as "no such photo", so photo numbers can't be probed
     return uploads.photo_response(p)
 
 
@@ -1598,7 +1618,7 @@ def owner_logins(request, pk):
     """Board / manager: the sign-in logins of one household, with the controlled 'Change sign-in email' and 'Sign out everywhere' actions."""
     o = get_object_or_404(Owner, pk=pk)
     if request.method == "POST":
-        profile = get_object_or_404(o.profiles.select_related("user"), pk=request.POST.get("profile") or 0)
+        profile = get_object_or_404(o.profiles.select_related("user"), pk=_int(request.POST.get("profile")))
         try:
             if request.POST.get("action") == "change_email":
                 r = accounts.change_signin_email(profile, request.POST.get("new_email", ""), request.user, request.POST.get("reason", ""), request)
@@ -1623,7 +1643,7 @@ def staff_logins(request):
     """Board / manager: every Board, manager and committee login, with two-step status and the audited 'Reset two-step' action."""
     from django_otp import user_has_device
     if request.method == "POST":
-        target = get_object_or_404(get_user_model().objects.select_related("profile"), pk=request.POST.get("user") or 0)
+        target = get_object_or_404(get_user_model().objects.select_related("profile"), pk=_int(request.POST.get("user")))
         try:
             if request.POST.get("action") == "reset_two_step":
                 r = accounts.reset_two_step(target, request.user, request.POST.get("reason", ""), request)

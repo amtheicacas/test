@@ -7,6 +7,7 @@ Follows the Heron Landing "Violation and Fining Procedure" (rev. Oct 2026) and f
   -> 6 Compliance Committee hearing -> 7 majority approves (imposed, due in 5 days) or rejects
   -> 8 closed when cured and paid, else referred to the attorney.
 """
+import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -99,6 +100,17 @@ def _keep_copy(notice, pdf, who, channel, to, name, user, errors, tracking="", p
         log(notice.violation, f"WARNING: the exact copy of the {notice.get_kind_display().lower()} ({channel}) could not be saved: {e}"[:480], user)
 
 
+_PRIVATE_LINK = re.compile(r"(/r/|/accounts/link/)[A-Za-z0-9_\-]{16,}")
+
+
+def stored_copy(body):
+    """What is kept in the Email log: the email as sent, but with the private case link (a key to the owner's page) replaced, so a
+    database leak or backup is not also a set of working links. (EMAILLOG_REDACT_LINKS=0 keeps them.) The saved letter PDFs are unchanged."""
+    if not settings.EMAILLOG_REDACT_LINKS:
+        return body
+    return _PRIVATE_LINK.sub(r"\1[private link removed from this stored copy]", body)
+
+
 def send_notice(v, kind, user=None, hold_mail_days=0):
     """Create a notice, email each recipient (owner, and tenant if rented) their own copy with the PDF attached, and print/mail it.
     With hold_mail_days > 0 the email goes now but the printed copy waits that many business days (see send_due_mailings).
@@ -129,10 +141,10 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             msg.send()
             _keep_copy(notice, pdf, who, "email", ", ".join(emails), name, user, errors)
             sent_to += emails
-            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=body, to=", ".join(emails), recipient=who)
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), to=", ".join(emails), recipient=who)
         except Exception as e:  # SMTP down, bad address...
             errors.append(f"{who}: {e}"[:150])
-            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=body, to=", ".join(emails), recipient=who,
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), to=", ".join(emails), recipient=who,
                                     ok=False, error=str(e)[:300])
     if sent_to:
         notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(sent_to)
@@ -526,10 +538,10 @@ def _email_owner(v, subject, body):
         try:
             EmailMessage(subject, full, settings.DEFAULT_FROM_EMAIL, emails).send()
             to += emails
-            EmailLog.objects.create(violation=v, subject=subject, body=full, to=", ".join(emails), recipient=who)
+            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), to=", ".join(emails), recipient=who)
         except Exception as e:
             log(v, f"Email '{subject[:40]}' failed for {who}: {e}"[:300])
-            EmailLog.objects.create(violation=v, subject=subject, body=full, to=", ".join(emails), recipient=who, ok=False, error=str(e)[:300])
+            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), to=", ".join(emails), recipient=who, ok=False, error=str(e)[:300])
     return to
 
 

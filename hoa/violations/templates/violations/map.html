@@ -48,14 +48,14 @@
 </style>
 {{ tiles|json_script:"tile-config" }}
 {{ plan|json_script:"plan-config" }}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="{% static 'violations/leaflet/leaflet.css' %}">
 <div id="stage" style="position:relative">
   <button type="button" id="fs" class="sec" title="Full screen" style="position:absolute;top:10px;right:10px;z-index:1000;padding:6px 10px;background:var(--card)">⤢ Full screen</button>
   <div id="plan" class="mapbox" style="border-radius:10px;border:1px solid var(--line)"></div>
   <div id="map" class="mapbox" style="border-radius:10px;border:1px solid var(--line);display:none"></div>
 </div>
 <p class="mut" id="plan-note" style="font-size:.8rem;margin:6px 2px">Site plan: an artist's rendering of the community for orientation only. Not to scale.</p>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="{% static 'violations/leaflet/leaflet.js' %}"></script>
 <script src="{% static 'violations/mapfilter.js' %}"></script>
 <script>
 var COLORS={red:"#d92d20",orange:"#f79009",green:"#12b76a",gray:"#98a2b3"};

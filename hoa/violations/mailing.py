@@ -9,6 +9,7 @@ A provider failure never blocks the workflow: it is logged and the notice shows 
 """
 import base64
 import json
+import re
 import uuid
 import urllib.request
 from datetime import date
@@ -32,9 +33,16 @@ def _services_for(kind):
     return [(None, "first_class")]
 
 
+def _clean(value):
+    """A value going into a form field for the print service: control characters and line breaks removed, quotes made harmless, so a name or
+    address can never break the request."""
+    return re.sub(r"[\x00-\x1f\x7f]+", " ", str(value)).replace('"', "'").strip()
+
+
 def _multipart(fields, file_field, filename, file_bytes):
     boundary = uuid.uuid4().hex
     out = []
+    fields = {_clean(k): _clean(v) for k, v in fields.items()}
     for k, v in fields.items():
         out.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
     out.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'

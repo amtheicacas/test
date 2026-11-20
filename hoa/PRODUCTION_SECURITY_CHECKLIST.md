@@ -205,3 +205,13 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] An owner's sign-in email is changed ONLY through Owner -> Sign-in logins (or in Vantaca + sync); update Vantaca as well or the next sync restores the old address.
 - [ ] Records are not deleted in the admin on the live site (the delete buttons are off); people who leave are switched off, not deleted.
 - [ ] Read the Audit log weekly for unexpected role, email or owner changes.
+
+
+## Addendum (Phase 5)
+- [ ] `VANTACA_BASE_URL` starts with `https://` (the site refuses to start otherwise).
+- [ ] Email: `EMAIL_TIMEOUT` left at 10 (or lower); `EMAIL_USE_SSL=1` only if the provider needs port 465; sign-in mail is sent in the background by default on the live site.
+- [ ] Run gunicorn from the `hoa` folder so `gunicorn.conf.py` is used, and do NOT add `--access-logfile`; check the host's request log setting too (links contain secrets).
+- [ ] A custom 404/403/500 page shows (try a bad address and a page you may not open).
+- [ ] The map page loads without any request to cdnjs (browser network tab); tiles still come from the tile server.
+- [ ] Ask AI: leave `ANTHROPIC_API_KEY` blank unless wanted; `AI_DAILY_LIMIT` is 50 a day for the team.
+- [ ] Audit log has no `signin.ambiguous_email` entries (if it does, fix the duplicate address in Vantaca).

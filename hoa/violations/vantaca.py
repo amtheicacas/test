@@ -307,11 +307,24 @@ def sync_csv(fileobj_or_text, **kw):
     return sync_rows(csv.DictReader(io.StringIO(text)), **kw)
 
 
+def base_url():
+    """The Vantaca address, which must be https:// (it carries the account's password). Plain http is allowed only for a test server on
+    this same computer while developing."""
+    from urllib.parse import urlsplit
+    u = (settings.VANTACA_BASE_URL or "").strip().rstrip("/")
+    p = urlsplit(u)
+    if p.scheme == "https" and p.hostname:
+        return u
+    if p.scheme == "http" and p.hostname in ("localhost", "127.0.0.1") and settings.DEBUG:
+        return u
+    raise RuntimeError("VANTACA_BASE_URL must start with https:// (the Vantaca password is sent with every request, so a plain http address is refused).")
+
+
 def api_request(method, path, body=None):
     """Authenticated JSON call to the Vantaca API (HTTP Basic auth). Returns the parsed reply."""
     if not (settings.VANTACA_BASE_URL and settings.VANTACA_USER):
         raise RuntimeError("Vantaca API is not configured (VANTACA_BASE_URL / VANTACA_USER / VANTACA_PASSWORD).")
-    url = settings.VANTACA_BASE_URL.rstrip("/") + "/" + path.lstrip("/")
+    url = base_url() + "/" + path.lstrip("/")
     token = base64.b64encode(f"{settings.VANTACA_USER}:{settings.VANTACA_PASSWORD}".encode()).decode()
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers={
@@ -324,7 +337,7 @@ def api_request(method, path, body=None):
 def fetch_owners_from_api():
     if not (settings.VANTACA_BASE_URL and settings.VANTACA_OWNERS_PATH and settings.VANTACA_USER):
         raise RuntimeError("Set VANTACA_BASE_URL, VANTACA_OWNERS_PATH, VANTACA_USER and VANTACA_PASSWORD.")
-    url = settings.VANTACA_BASE_URL.rstrip("/") + "/" + settings.VANTACA_OWNERS_PATH.lstrip("/")
+    url = base_url() + "/" + settings.VANTACA_OWNERS_PATH.lstrip("/")
     token = base64.b64encode(f"{settings.VANTACA_USER}:{settings.VANTACA_PASSWORD}".encode()).decode()
     req = urllib.request.Request(url, headers={"Authorization": f"Basic {token}", "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as resp:

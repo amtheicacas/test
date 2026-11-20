@@ -9,6 +9,7 @@
     <select id="pcat"><option value="">All categories</option>{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select>
     {% if ai_available %}<button type="button" class="sec" id="pai" style="flex:0 0 auto">Ask AI</button>{% endif %}
   </div>
+  {% if ai_available %}<div class="mut" style="font-size:.8rem">Ask AI sends what you type to an outside service. Describe the problem only: don't type owner names or addresses.</div>{% endif %}
   <div id="pnote" class="mut" style="margin:6px 0"></div>
   <div id="presults" style="max-height:260px;overflow:auto;margin-top:6px"></div>
 </div>

@@ -55,7 +55,7 @@ def test_homeowner_sees_only_own_cases(client):
     assert "Shed" in body and f"/me/{a.pk}/" in body and f"/me/{b.pk}/" not in body
     assert client.get(f"/me/{a.pk}/").status_code == 200
     assert client.get(f"/me/{b.pk}/").status_code == 404
-    assert client.get(f"/photos/{b.photos.first().pk}/").status_code == 403
+    assert client.get(f"/photos/{b.photos.first().pk}/").status_code == 404
     assert client.get(f"/photos/{a.photos.first().pk}/").status_code == 200
     n = a.notices.first()
     assert client.get(f"/notices/{n.pk}/pdf/").content.startswith(b"%PDF")
@@ -96,7 +96,7 @@ def test_committee_sees_only_assigned_cases(client):
     assert client.get(f"/committee/meetings/{m.pk}/").status_code == 200
     assert client.get(f"/committee/cases/{assigned.pk}/").status_code == 200
     assert client.get(f"/committee/cases/{other.pk}/").status_code == 403
-    assert client.get(f"/photos/{other.photos.first().pk}/").status_code == 403
+    assert client.get(f"/photos/{other.photos.first().pk}/").status_code == 404
     for url in ["/violations/", "/board/", "/map/", "/meetings/", f"/violations/{assigned.pk}/", "/api/map/"]:
         assert client.get(url).status_code == 403, url
     client.post(f"/committee/cases/{assigned.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Photos and testimony confirm the violation."})

@@ -70,11 +70,12 @@ def send_signin_link(user, request=None):
     # On the live site the address in the email always comes from SITE_URL, never from the address the request arrived on.
     url = request.build_absolute_uri(path) if (request is not None and not settings.PRODUCTION) else settings.SITE_URL + path
     name = user.first_name or "there"
-    EmailMessage(f"Your {settings.APP_NAME} sign-in link",
-                 f"Hello {name},\n\nClick this link to sign in to the {settings.APP_NAME}:\n\n{url}\n\n"
-                 f"The link works once and expires in {LINK_MINUTES} minutes. If you didn't ask for it, you can ignore this email.\n\n"
-                 f"On behalf of the Board of Directors\n{settings.HOA_NAME}",
-                 settings.DEFAULT_FROM_EMAIL, [user.email]).send()
+    from . import mailer
+    mailer.send(EmailMessage(f"Your {settings.APP_NAME} sign-in link",
+                             f"Hello {name},\n\nClick this link to sign in to the {settings.APP_NAME}:\n\n{url}\n\n"
+                             f"The link works once and expires in {LINK_MINUTES} minutes. If you didn't ask for it, you can ignore this email.\n\n"
+                             f"On behalf of the Board of Directors\n{settings.HOA_NAME}",
+                             settings.DEFAULT_FROM_EMAIL, [user.email]))
 
 
 def household_logins(owner):
@@ -117,13 +118,25 @@ def _relationship_for(owner, email):
     return "co_owner" if e in {x.lower() for x in owner.all_emails} else "other"
 
 
-def household_for_email(email):
-    """The active owner record that lists this email (any owner email, the co-owner's or a tenant's), or None."""
+def households_for_email(email):
+    """EVERY active owner record that lists this email (any owner email, the co-owner's or a tenant's)."""
     import re
     from django.db.models import Q
     pat = r"(^|[;,\s])" + re.escape(email) + r"($|[;,\s])"
-    return Owner.objects.filter(Q(email__iexact=email) | Q(co_owner_email__iexact=email) | Q(tenant_email__iexact=email)
-                                | Q(additional_emails__iregex=pat) | Q(tenant_additional_emails__iregex=pat), active=True).first()
+    return list(Owner.objects.filter(Q(email__iexact=email) | Q(co_owner_email__iexact=email) | Q(tenant_email__iexact=email)
+                                     | Q(additional_emails__iregex=pat) | Q(tenant_additional_emails__iregex=pat), active=True).order_by("pk")[:5])
+
+
+def household_for_email(email):
+    """The ONE active owner record that lists this email, or None. If the same address is on two households (a mistake in Vantaca) nobody
+    is guessed at: no link is sent, and the problem is written to the audit log for staff to fix."""
+    found = households_for_email(email)
+    if len(found) > 1:
+        from . import audit
+        audit.record("signin.ambiguous_email", ", ".join(o.property_address for o in found[:3]),
+                     f"The address {email} is on {len(found)} active households, so no sign-in link was sent. Fix it in Vantaca.")
+        return None
+    return found[0] if found else None
 
 
 def send_access_link(email, request=None):
@@ -298,8 +311,7 @@ def change_signin_email(profile, new_email, actor, reason, request=None):
     User = get_user_model()
     if User.objects.filter(username__iexact=new).exclude(pk=user.pk).exists() or User.objects.filter(email__iexact=new).exclude(pk=user.pk).exists():
         raise AccountError("Another login already uses that address.")
-    other = household_for_email(new)
-    if other is not None and other.pk != owner.pk:
+    if any(h.pk != owner.pk for h in households_for_email(new)):
         raise AccountError("That address is on a different household's record. It can't be used here.")
     field = {"owner": "email", "co_owner": "co_owner_email", "tenant": "tenant_email"}.get(profile.relationship)
     with transaction.atomic():
