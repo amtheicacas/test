@@ -36,7 +36,7 @@ Create manager, board and committee logins in `/admin/` under Users (add a **Pro
 | `backdate_meeting [id]` | Testing only: pretend a committee meeting already happened |
 | `clear_test_data --yes` | Delete all violations and committee meetings (keeps owners, types, logins) |
 
-Configuration is by environment variables: `HOA_NAME`, `MANAGER_*`, `OFFICE_PHONE`, `SITE_URL` (used in links), `SECRET_KEY` and `DJANGO_DEBUG=0` for production, `EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD` for SMTP (without `EMAIL_HOST`, emails print to the console). Run `python manage.py advance_violations` daily from cron; the dashboard and board queue also do it when opened.
+Settings can go in a private file, `hoa/local.env` (copy `local.env.example`; it is never saved to GitHub), as `NAME=value` lines. Configuration is by environment variables: `HOA_NAME`, `MANAGER_*`, `OFFICE_PHONE`, `SITE_URL` (used in links), `SECRET_KEY` and `DJANGO_DEBUG=0` for production, `EMAIL_HOST/PORT/HOST_USER/HOST_PASSWORD` for SMTP (without `EMAIL_HOST`, emails print to the console). Run `python manage.py advance_violations` daily from cron; the dashboard and board queue also do it when opened.
 
 ## The Fining Resolution (April 17, 2023)
 The letters and rules follow the Resolution Establishing Compliance Committee and Creating Fining/Suspension Procedures:

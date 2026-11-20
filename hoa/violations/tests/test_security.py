@@ -193,3 +193,17 @@ def test_private_link_works_in_cure_period_but_not_later(client):
     assert client.post(f"/r/{v.token}/", {"message": "hi"}).status_code == 200
     assert v.responses.count() == 0
     assert client.get(f"/r/{v.token}/photo/{v.photos.first().pk}/").status_code == 404
+
+
+def test_local_env_file_is_read_without_overriding_real_variables(tmp_path, monkeypatch):
+    import importlib, os
+    from config import settings as cfg
+    (tmp_path / "local.env").write_text('# comment\nZOOM_TEST_A=one\nZOOM_TEST_B = "two"\nZOOM_TEST_C=three\n', encoding="utf-8")
+    monkeypatch.setattr(cfg, "BASE_DIR", tmp_path)
+    monkeypatch.setenv("ZOOM_TEST_C", "from-the-real-environment")
+    for k in ("ZOOM_TEST_A", "ZOOM_TEST_B"):
+        monkeypatch.delenv(k, raising=False)
+    cfg._load_local_env()
+    assert os.environ["ZOOM_TEST_A"] == "one" and os.environ["ZOOM_TEST_B"] == "two" and os.environ["ZOOM_TEST_C"] == "from-the-real-environment"
+    for k in ("ZOOM_TEST_A", "ZOOM_TEST_B"):
+        os.environ.pop(k, None)

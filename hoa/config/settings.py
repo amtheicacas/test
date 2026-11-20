@@ -4,6 +4,22 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_local_env():
+    """Read KEY=VALUE lines from hoa/local.env (never saved to GitHub) into the environment, so passwords and keys such as the Zoom,
+    email and Lob settings can live in one private file instead of being typed into a terminal. Real environment variables win."""
+    f = BASE_DIR / "local.env"
+    if not f.exists():
+        return
+    for line in f.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, _, v = line.partition("=")
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_local_env()
+
+
 def env(name, default=None):
     return os.environ.get(name, default)
 
