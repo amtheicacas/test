@@ -23,11 +23,20 @@ def _day(d):
     return d.isoformat() if d else ""
 
 
+def _safe_cell(value):
+    """Spreadsheet programs treat a cell that STARTS with = + @ (or - followed by something other than a space) as a formula, so a message an
+    owner typed could run when staff open the CSV. A leading apostrophe makes the spreadsheet show it as plain text. Everything else, and
+    every non-text value, is left exactly as it is."""
+    if isinstance(value, str) and value and (value[0] in "=+@\t\r" or (value[0] == "-" and len(value) > 1 and value[1] != " ")):
+        return "'" + value
+    return value
+
+
 def _csv(header, rows):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(header)
-    w.writerows(rows)
+    w.writerows([[_safe_cell(c) for c in row] for row in rows])
     return buf.getvalue().encode("utf-8-sig")           # the BOM lets Excel on Windows read accents and symbols correctly
 
 

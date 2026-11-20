@@ -153,3 +153,32 @@ def test_when_the_second_recipients_letter_fails_it_is_not_logged_with_the_first
     good, bad = EmailLog.objects.filter(violation=v, ok=True).get(), EmailLog.objects.filter(violation=v, ok=False).get()
     assert "owner@example.com" in good.to and "tenant@example.com" in bad.to
     assert "Dear Tina Tenant" in bad.body and "Dear Alex Owner" not in bad.body                     # the failure record names the tenant, not the owner
+
+
+# ---------- F-07: spreadsheet formulas typed by an owner must not run when staff open the case-file CSVs ----------
+def _csv_cells(zip_bytes, suffix):
+    import csv, io, zipfile
+    z = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    name = next(n for n in z.namelist() if n.endswith(suffix))
+    return [c for row in csv.reader(io.StringIO(z.read(name).decode("utf-8-sig"))) for c in row]
+
+
+@pytest.mark.parametrize("typed", ["=HYPERLINK(\"http://evil.example\",\"click\")", "+1+1", "@SUM(1+1)", "-2+3", "=cmd|' /C calc'!A0"])
+def test_an_owner_message_that_looks_like_a_spreadsheet_formula_is_defused_in_the_case_file_csv(typed):
+    from violations import casefile, services
+    o = Owner.objects.create(name="Alex", property_address="8 Csv Way", email="csv@example.com")
+    t = ViolationType.objects.get_or_create(name="Trash cans", defaults={"default_cure_days": 15})[0]
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status=S.NOTICE_SENT)
+    services.add_response(v, typed, from_resident=True)
+    data, _name = casefile.build_case_file(v, mk("boss", "board"))
+    cells = _csv_cells(data, "messages-with-the-owner.csv")
+    hit = [c for c in cells if typed.lstrip("'") in c]
+    assert hit and all(c[0] == "'" for c in hit), hit                                     # a leading apostrophe makes Excel treat it as text
+
+
+def test_ordinary_text_is_not_changed_by_the_defusing():
+    from violations import casefile
+    assert casefile._safe_cell("Gate was open") == "Gate was open"
+    assert casefile._safe_cell("- gate was open") == "- gate was open"                    # a dash then a space is a list, not a formula
+    assert casefile._safe_cell("") == "" and casefile._safe_cell(5) == 5 and casefile._safe_cell(None) is None
+    assert casefile._safe_cell("=1+1") == "'=1+1" and casefile._safe_cell("-1+1") == "'-1+1" and casefile._safe_cell("\t=1") == "'\t=1"
