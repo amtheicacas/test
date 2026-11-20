@@ -172,3 +172,13 @@ Known limits / decisions: observations on a case are visible to ALL committee me
 - **Record of what was sent:** do not treat Postmark's delivery log as the proof. The app's own saved exact letter copies (`SentLetter`) and email records are the record; Postmark keeps its logs only for a limited time and they are not ours.
 - **Confirm first:** Postmark's current prices, sending limits and SMTP details (server name, ports, how the credentials work) on their own site before setting up; these were not verified here.
 - Still to decide (unchanged): the domain, the From address, where replies go, and who holds the Postmark and DNS logins (add them to the recovery sheet in `BACKUP_AND_RECOVERY.md` section 8).
+
+## 23. User decisions on the hearing and decision letters, and retention (recorded; NOT built yet)
+**Nothing here changes any letter yet.** Letters stay frozen until the attorney's final Word files arrive (Part B); the Board member says legal is now reviewing ALL the letters, so the attorney's wording wins over anything below if they differ.
+- Notice of Hearing: **move the photo(s) to the bottom** (yes).
+- Notice of Hearing: **add an "at a glance" box** (yes).
+- Notice of Hearing: **mention the My Heron Landing Application and the self-help right** (yes; wording to come from legal).
+- Decision letter: **remove the "No fine if cured by" field and its bullet** (yes). Code to touch in Part B: `committee_cure_by` (model field, decision form on `committee_meeting.html`, `services.py` ~881, and the ~351/353-354 wording in `pdf.py`); keep the column unless a migration is wanted, and keep old rows readable.
+- Decision letter findings text: the committee types it on the meeting page ("Findings / note (quoted in the decision letter)", stored in `committee_findings`, printed under "Findings:"). The user was unsure what the question meant; it was explained and is still open (leave as typed text, or offer suggested starting text).
+- **Retention: keep records 7 years** (user decision; attorney to confirm). This matches the backup plan's yearly x7 but NOT the app's current `ARCHIVE_RETENTION_YEARS` (3 years for archived owners, purge manual). Open: change that setting to 7 and make sure nothing is purged before 7 years (letters, photos, observations, saved copies and backups included).
+- Still open: who holds the backup private key and approves a restore, letterhead/contact details, attorney email.
