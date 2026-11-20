@@ -41,6 +41,14 @@ def role_required(*roles):
     return deco
 
 
+def _safe_next(request):
+    """The page to return to after a form (the `next` field), but ONLY an address on this site: anything else (another website, a script
+    address) is ignored, so a crafted form can't send a Board member somewhere else after they act."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    n = request.POST.get("next") or ""
+    return n if n and url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()}, require_https=request.is_secure()) else ""
+
+
 def _int(value, default=0):
     """A number typed or posted by a person: anything that is not a whole number becomes `default` (never a server error)."""
     try:
@@ -668,7 +676,7 @@ def violation_action(request, pk, action):
                 messages.error(request, "Enter the days to add, or an exact new deadline.")
         else:
             _run(request, services.decline_extension, v, resp, P.get("reason", ""), u, ok="Request declined; the owner has been told.")
-        return redirect(request.POST.get("next") or v)
+        return redirect(_safe_next(request) or v)
     elif action == "board":
         f = forms.BoardForm(P)
         if f.is_valid():
@@ -683,7 +691,7 @@ def violation_action(request, pk, action):
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
                      fine=d["proposed_fine"], by_majority=d["by_majority"],
                      ok="Board decision recorded. It will go to the next Compliance Committee meeting you assign.")
-        return redirect(request.POST.get("next") or v)
+        return redirect(_safe_next(request) or v)
     elif action == "assign":
         f = forms.AssignForm(P)
         if f.is_valid():

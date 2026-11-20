@@ -61,3 +61,25 @@ def test_an_unrelated_committee_member_can_still_use_the_old_vote_page_as_before
     client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Confirmed."})
     v.refresh_from_db()
     assert v.status == S.LEDGER_PENDING and v.committee_votes_for == 3
+
+
+# ---------- F-02: the "next" field of staff forms could send a Board member to another website ----------
+@pytest.mark.parametrize("evil", ["https://evil.example/x", "//evil.example/x", "javascript:alert(1)", "http://testserver.evil.example/", "\\\\evil.example"])
+def test_a_crafted_next_address_is_ignored_after_a_board_form(client, evil):
+    boss = mk("boss", "board")
+    o = Owner.objects.create(name="Alex", property_address="9 Next Way", email="n@example.com")
+    t = ViolationType.objects.get_or_create(name="Trash cans", defaults={"default_cure_days": 15})[0]
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status=S.NOTICE_SENT)
+    client.force_login(boss)
+    r = client.post(f"/violations/{v.pk}/board/", {"next": evil})
+    assert r.status_code == 302 and r["Location"] == v.get_absolute_url()
+
+
+def test_a_next_address_on_this_site_is_still_honoured(client):
+    boss = mk("boss", "board")
+    o = Owner.objects.create(name="Alex", property_address="9 Next Way", email="n@example.com")
+    t = ViolationType.objects.get_or_create(name="Trash cans", defaults={"default_cure_days": 15})[0]
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status=S.NOTICE_SENT)
+    client.force_login(boss)
+    r = client.post(f"/violations/{v.pk}/board/", {"next": "/board/?page=2"})
+    assert r["Location"] == "/board/?page=2"
