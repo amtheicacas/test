@@ -213,3 +213,11 @@ def test_the_bucket_client_lists_all_pages_writes_with_a_fingerprint_and_reads_b
         assert t.get("k") == b"data"
         st.assert_no_pending_responses()
     assert not hasattr(t, "delete") and not hasattr(t, "delete_object")           # the backup code has no way to delete
+
+
+def test_backblazes_empty_folder_placeholder_is_not_copied():
+    store("photos/.bzEmpty", b"")
+    real = store("photos/a.jpg", b"A")
+    t = Mem()
+    rep = backups.copy_files(default_storage, t)
+    assert rep.copied == [real] and "photos/.bzEmpty" not in t.files and "photos/.bzEmpty" in rep.skipped

@@ -8,6 +8,7 @@ import io
 from dataclasses import dataclass, field
 
 EXCLUDE = ("storage-check/",)       # the storage self-test's own files are not worth keeping
+PLACEHOLDERS = (".bzEmpty",)        # Backblaze's 0-byte marker for a folder made on its website: not a real file
 
 
 def walk(storage, prefix=""):
@@ -79,7 +80,7 @@ def copy_files(storage, target, dry_run=False, verify=False, exclude=EXCLUDE):
     rep = Report()
     have = target.existing()
     for name in sorted(walk(storage)):
-        if name.startswith(exclude):
+        if name.startswith(exclude) or name.rsplit("/", 1)[-1] in PLACEHOLDERS:
             rep.skipped.append(name)
             continue
         try:
