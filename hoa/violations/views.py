@@ -514,7 +514,8 @@ def violation_detail(request, pk):
     ctx = {
         "v": v, "S": S, "mail": services.correspondence(v, staff=True),
         "extension_form": forms.ExtensionForm(), "reply_form": forms.ReplyForm(), "canned": CannedReply.objects.all(),
-        "mailed_form": forms.MailedForm(), "board_form": forms.BoardForm(),
+        "mailed_form": forms.MailedForm(),
+        "board_form": forms.BoardForm(initial={"proposed_fine": v.suggested_fine} if v.is_point_in_time else None),
         "assign_form": forms.AssignForm(), "committee_form": forms.CommitteeForm(),
         "hold_form": forms.HoldForm(),
         "payment_form": forms.PaymentForm(), "note_form": forms.NoteForm(),
@@ -798,7 +799,7 @@ def board_queue(request):
     services.advance_expired()
     vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype"))
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
-        v.bform = forms.BoardForm(initial={"proposed_fine": v.vtype.default_fine})
+        v.bform = forms.BoardForm(initial={"proposed_fine": v.suggested_fine})
         v.history = services.owner_history(v)
         v.peek = next((p for p in v.photos.all() if not p.from_resident), None)
         v.pending_ext = v.pending_extension

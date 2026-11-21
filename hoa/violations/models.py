@@ -494,6 +494,13 @@ class Violation(models.Model):
         return (self.hearing_date.date() + timedelta(days=settings.DECISION_LETTER_DAYS)) if self.hearing_date else None
 
     @property
+    def suggested_fine(self):
+        """The amount filled in (editable) on the Board's forms: $100 (POINT_IN_TIME_FINE) for a point-in-time violation, otherwise the
+        violation type's usual fine. Nothing is recorded until the Board records its decision."""
+        from django.conf import settings
+        return settings.POINT_IN_TIME_FINE if self.is_point_in_time else self.vtype.default_fine
+
+    @property
     def is_point_in_time(self):
         """A one-time event that can't be cured (dog off leash, parking in the street...). Goes straight to the Board queue."""
         return bool(self.non_curable)

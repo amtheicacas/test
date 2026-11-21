@@ -62,3 +62,6 @@ Fixed with tests: the old committee vote page now enforces abstention (F-01a); `
 
 ## After the owner's decisions on the review (read REVIEW_REPORT.md "Decisions recorded and carried out")
 `committee_vote` (old vote page) is now Board/manager only (STAFF_ONLY in `test_access_matrix.py`). `services.finalize_imposition` posts to the ledger inside one locked transaction that also saves the new status, BEFORE letters go out; `services._save_locked(v, *allowed)` is the way to save a case change that must not overwrite another person's; do not post to the ledger outside that block. `services._warn_if_photo_unreadable` records a WARNING event if a letter's photo can't be read (pdf.py stays frozen). Dependencies: `build.sh` installs `requirements-production.lock.txt` (exact versions; see `README_DEPENDENCIES.md` to update it); tests need `requirements-dev.txt`. Tests: 844 + 1 skipped on SQLite, 845 on PostgreSQL (`DATABASE_URL=postgres://...`; the concurrency test needs it). Still open by decision: F-11 unused settings kept until the attorney's letters; F-07 accepted.
+
+## Point-in-time fine prefill
+`Violation.suggested_fine` ($100 via `settings.POINT_IN_TIME_FINE` for a point-in-time violation, otherwise the type's `default_fine`) fills the Board queue fine box and, for point-in-time only, the single-case vote form. Prefill only: never save it automatically.
