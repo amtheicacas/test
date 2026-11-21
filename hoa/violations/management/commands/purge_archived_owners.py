@@ -4,7 +4,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-from violations.models import Owner, Profile, Violation
+from violations.models import Owner, Violation
 
 
 class Command(BaseCommand):
