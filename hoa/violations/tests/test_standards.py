@@ -170,6 +170,7 @@ def test_new_form_page_has_picker_and_catalog(client):
     body = client.get("/violations/new/").content.decode()
     assert "What&rsquo;s the violation?" in body and "catalog-data" in body and "Exterior lighting" in body
     assert "Ask AI" not in body  # hidden until an API key is configured
+    assert "<button>Submit Violation</button>" in body and "<button>Save</button>" not in body
 
 
 def test_ask_ai_button_appears_with_key(client, settings):
