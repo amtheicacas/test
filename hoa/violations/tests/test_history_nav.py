@@ -1039,3 +1039,18 @@ def test_dashboard_shows_how_long_cases_take_from_notice_to_committee_decision(d
     assert [s["label"] for s in sp["segs"]] == ["Cure period", "Waiting for the Board vote", "Waiting for the hearing"] and sp["segs"][0]["days"] == 12
     html = client.get("/workspace/").content.decode()
     assert "How long cases take" in html and "Where the time goes" in html and "Violations observed" not in html
+
+
+def test_the_owner_history_is_collapsed_to_one_line_until_opened(client):
+    """The case page is crowded: the history card starts closed and shows the key numbers (and a Repeat flag) in its one-line summary."""
+    o, t = owner(), vt()
+    mk(o, t, S.CLOSED, days_ago=200, fine_amount=100, cured_on=TODAY - timedelta(days=150))
+    v = mk(o, t)
+    login(client, "manager")
+    page = client.get(f"/violations/{v.pk}/").content.decode()
+    card = page[page.index('<details class="card" id="owner-history"'):]
+    card = card[:card.index("</details>", card.index('id="owner-history"')) + 10]
+    assert "<details class=\"card\" id=\"owner-history\" open" not in page            # closed by default
+    summary = card[card.index("<summary"):card.index("</summary>")]
+    assert "2nd time for this violation type" in summary and "0 other open" in summary and "$100 in prior fines" in summary
+    assert "Same violation before (1)" in card                                    # the full history is inside the toggle

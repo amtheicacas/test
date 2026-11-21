@@ -282,7 +282,9 @@ def test_a_draft_case_says_where_to_submit_and_asks_for_the_missing_photo(client
     t = ViolationType.objects.get_or_create(name="Draft type", defaults={"default_cure_days": 15})[0]
     v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status="draft")
     html = client.get(f"/violations/{v.pk}/").content.decode()
-    assert "Ready to submit?" in html and html.count("Submit Violation:") == 2
+    assert "Ready to submit?" in html and "<button>Submit Violation</button>" in html
+    assert "Urgent: email and mail now" in html and html.index("<button>Submit Violation</button>") < html.index("Urgent: email and mail now")   # standard first
+    assert "onsubmit=\"return confirm(" in html                       # the rare urgent choice asks first
     assert "A photo of the violation is required before it can be submitted" in html
     b = io.BytesIO()
     Image.new("RGB", (10, 10)).save(b, "PNG")
