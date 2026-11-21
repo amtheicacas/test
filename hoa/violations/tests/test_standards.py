@@ -168,7 +168,7 @@ def test_drafted_text_with_brackets_cannot_be_sent(client):
 def test_new_form_page_has_picker_and_catalog(client):
     manager(client)
     body = client.get("/violations/new/").content.decode()
-    assert "Find the violation" in body and "catalog-data" in body and "Exterior lighting" in body
+    assert "What&rsquo;s the violation?" in body and "catalog-data" in body and "Exterior lighting" in body
     assert "Ask AI" not in body  # hidden until an API key is configured
 
 
