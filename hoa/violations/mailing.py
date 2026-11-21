@@ -11,6 +11,7 @@ A provider failure never blocks the workflow: it is logged and the notice shows 
 """
 import base64
 import json
+import logging
 import re
 import uuid
 import urllib.error
@@ -24,6 +25,7 @@ from django.utils import timezone
 from .models import MailPiece, Notice
 
 K = Notice.Kind
+logger = logging.getLogger(__name__)
 
 
 def _services_for(kind):
@@ -75,6 +77,11 @@ def _lob_error_text(e):
     return f"Lob refused the request (HTTP {e.code})" + (f": {msg}" if msg else "")
 
 
+def _auth_header():
+    """The Authorization header for Lob: the key with any stray spaces or line break around it removed (the same trimmed key lob_key_mode judges)."""
+    return {"Authorization": "Basic " + base64.b64encode(f"{(settings.LOB_API_KEY or '').strip()}:".encode()).decode()}
+
+
 def lob_key_mode(key=None):
     """What kind of Lob key is set: 'test' (test_...: Lob accepts and shows letters but MAILS NOTHING), 'live' (live_...: real mail and real
     postage), 'missing', or 'unknown'. Never returns or prints the key itself."""
@@ -84,8 +91,7 @@ def lob_key_mode(key=None):
 
 def lob_ping():
     """Ask Lob a read-only question (list one saved address) to learn whether it accepts our key. Creates and costs nothing. Returns the HTTP status."""
-    token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
-    req = urllib.request.Request("https://api.lob.com/v1/addresses?limit=1", headers={"Authorization": f"Basic {token}"})
+    req = urllib.request.Request("https://api.lob.com/v1/addresses?limit=1", headers=_auth_header())
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.status
@@ -122,9 +128,7 @@ def lob_send(to, pdf, description, extra_service=None):
     if extra_service:
         fields["extra_service"] = extra_service
     body, ctype = _multipart(fields, "file", "notice.pdf", pdf)
-    token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
-    req = urllib.request.Request("https://api.lob.com/v1/letters", data=body, method="POST",
-                                 headers={"Authorization": f"Basic {token}", "Content-Type": ctype})
+    req = urllib.request.Request("https://api.lob.com/v1/letters", data=body, method="POST", headers={**_auth_header(), "Content-Type": ctype})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return json.load(resp)
@@ -134,8 +138,7 @@ def lob_send(to, pdf, description, extra_service=None):
 
 def lob_get(letter_id):
     """Fetch one letter from Lob, including its USPS tracking events (certified mail)."""
-    token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
-    req = urllib.request.Request(f"https://api.lob.com/v1/letters/{letter_id}", headers={"Authorization": f"Basic {token}"})
+    req = urllib.request.Request(f"https://api.lob.com/v1/letters/{letter_id}", headers=_auth_header())
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.load(resp)
 
@@ -197,13 +200,18 @@ def apply_tracking(piece, r, mark_checked=True):
     return before != (piece.tracking_number, piece.status, piece.delivered_on, piece.problem, len(piece.events or []))
 
 
-def refresh_piece(piece):
-    """Ask the provider for the latest tracking on one piece. Never raises: a provider hiccup just leaves the old status."""
+def refresh_piece(piece, errors=None):
+    """Ask the provider for the latest tracking on one piece. Never raises: a provider hiccup just leaves the old status. A failure is written
+    to the server log (what went wrong, never the key) and, when a list is given, added to it so the daily job can say so."""
     if settings.MAIL_PROVIDER != "lob" or not piece.provider_id:
         return False
     try:
         return apply_tracking(piece, lob_get(piece.provider_id))
-    except Exception:
+    except Exception as e:      # noqa: BLE001
+        what = f"HTTP {e.code}" if isinstance(e, urllib.error.HTTPError) else type(e).__name__
+        logger.warning("Tracking check failed for mail piece %s (%s)", piece.pk, what)
+        if errors is not None:
+            errors.append(f"letter {piece.pk}: {what}")
         return False
 
 
@@ -247,7 +255,11 @@ def dispatch(notice, render, user=None):
         if not all(addr.get(k) for k in ("name", "line1", "city", "state", "zip")):  # skip this address, keep mailing the others
             errors.append(f"{label}: incomplete mailing address (need street, city, state, ZIP)")
             continue
-        pdf = render(variant)
+        try:
+            pdf = render(variant)
+        except Exception as e:  # noqa: BLE001  (one letter that will not build must not stop the others, nor lose the record of those already handed over)
+            errors.append(f"{label}: the letter could not be built ({type(e).__name__})")
+            continue
         for extra, svc in _services_for(notice.kind):
             try:
                 r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)

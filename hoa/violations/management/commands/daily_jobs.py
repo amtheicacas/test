@@ -9,7 +9,7 @@ class Command(BaseCommand):
             "fails; if any step failed the job ends with an error (so a scheduler alerts) after the others have been done.")
 
     def handle(self, *a, **kw):
-        failed = []
+        failed, tracking_errors = [], []
 
         def step(name, fn, line):
             try:
@@ -20,7 +20,9 @@ class Command(BaseCommand):
 
         step("sync_committee_logins", accounts.sync_committee_logins,
              lambda r: f"Committee logins: {r[0]} switched on, {r[1]} switched off (they follow the yearly roster).")
-        step("refresh_mail_tracking", lambda: services.refresh_mail_tracking(), lambda n: f"{n} certified letter(s) had tracking updates.")
+        step("refresh_mail_tracking", lambda: services.refresh_mail_tracking(errors=tracking_errors),
+             lambda n: f"{n} certified letter(s) had tracking updates."
+             + (f" {len(tracking_errors)} tracking check(s) could NOT be completed (first: {tracking_errors[0]}); see the server log." if tracking_errors else ""))
         step("send_due_mailings", lambda: services.send_due_mailings(), lambda n: f"{n} held mailing(s) sent to the mail provider.")
         step("send_hold_reminders", lambda: services.send_hold_reminders(), lambda n: f"{n} hold-ending reminder(s) sent.")
         step("send_cure_reminders", lambda: services.send_cure_reminders(), lambda n: f"{n} reminder(s) sent.")

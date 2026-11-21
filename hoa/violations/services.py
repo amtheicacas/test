@@ -105,9 +105,10 @@ def correspondence(v, staff=False):
     return items
 
 
-def refresh_mail_tracking(force_for=None, hours=6):
+def refresh_mail_tracking(force_for=None, hours=6, errors=None):
     """Pull the latest USPS tracking for certified pieces that haven't been delivered yet (daily job; also a button on the case).
-    Returns how many pieces changed."""
+    Returns how many pieces changed. A lookup that fails never stops the others and never raises; when a list is given each failure is added
+    to it (the daily job prints them, instead of quietly reporting 'no updates'). Failures are also written to the server log."""
     from . import mailing
     qs = MailPiece.objects.filter(service="certified", delivered_on__isnull=True).exclude(provider_id="")
     if force_for is not None:
@@ -115,7 +116,7 @@ def refresh_mail_tracking(force_for=None, hours=6):
     else:
         qs = qs.filter(created_at__gte=timezone.now() - timedelta(days=90))
         qs = qs.filter(checked_at__isnull=True) | qs.filter(checked_at__lt=timezone.now() - timedelta(hours=hours))
-    return sum(1 for p in qs.select_related("notice__violation") if mailing.refresh_piece(p))
+    return sum(1 for p in qs.select_related("notice__violation") if mailing.refresh_piece(p, errors))
 
 
 def add_business_days(start, n):
@@ -223,11 +224,18 @@ def issue_first_notice(v, user=None, today=None, timing=None):
 
 
 def _mail_due(notice, user=None):
-    """Hand a held notice to the mail provider now (it stays on the print list when no provider is on)."""
+    """Hand a held notice to the mail provider now (it stays on the print list when no provider is on). Callers hold the notice's row lock
+    (see _lock_notice) so that two people or two page loads can never both hand the same notice over."""
     notice.mail_tried_on = date.today()
     notice.save()
     _warn_if_photo_unreadable(notice.violation, notice.kind, user)
     mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
+
+
+def _lock_notice(pk, skip_locked=False):
+    """The notice, freshly read under a row lock (PostgreSQL; other databases ignore the lock), together with its case and owner. Only the notice's
+    own row is locked, not the case. With skip_locked a notice that someone else is working on right now comes back as None instead of waiting."""
+    return (Notice.objects.select_for_update(skip_locked=skip_locked, of=("self",)).select_related("violation__owner").filter(pk=pk).first())
 
 
 def cancel_held_mailings(v, reason="corrected before the mail date; postage saved"):
@@ -240,26 +248,33 @@ def cancel_held_mailings(v, reason="corrected before the mail date; postage save
     return n
 
 
+@transaction.atomic
 def mail_now(notice, user=None):
-    """Override the delay: send this held notice to the mail provider immediately."""
-    if not notice.mail_held:
+    """Override the delay: send this held notice to the mail provider immediately. A second click (or a second person) waits for the first
+    to finish and is then told the notice is no longer waiting, instead of mailing everything again."""
+    fresh = _lock_notice(notice.pk)
+    if fresh is None or not fresh.mail_held:
         raise WorkflowError("This notice is not waiting to be mailed.")
-    log(notice.violation, f"{notice.get_kind_display()}: mailed copy released early", user)
-    _mail_due(notice, user)
+    log(fresh.violation, f"{fresh.get_kind_display()}: mailed copy released early", user)
+    _mail_due(fresh, user)
 
 
 def send_due_mailings(today=None):
     """Daily job: hand over held notices whose wait is over, unless the case was corrected or closed meanwhile."""
     today = today or date.today()
     sent = 0
-    qs = Notice.objects.filter(mail_hold_until__lte=today, mailed_on__isnull=True, mail_cancelled=False).exclude(mail_tried_on=today)
-    for notice in qs.select_related("violation__owner"):
-        v = notice.violation
-        if v.cured_on or v.status in (S.CURED, S.CLOSED, S.DISMISSED):
-            cancel_held_mailings(v)
-            continue
-        _mail_due(notice)
-        sent += 1
+    due = Notice.objects.filter(mail_hold_until__lte=today, mailed_on__isnull=True, mail_cancelled=False).exclude(mail_tried_on=today)
+    for pk in list(due.values_list("pk", flat=True)):
+        with transaction.atomic():      # one notice at a time, each in its own short transaction (never one big one around every letter)
+            notice = _lock_notice(pk, skip_locked=True)         # a notice another page load or job is sending right now is skipped, not sent twice
+            if notice is None or notice.mailed_on or notice.mail_cancelled or notice.mail_tried_on == today:
+                continue                                        # it was sent, cancelled or tried by someone else since the list was read
+            v = notice.violation
+            if v.cured_on or v.status in (S.CURED, S.CLOSED, S.DISMISSED):
+                cancel_held_mailings(v)
+                continue
+            _mail_due(notice)
+            sent += 1
     return sent
 
 
@@ -665,7 +680,10 @@ def lift_expired_holds(today=None):
     today = today or date.today()
     n = 0
     for v in Violation.objects.filter(status=S.ON_HOLD, hold_until__lte=today).select_related("owner", "vtype"):
-        resume(v, auto=True, today=today)
+        try:
+            resume(v, auto=True, today=today)
+        except WorkflowError:
+            continue            # someone lifted this hold (or changed the case) after the list was read: nothing left to do
         n += 1
     return n
 
@@ -856,18 +874,23 @@ def add_response(v, message, *, from_resident, user=None, extension_requested=Fa
     return r
 
 
-@transaction.atomic
 def advance_expired(today=None):
-    """Daily job: cure periods that ended without cure move to the board queue."""
+    """Daily job (and run when the dashboard or Board queue opens): cure periods that ended without cure move to the board queue.
+    Not one big transaction: each held notice is mailed, each hold lifted and each case moved on its own, and a case is moved only if
+    it is STILL in its cure period under a row lock, so an extension granted a moment ago is never overwritten."""
     today = today or date.today()
     n = 0
     send_due_mailings(today)
     lift_expired_holds(today)
-    for v in Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__lt=today):
-        v.status = S.PENDING_BOARD
-        v.save()
-        log(v, f"Cure period ended {v.cure_deadline:%b %d, %Y} without cure — referred to board")
-        n += 1
+    for pk in list(Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__lt=today).values_list("pk", flat=True)):
+        with transaction.atomic():
+            v = Violation.objects.select_for_update().filter(pk=pk, status=S.NOTICE_SENT, cure_deadline__lt=today).first()
+            if v is None:
+                continue            # extended, closed or moved by someone else since the list was read: leave it alone
+            v.status = S.PENDING_BOARD
+            v.save()
+            log(v, f"Cure period ended {v.cure_deadline:%b %d, %Y} without cure — referred to board")
+            n += 1
     return n
 
 

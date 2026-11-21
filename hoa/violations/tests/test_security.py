@@ -1,4 +1,6 @@
 import io
+import time
+import types
 from datetime import date, timedelta
 from unittest import mock
 
@@ -30,6 +32,16 @@ def code(device):
     return f"{totp(device.bin_key, step=device.step, t0=device.t0, digits=device.digits):06d}"
 
 
+@pytest.fixture
+def one_code_step():
+    """Hold django-otp's clock inside ONE 30-second code step. A test that needs the enrolment code and the later sign-in code to be the SAME
+    code (the replay check) failed about one run in fifty, whenever the real clock crossed a step boundary half-way through it."""
+    now = time.time()
+    fixed = now - now % 30 + 1
+    with mock.patch("django_otp.oath.time", lambda: fixed), mock.patch("django_otp.plugins.otp_totp.models.time", types.SimpleNamespace(time=lambda: fixed)):
+        yield
+
+
 def mk_user(role, owner=None, name=None):
     u = U.objects.create_user(name or role, f"{role}@x.com", PW)
     Profile.objects.create(user=u, role=role, owner=owner)
@@ -37,7 +49,7 @@ def mk_user(role, owner=None, name=None):
 
 
 # ---------- two-step login ----------
-def test_privileged_roles_must_enrol_then_verify(client, settings):
+def test_privileged_roles_must_enrol_then_verify(client, settings, one_code_step):
     settings.MFA_REQUIRED_ROLES = ("manager", "board", "committee")
     mk_user("board")
     assert client.post("/accounts/login/", {"username": "board", "password": PW}).status_code == 302
