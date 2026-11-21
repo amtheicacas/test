@@ -590,13 +590,26 @@ class Notice(models.Model):
             out.append(f"US Mail copy scheduled for {short_date(self.mail_hold_until)}")
         elif self.mail_cancelled:
             out.append("US Mail copy not sent (the violation was corrected first)")
+        pieces = list(self.pieces.all())
+        out_pieces = [p for p in pieces if p.is_mailed and (p.is_certified or p.tracking_number)]
         if self.mailed_on:
             how = self.get_method_display() or "Mailed"
-            pieces = list(self.pieces.all())
             out.append(f"{how} by US Mail {short_date(self.mailed_on)}" + (f", tracking number {self.tracking_number}" if self.tracking_number and not pieces else ""))
-            out += [p.summary for p in pieces if p.is_certified or p.tracking_number]
+            out += [p.summary for p in out_pieces]
             if self.return_receipt_on:
                 out.append(f"Return receipt received {short_date(self.return_receipt_on)}")
+        elif out_pieces:        # some of the letters are in the mail and others are still to be mailed by hand
+            out += [p.summary for p in out_pieces]
+            if self.return_receipt_on:
+                out.append(f"Return receipt received {short_date(self.return_receipt_on)}")
+        if staff:               # the letters still to be mailed by hand, and any staff-only notes about a delivery problem
+            out += [f"Still to be mailed by hand: {p.service_label.lower()} copy to {p.label}" for p in pieces if p.to_mail]
+            out += [f"Not mailed (not needed): {p.service_label.lower()} copy to {p.label}: {p.handled_note}" for p in pieces if p.by_hand and not p.mailed_on and p.handled_on]
+            for p in pieces:
+                if p.problem_note:
+                    out.append(f"Note on the {p.service_label.lower()} copy to {p.label}: {p.problem_note}")
+                if p.handled_on and p.is_mailed:
+                    out.append(f"Delivery problem with the {p.service_label.lower()} copy to {p.label} handled {short_date(p.handled_on)}: {p.handled_note}")
         if staff and self.provider:
             out.append(f"Print/mail provider: {self.provider} {self.provider_ids}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))
         return out
@@ -617,6 +630,22 @@ class MailPiece(models.Model):
     problem = models.BooleanField(default=False, help_text="Returned, re-routed or otherwise not delivered as planned.")
     checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Added for letters mailed by hand (no print service) and for the "could not be delivered" alert on the home screen.
+    by_hand = models.BooleanField(default=False, help_text="Listed by the app for staff to print and mail by hand (no print service). "
+                                                           "Pieces handed to the print service are never by hand.")
+    mailed_on = models.DateField(null=True, blank=True, help_text="Day it was handed to the post office or the print service. Empty = still to be mailed.")
+    problem_on = models.DateField(null=True, blank=True, help_text="Day it was found that it could not be delivered.")
+    problem_note = models.CharField(max_length=300, blank=True, help_text="Staff only: what is known about the delivery problem.")
+    handled_on = models.DateField(null=True, blank=True, help_text="Day the Board or manager dealt with it (clears it from the home screen). "
+                                                                   "For a letter that was never mailed: the day it was marked 'not needed'.")
+    handled_note = models.CharField(max_length=300, blank=True, help_text="Staff only: what was done.")
+
+    PROBLEMS = {   # why a letter was not delivered: key -> (short text kept on the letter's record, wording on the form)
+        "unclaimed": ("Unclaimed", "Unclaimed: the postal notice was not picked up"),
+        "refused": ("Refused", "Refused by the recipient"),
+        "returned": ("Returned to sender", "Returned to sender / undeliverable as addressed"),
+        "other": ("Not delivered", "Some other problem (explain in the note)"),
+    }
 
     class Meta:
         ordering = ["created_at", "pk"]
@@ -626,8 +655,28 @@ class MailPiece(models.Model):
         return self.service == "certified"
 
     @property
+    def is_mailed(self):
+        """Handed to the post office (a letter listed for hand mailing, once its mailing date is recorded) or to the print service."""
+        return bool(self.mailed_on) or not self.by_hand
+
+    @property
+    def to_mail(self):
+        """A letter staff still have to mail by hand (and have not marked 'not needed')."""
+        return self.by_hand and not self.mailed_on and not self.handled_on
+
+    @property
+    def needs_attention(self):
+        """Could not be delivered and nobody has dealt with it yet: this is what the home screen warns about."""
+        return bool(self.problem and not self.delivered_on and not self.handled_on)
+
+    @property
+    def service_label(self):
+        return "Certified, return receipt" if self.is_certified else "First class"
+
+    @property
     def usps_url(self):
-        return f"https://tools.usps.com/go/TrackConfirmAction?tLabels={self.tracking_number}" if self.tracking_number else ""
+        from urllib.parse import quote
+        return f"https://tools.usps.com/go/TrackConfirmAction?tLabels={quote(self.tracking_number, safe='')}" if self.tracking_number else ""
 
     @property
     def summary(self):
@@ -637,8 +686,10 @@ class MailPiece(models.Model):
             out += f", tracking number {self.tracking_number}"
         if self.delivered_on:
             out += f": delivered {short_date(self.delivered_on)}"
-        elif self.status:
+        elif self.status and self.status not in ("To be mailed", "Mailed"):
             out += f": {self.status}"
+        elif self.mailed_on:
+            out += f": mailed {short_date(self.mailed_on)}"
         return out
 
 

@@ -90,3 +90,14 @@ Everything below runs on your own computer. Start the site with `start-site.bat`
 - [ ] Map page loads and shows markers (Leaflet is now served by the site itself).
 - [ ] Sign-in page: asking for a link for a known and an unknown address looks and feels the same.
 - [ ] Email log copy of a notice shows "[private link removed from this stored copy]"; the owner's real email still has the working link.
+
+## Certified mail and first-class mail for the Notice of Hearing (mailed by hand)
+Use the test copy, never real owners. `MAIL_PROVIDER` is `manual` (the default).
+- [ ] Send a case to a committee meeting (Violations > the case > Send to committee, or from Meetings). On the case page, "Mailing log and print copies" now lists each letter to mail: one **Certified, return receipt** and one **First class** for each address (owner mailing address if there is one, the property, the tenant if rented). Each says "To be mailed" and has "Print this letter".
+- [ ] Dashboard: the menu shows "N to do", and the "Letters to mail" tab lists them.
+- [ ] Mark the certified letter mailed WITHOUT a tracking number: it is refused with a clear message. Enter a tracking number with spaces (for example 9407 1118 9876 5432 1098 76): it is saved without spaces, and "Track on USPS" opens the USPS page.
+- [ ] Mark the first-class letter mailed (no number needed). When every letter is mailed the notice shows "Certified, return receipt <date>".
+- [ ] Open "Record the result" on the certified letter and choose "Not delivered" (unclaimed). Go to the Dashboard: a red box "Certified mail problems" is the first thing on the page, and the menu number goes up. Sign in as the owner (test owner login): the owner sees their own letter's tracking number and the result, but none of your notes.
+- [ ] On the case, "Mark handled" WITHOUT a note is refused; with a note the red box disappears. The case history shows what happened.
+- [ ] A certified letter mailed 7 or more days ago with no result appears under "Check delivery" on the Dashboard, with a USPS link.
+- [ ] Move the hearing to another meeting: the old, never-mailed letters are marked "Not needed" and the new notice lists new ones.

@@ -111,11 +111,13 @@ def build_case_file(v, user, site_visits=True):
         for p in n.pieces.all():
             rows.append([n.get_kind_display(), p.label, p.get_service_display() if hasattr(p, "get_service_display") else p.service, p.provider_id,
                          p.tracking_number, p.status, _day(p.expected_delivery_on), _day(p.delivered_on), "yes" if p.problem else "",
-                         _when(p.checked_at)])
+                         _when(p.checked_at), _day(p.mailed_on), "yes" if p.by_hand else "", _day(p.problem_on), _day(p.handled_on),
+                         " | ".join(x for x in (p.problem_note, p.handled_note) if x)])
             events += [[n.get_kind_display(), p.tracking_number, e.get("time", ""), e.get("name", ""), e.get("location", "")] for e in p.events or []]
     add("Mailing", "mailing/delivery-summary.txt", "\n".join(summary).encode("utf-8"), "", "How each letter was delivered")
     files[f"{root}/mailing/pieces-and-tracking.csv"] = _csv(
-        ["Letter", "Addressed to", "Service", "Provider id", "Tracking number", "Latest status", "Expected", "Delivered", "Problem", "Last checked"], rows)
+        ["Letter", "Addressed to", "Service", "Provider id", "Tracking number", "Latest status", "Expected", "Delivered", "Problem", "Last checked",
+         "Mailed on", "Mailed by hand", "Problem noted on", "Handled on", "Staff notes"], rows)
     files[f"{root}/mailing/tracking-events.csv"] = _csv(["Letter", "Tracking number", "Time", "Event", "Location"], events)
     index += [("Mailing", "mailing/pieces-and-tracking.csv", "", f"{len(rows)} mailed piece(s)"),
               ("Mailing", "mailing/tracking-events.csv", "", f"{len(events)} tracking event(s)")]

@@ -16,7 +16,7 @@ from django.core.mail import EmailMessage
 from django.db import connection, transaction
 from django.utils import timezone
 
-from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation
+from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation, short_date
 from . import audit, ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
@@ -98,7 +98,7 @@ def correspondence(v, staff=False):
     for n in v.notices.all():
         items.append({"when": n.created_at, "kind": "letter", "title": n.get_kind_display(), "notice": n,
                       "lines": n.delivery_lines(staff), "emails": [e for e in n.email_logs.all()],
-                      "pieces": [p for p in n.pieces.all() if p.is_certified or p.tracking_number]})
+                      "pieces": [p for p in n.pieces.all() if (p.is_certified or p.tracking_number) and (staff or p.is_mailed)]})
     for e in v.emails.filter(notice__isnull=True):
         items.append({"when": e.sent_at, "kind": "email", "title": e.subject, "email": e, "lines": []})
     items.sort(key=lambda i: i["when"])
@@ -281,6 +281,178 @@ def mark_mailed(notice, mailed_on, tracking="", user=None, method="", return_rec
     log(notice.violation, f"{notice.get_kind_display()} {notice.get_method_display().lower() or 'mailed'} "
         f"{mailed_on:%b %d, %Y}" + (f" (tracking {tracking})" if tracking else "")
         + (f"; return receipt {return_receipt_on:%b %d}" if return_receipt_on else ""), user)
+
+
+# ---- letters mailed by hand: one MailPiece per letter (certified / first class, per address) -----------------------------------------
+def clean_tracking_number(raw):
+    """What was typed or pasted from the Certified Mail receipt: spaces and dashes are dropped, letters made capital. Letters and numbers
+    only, 8 to 40 of them (USPS certified numbers are 20 to 22 digits; the range is generous on purpose)."""
+    t = re.sub(r"[\s\-]+", "", str(raw or "")).upper()
+    if t and not re.fullmatch(r"[A-Z0-9]{8,40}", t):
+        raise WorkflowError("The tracking number should be letters and numbers only (spaces and dashes are fine), 8 to 40 of them. "
+                            "Copy it from the Certified Mail receipt.")
+    return t
+
+
+def _piece_log(piece, text, user=None):
+    n = piece.notice
+    log(n.violation, f"{n.get_kind_display()}: {text}", user)
+
+
+def _piece_name(piece):
+    return f"{piece.service_label.lower()} copy to {piece.label}"
+
+
+def _sync_notice_from_pieces(n):
+    """Keep the notice's own mailing fields in step with its letters (they drive the printed letter's tracking number, the owner's delivery
+    lines, the progress tracker and the dashboard count): the certified tracking number and return receipt as soon as they are known,
+    'mailed on' and the method once EVERY letter that is still needed has been mailed."""
+    pieces = list(MailPiece.objects.filter(notice=n).order_by("pk"))
+    live = [p for p in pieces if p.is_mailed or not p.handled_on]          # not closed as "not needed"
+    if not live:
+        return
+    before = (n.mailed_on, n.method, n.tracking_number, n.return_receipt_on)
+    cert = [p for p in live if p.is_certified]
+    numbered = [p for p in cert if p.tracking_number]
+    if numbered:
+        n.tracking_number = numbered[0].tracking_number
+    got = [p.delivered_on for p in cert if p.delivered_on]
+    if got:
+        n.return_receipt_on = min(got)
+    mailed = [p for p in live if p.is_mailed]
+    if len(mailed) == len(live):
+        days = [p.mailed_on for p in (cert or live) if p.is_mailed and p.mailed_on]
+        if days:
+            n.mailed_on = min(days)
+        n.method = "certified" if cert else "first_class"
+    if before != (n.mailed_on, n.method, n.tracking_number, n.return_receipt_on):
+        n.save()
+
+
+def _check_day(day, label, today, not_before=None):
+    if day is None:
+        raise WorkflowError(f"Enter {label}.")
+    if day > today:
+        raise WorkflowError(f"{label[0].upper() + label[1:]} can't be in the future.")
+    if not_before and day < not_before:
+        raise WorkflowError(f"{label[0].upper() + label[1:]} can't be before it was mailed ({short_date(not_before)}).")
+
+
+def record_piece_mailed(piece, mailed_on, tracking="", user=None, today=None):
+    """A letter was handed to the post office. A certified letter needs its tracking number (from the Certified Mail receipt).
+    Also used to correct the date or number later."""
+    today = today or date.today()
+    _check_day(mailed_on, "the date it was mailed", today)
+    tracking = clean_tracking_number(tracking)
+    if piece.is_certified and not tracking:
+        raise WorkflowError("Enter the certified mail tracking number (the long number on the Certified Mail receipt). "
+                            "It is how we follow the letter and prove it was sent.")
+    if not piece.by_hand:
+        raise WorkflowError("This letter was handed to the print service, which records the mailing itself.")
+    again = piece.is_mailed
+    piece.mailed_on = mailed_on
+    if tracking or not piece.is_certified:
+        piece.tracking_number = tracking
+    if not piece.delivered_on and not piece.problem:
+        piece.status = "Mailed"
+    if piece.handled_on and not piece.problem:          # it had been closed as "not needed" but was mailed after all
+        piece.handled_on, piece.handled_note = None, ""
+    piece.save()
+    _sync_notice_from_pieces(piece.notice)
+    _piece_log(piece, f"{_piece_name(piece)} " + ("record corrected: " if again else "") + f"mailed {mailed_on:%b} {mailed_on.day}, {mailed_on.year}"
+               + (f", tracking number {piece.tracking_number}" if piece.tracking_number else ""), user)
+    return piece
+
+
+def record_piece_delivered(piece, delivered_on, user=None, today=None):
+    """The post office delivered it (tracking says delivered, or the signed return receipt came back)."""
+    today = today or date.today()
+    if not piece.is_certified:
+        raise WorkflowError("Only certified mail has a delivery record (first class mail has no tracking).")
+    if not piece.is_mailed:
+        raise WorkflowError("Record when it was mailed first.")
+    _check_day(delivered_on, "the delivery date", today, not_before=piece.mailed_on)
+    piece.delivered_on, piece.status, piece.problem = delivered_on, "Delivered", False
+    piece.save()
+    _sync_notice_from_pieces(piece.notice)
+    _piece_log(piece, f"{_piece_name(piece)} delivered {delivered_on:%b} {delivered_on.day}, {delivered_on.year}"
+               + (f" (tracking number {piece.tracking_number})" if piece.tracking_number else ""), user)
+    return piece
+
+
+def record_piece_not_delivered(piece, reason, on=None, note="", user=None, today=None):
+    """The letter could not be delivered (unclaimed, refused, returned...). It shows on the Board/manager home screen until someone
+    records what was done about it ('handled')."""
+    today = today or date.today()
+    if not piece.is_certified:
+        raise WorkflowError("Only certified mail has a delivery record (first class mail has no tracking).")
+    if reason not in MailPiece.PROBLEMS:
+        raise WorkflowError("Choose what happened to the letter.")
+    if not piece.is_mailed:
+        raise WorkflowError("This letter has not been mailed yet.")
+    if piece.delivered_on:
+        raise WorkflowError(f"This letter is recorded as delivered on {short_date(piece.delivered_on)}.")
+    on = on or today
+    _check_day(on, "the date you found out", today, not_before=piece.mailed_on)
+    short, long = MailPiece.PROBLEMS[reason]
+    piece.problem, piece.problem_on, piece.status = True, on, short
+    piece.problem_note = (note or "").strip()[:300]
+    piece.handled_on, piece.handled_note = None, ""      # a new result always reopens it
+    piece.save()
+    _piece_log(piece, f"WARNING: the {_piece_name(piece)} could not be delivered: {long}"
+               + (f" ({piece.problem_note})" if piece.problem_note else "")
+               + (f". Tracking number {piece.tracking_number}" if piece.tracking_number else "") + ".", user)
+    return piece
+
+
+def record_piece_handled(piece, note, user=None, today=None):
+    """Clear a delivery problem from the home screen once someone has dealt with it (the note says how), or mark a letter that was
+    never mailed as 'not needed'. The record stays; only the warning goes away."""
+    today = today or date.today()
+    note = (note or "").strip()
+    if len(note) < 3:
+        raise WorkflowError("Say in a few words what was done (or why it is not needed): it is kept in the case history.")
+    if piece.is_mailed and not piece.needs_attention:
+        raise WorkflowError("There is nothing to clear on this letter.")
+    unmailed = not piece.is_mailed
+    piece.handled_on, piece.handled_note = today, note[:300]
+    if unmailed:
+        piece.status = "Not mailed (not needed)"
+    piece.save()
+    _sync_notice_from_pieces(piece.notice)
+    _piece_log(piece, (f"the {_piece_name(piece)} was marked not needed" if unmailed else f"delivery problem with the {_piece_name(piece)} marked handled")
+               + f": {piece.handled_note}", user)
+    return piece
+
+
+def certified_to_check(today=None):
+    """Certified letters mailed by hand CERTIFIED_CHECK_AFTER_DAYS or more ago with no result recorded yet (not delivered, no problem, not
+    handled): the reminder to look at USPS tracking and record what happened. (Letters sent through the print service are tracked automatically.)"""
+    days = settings.CERTIFIED_CHECK_AFTER_DAYS
+    if days <= 0:
+        return MailPiece.objects.none()
+    today = today or date.today()
+    return (MailPiece.objects.filter(by_hand=True, service="certified", mailed_on__lte=today - timedelta(days=days), delivered_on__isnull=True,
+                                     problem=False, handled_on__isnull=True)
+            .select_related("notice__violation__owner").order_by("mailed_on", "pk"))
+
+
+def close_unmailed_pieces(v, why, user=None, exclude_notice=None, kinds=None):
+    """The letters still waiting to be mailed by hand for this case are no longer needed (hearing moved or cancelled...). Returns how many."""
+    qs = MailPiece.objects.filter(notice__violation=v, by_hand=True, mailed_on__isnull=True, handled_on__isnull=True)
+    if exclude_notice is not None:
+        qs = qs.exclude(notice=exclude_notice)
+    if kinds:
+        qs = qs.filter(notice__kind__in=kinds)
+    pieces = list(qs.select_related("notice"))
+    for p in pieces:
+        p.handled_on, p.handled_note, p.status = date.today(), why[:300], "Not mailed (not needed)"
+        p.save()
+    for n in {p.notice_id: p.notice for p in pieces}.values():
+        _sync_notice_from_pieces(n)
+    if pieces:
+        log(v, f"{len(pieces)} letter(s) that had not been mailed yet are no longer needed: {why}", user)
+    return len(pieces)
 
 
 def _close_if_done(v, user=None):
@@ -886,6 +1058,7 @@ def cancel_meeting(m, user=None, notify=True):
         v.status, v.committee_meeting, v.hearing_date, v.hearing_location = S.HEARING_NEEDED, None, None, ""
         v.save()
         log(v, f"Hearing on {when:%b} {when.day} cancelled; waiting to be put on another meeting", user)
+        close_unmailed_pieces(v, f"The hearing on {when:%b} {when.day} was cancelled.", user, kinds=(Notice.Kind.HEARING,))
         if notify:
             _email_owner(v, f"Hearing cancelled: {v.owner.property_address}",
                          f"The Compliance Committee hearing scheduled for {when:%A, %B} {when.day} at {when:%I:%M %p}".replace(" 0", " ") +

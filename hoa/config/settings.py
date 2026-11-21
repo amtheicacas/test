@@ -234,6 +234,9 @@ REMINDER_DAYS = tuple(sorted({int(x) for x in env("REMINDER_DAYS", "7,2").split(
 # ---- Fining Resolution details ------------------------------------------
 HEARING_NOTICE_RECOMMENDED_DAYS = int(env("HEARING_NOTICE_RECOMMENDED_DAYS", "20"))  # the Resolution recommends 20 (law: 14)
 HEARING_REGULAR_COPY = env("HEARING_REGULAR_COPY", "1") == "1"   # optional extra first-class copy of the Notice of Hearing
+# A certified letter you mail by hand that has no delivery result recorded this many days after mailing is listed on the home screen
+# ("check USPS tracking and record the result"), so one that is never delivered cannot go unnoticed. 0 turns the reminder off.
+CERTIFIED_CHECK_AFTER_DAYS = int(env("CERTIFIED_CHECK_AFTER_DAYS", "7"))
 HOA_CONTACT_NAME = env("HOA_CONTACT_NAME", "the Association")    # "contact ___ at phone or email" in the Notice of Hearing
 HOA_PAYMENT_PAYABLE_TO = env("HOA_PAYMENT_PAYABLE_TO", "Heron Landing Homeowners Association, Inc.")
 HOA_PAYMENT_ADDRESS = env("HOA_PAYMENT_ADDRESS", "")             # "c/o ..." where fines are mailed

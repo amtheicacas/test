@@ -14,13 +14,13 @@ from django.utils import timezone
 from PIL import Image
 
 from violations import sitevisits
-from violations.models import CommitteeMeeting, CommitteeMember, MinutesFile, Notice, Owner, Photo, Profile, SentLetter, SiteVisitPhoto, Violation, ViolationType
+from violations.models import CommitteeMeeting, CommitteeMember, MailPiece, MinutesFile, Notice, Owner, Photo, Profile, SentLetter, SiteVisitPhoto, Violation, ViolationType
 
 pytestmark = pytest.mark.django_db
 U = get_user_model()
 S = Violation.Status
 
-STAFF_ONLY = """committee_vote dashboard violation_list violation_create standards_search violation_detail canned_replies board_bulk legal_refer legal_email
+STAFF_ONLY = """mail_piece_action committee_vote dashboard violation_list violation_create standards_search violation_detail canned_replies board_bulk legal_refer legal_email
 owner_correspondence case_file sent_letter violation_action notice_mailed board_queue meetings meeting_manage meeting_assign_selected
 meeting_assign_all owner_archive owner_logins staff_logins audit_log results_list results_detail results_review import_owners import_template
 locate_homes map map_api""".split()
@@ -32,7 +32,7 @@ for n in "violation_detail legal_refer legal_email case_file site_visit_add viol
     KIND[n] = "violation"
 for n in "owner_correspondence owner_logins".split():
     KIND[n] = "owner"
-KIND.update(sent_letter="letter", site_visit_photo="svphoto", notice_mailed="notice", notice_pdf="notice", photo="photo")
+KIND.update(sent_letter="letter", site_visit_photo="svphoto", notice_mailed="notice", notice_pdf="notice", photo="photo", mail_piece_action="piece")
 for n in "meeting_manage meeting_assign_all committee_meeting committee_meeting_save committee_submit meeting_minutes committee_minutes minutes_approve results_detail my_hearing".split():
     KIND[n] = "meeting"
 
@@ -53,6 +53,7 @@ def world():
     img = io.BytesIO(); Image.new("RGB", (20, 20), "red").save(img, "JPEG")
     ph = Photo(violation=va); ph.image.save("p.jpg", ContentFile(img.getvalue()), save=True)
     n = Notice.objects.create(violation=va, kind="violation")
+    mp = MailPiece.objects.create(notice=n, label="owner property", service="certified", by_hand=True, status="To be mailed")
     data = b"%PDF-1.4 x"
     sl = SentLetter(violation=va, notice=n, kind="violation", sha256=hashlib.sha256(data).hexdigest(), size=len(data))
     sl.file.save("l.pdf", ContentFile(data), save=False); sl.save()
@@ -62,7 +63,7 @@ def world():
     sitevisits.add(board, va, "note", [SimpleUploadedFile("s.jpg", img.getvalue(), content_type="image/jpeg")])
     mf = MinutesFile(meeting=m, kind="pdf", sha256="0" * 64)
     mf.file.save("m.pdf", ContentFile(data), save=False); mf.save()
-    ids = {"violation": va.pk, "owner": oa.pk, "letter": sl.pk, "svphoto": SiteVisitPhoto.objects.first().pk, "notice": n.pk, "meeting": m.pk, "photo": ph.pk}
+    ids = {"violation": va.pk, "owner": oa.pk, "letter": sl.pk, "svphoto": SiteVisitPhoto.objects.first().pk, "notice": n.pk, "meeting": m.pk, "photo": ph.pk, "piece": mp.pk}
     return dict(ids=ids, users={"anon": None, "homeA": ha, "homeB": hb, "committee": com, "board": board, "manager": mgr})
 
 

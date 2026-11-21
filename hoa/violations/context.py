@@ -9,7 +9,8 @@ from . import accounts
 
 def _staff_counts():
     """The numbers shown under the top menu headings (one query each, per page)."""
-    from .models import CommitteeMeeting, Owner, Response, Violation
+    from .models import CommitteeMeeting, MailPiece, Owner, Response, Violation
+    from . import services
     S = Violation.Status
     c = Violation.objects.exclude(status=S.DRAFT).aggregate(
         total=Count("id"), open=Count("id", filter=Q(status__in=[x for x in Violation.OPEN if x != S.DRAFT])),
@@ -19,13 +20,17 @@ def _staff_counts():
         Q(extension_requested=True) | Q(cure_reported=True)).count()
     upcoming = CommitteeMeeting.objects.filter(starts_at__gte=timezone.now() - timedelta(hours=12)).count()
     waiting_on_board = c["board"] + c["hearing"] + c["ledger"]
+    mail_bad = MailPiece.objects.filter(service="certified", problem=True, delivered_on__isnull=True, handled_on__isnull=True).count()    # could not be delivered
+    to_mail = MailPiece.objects.filter(by_hand=True, mailed_on__isnull=True, handled_on__isnull=True).count()                          # still to be mailed by hand
+    to_check = services.certified_to_check().count()                                                                                    # certified, no result yet
     return {"open": c["open"], "total": c["total"], "board": waiting_on_board,
             "board_tip": f"{c['board']} awaiting a Board vote, {c['hearing']} waiting for a hearing, {c['ledger']} awaiting approval to post",
             "meetings": upcoming, "homes": Owner.objects.filter(active=True).count(),
             "reinspect": Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count(),
             "results": Violation.objects.filter(status=S.LEDGER_PENDING, committee_meeting__results_status="submitted").count(),
             "attention": waiting_on_board + asks + Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()
-            + Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).count()}
+            + Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).count() + mail_bad + to_mail + to_check,
+            "mail_problems": mail_bad, "to_mail": to_mail}
 
 
 def hoa(request):

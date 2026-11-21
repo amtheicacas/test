@@ -357,7 +357,7 @@ def test_the_build_script_installs_the_live_requirements_and_gathers_static_file
 def test_the_pinned_lock_file_covers_every_live_package_with_exact_versions():
     """build.sh installs the lock file, so every package the live list names must be in it, pinned with ==."""
     import re
-    names = lambda f: {re.split(r"[<>=\[ #;]", ln.strip(), 1)[0].lower().replace("_", "-") for ln in (HOA_DIR / f).read_text(encoding="utf-8").splitlines()
+    names = lambda f: {re.split(r"[<>=\[ #;]", ln.strip(), maxsplit=1)[0].lower().replace("_", "-") for ln in (HOA_DIR / f).read_text(encoding="utf-8").splitlines()
                        if ln.strip() and not ln.startswith(("#", "-r"))}
     lock = [ln for ln in (HOA_DIR / "requirements-production.lock.txt").read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.startswith("#")]
     assert all("==" in ln for ln in lock)

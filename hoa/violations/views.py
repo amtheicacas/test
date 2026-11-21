@@ -200,7 +200,11 @@ def _dashboard(request):
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
         "results_waiting": CommitteeMeeting.objects.filter(results_status="submitted").annotate(n=Count("violations", filter=Q(violations__status=S.LEDGER_PENDING))),
-        "mail_problems": MailPiece.objects.filter(problem=True, delivered_on__isnull=True).select_related("notice__violation__owner"),
+        "mail_problems": MailPiece.objects.filter(service="certified", problem=True, delivered_on__isnull=True, handled_on__isnull=True)
+                         .select_related("notice__violation__owner").order_by("problem_on", "pk"),
+        "certified_to_check": services.certified_to_check(),
+        "pieces_to_mail": MailPiece.objects.filter(by_hand=True, mailed_on__isnull=True, handled_on__isnull=True)
+                          .select_related("notice__violation__owner").order_by("notice__created_at", "pk"),
         "legal_drafts": Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).select_related("owner", "vtype"),
         "awaiting_reply": _awaiting_reply(),
         "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
@@ -525,6 +529,7 @@ def violation_detail(request, pk):
         "sv": sitevisits.panel(request.user, v, request, back="case"),
         "sent_letters": v.sent_letters.select_related("sent_by"),
         "no_copy": [n for n in v.notices.all() if not n.sent_copies.exists()],
+        "piece_problems": [(k, text[1]) for k, text in MailPiece.PROBLEMS.items()], "today_iso": date.today().isoformat(),
     }
     return render(request, "violations/detail.html", ctx)
 
@@ -744,6 +749,34 @@ def notice_mailed(request, pk):
                              d["return_receipt_on"])
         messages.success(request, "Mailing logged.")
     return redirect(notice.violation)
+
+
+@staff_only
+@require_POST
+def mail_piece_action(request, pk, action):
+    """Board / manager: record what happened to one letter that is mailed by hand (or clear a delivery problem). Actions: mailed (date and
+    certified tracking number), delivered, not_delivered (why), handled (what was done about a problem, or 'not needed' for a letter
+    never mailed). Every action goes in the case history."""
+    piece = get_object_or_404(MailPiece.objects.select_related("notice__violation"), pk=pk)
+    form_class = {"mailed": forms.PieceMailedForm, "delivered": forms.PieceDeliveredForm, "not_delivered": forms.PieceNotDeliveredForm,
+                  "handled": forms.PieceHandledForm}.get(action)
+    if form_class is None:
+        raise Http404
+    u, f = request.user, form_class(request.POST)
+    if not f.is_valid():
+        messages.error(request, "Please fill in every box shown for that step (the date, and the tracking number or note where asked).")
+    else:
+        d = f.cleaned_data
+        if action == "mailed":
+            _run(request, services.record_piece_mailed, piece, d["mailed_on"], d["tracking_number"], u, ok="Mailing recorded.")
+        elif action == "delivered":
+            _run(request, services.record_piece_delivered, piece, d["delivered_on"], u, ok="Delivery recorded.")
+        elif action == "not_delivered":
+            _run(request, services.record_piece_not_delivered, piece, d["reason"], d["on"], d["note"], u,
+                 ok="Recorded. It now shows at the top of the Board and manager home screen until someone marks it handled.")
+        else:
+            _run(request, services.record_piece_handled, piece, d["note"], u, ok="Saved. It no longer shows on the home screen.")
+    return redirect(_safe_next(request) or (piece.notice.violation.get_absolute_url() + "#mailing"))
 
 
 @role_required(*STAFF, "committee", "homeowner")

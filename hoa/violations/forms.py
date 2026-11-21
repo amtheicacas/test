@@ -3,7 +3,7 @@ from datetime import date
 
 from django import forms
 
-from .models import Owner, Violation
+from .models import MailPiece, Owner, Violation
 
 
 class ViolationForm(forms.ModelForm):
@@ -92,6 +92,30 @@ class MailedForm(forms.Form):
                                         ("hand", "Hand delivered")], required=False)
     tracking_number = forms.CharField(required=False, max_length=100)
     return_receipt_on = forms.DateField(widget=DateInput, required=False, label="Return receipt back on")
+
+
+class PieceMailedForm(forms.Form):
+    """One letter listed for hand mailing: when it went to the post office and (certified) its tracking number."""
+    mailed_on = forms.DateField(widget=DateInput, initial=date.today, label="Date mailed")
+    tracking_number = forms.CharField(required=False, max_length=60, label="Certified mail tracking number",
+                                      widget=forms.TextInput(attrs={"placeholder": "from the Certified Mail receipt", "autocomplete": "off"}))
+
+
+class PieceDeliveredForm(forms.Form):
+    delivered_on = forms.DateField(widget=DateInput, initial=date.today, label="Delivered on")
+
+
+class PieceNotDeliveredForm(forms.Form):
+    reason = forms.ChoiceField(choices=[(k, v[1]) for k, v in MailPiece.PROBLEMS.items()],
+                               label="What happened")
+    on = forms.DateField(widget=DateInput, initial=date.today, label="Date you found out")
+    note = forms.CharField(required=False, max_length=300, label="Note (staff only)",
+                           widget=forms.TextInput(attrs={"placeholder": "e.g. postal notice left Nov 20, never picked up"}))
+
+
+class PieceHandledForm(forms.Form):
+    note = forms.CharField(max_length=300, label="What was done",
+                           widget=forms.TextInput(attrs={"placeholder": "e.g. re-sent by first class mail and posted at the property"}))
 
 
 class PaymentForm(forms.Form):

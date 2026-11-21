@@ -1,6 +1,8 @@
 """Hand letters to a third-party print-and-mail provider.
 
-MAIL_PROVIDER=manual (default): nothing is sent; staff print the PDF and log mailing by hand.
+MAIL_PROVIDER=manual (default): nothing is sent; staff print the PDF and log mailing by hand. For the certified notices (hearing notice,
+decision letter) the app lists each letter to be mailed (certified, and first class for the hearing notice) so the mailing date and
+tracking number of each can be recorded and any "not delivered" result flagged on the home screen (see plan_manual_pieces).
 MAIL_PROVIDER=lob: each notice is printed and mailed automatically via Lob (api.lob.com). Hearing notices go
 certified with return receipt AND first-class (per the procedure); other notices go first-class.
 The Lob request shape follows their documented /v1/letters API but has not been run against a live account:
@@ -88,6 +90,7 @@ def apply_tracking(piece, r, mark_checked=True):
     """Copy a Lob letter response onto the piece: tracking number, expected delivery, events, latest status, delivered date, problems.
     Returns True if anything changed."""
     before = (piece.tracking_number, piece.status, piece.delivered_on, piece.problem, len(piece.events or []))
+    was_problem = piece.problem
     piece.tracking_number = r.get("tracking_number") or piece.tracking_number
     exp = r.get("expected_delivery_date")
     if exp:
@@ -109,6 +112,13 @@ def apply_tracking(piece, r, mark_checked=True):
                 except ValueError:
                     piece.delivered_on = date.today()
         piece.problem = any(w in e["name"].lower() for e in events for w in PROBLEM_WORDS) and not piece.delivered_on
+        if piece.problem and not was_problem:      # first time it shows up: remember the day, and put it in the case history
+            piece.problem_on = date.today()
+            piece.handled_on, piece.handled_note = None, ""       # a new problem reopens one that had been cleared
+            from .services import log   # avoid circular import
+            log(piece.notice.violation, f"WARNING: {piece.notice.get_kind_display()}: the {piece.service_label.lower()} copy to {piece.label} "
+                                        f"could not be delivered ({piece.status})."
+                                        + (f" Tracking number {piece.tracking_number}." if piece.tracking_number else ""))
     if mark_checked:
         piece.checked_at = timezone.now()
     piece.save()
@@ -134,6 +144,28 @@ def refresh_piece(piece):
         return False
 
 
+def plan_manual_pieces(notice):
+    """Without a print service (MAIL_PROVIDER=manual) staff print and mail certified letters by hand. List exactly what has to go out
+    (one certified letter, and for a Notice of Hearing one first-class copy too, to each address: the owner's mailing address if
+    there is one, the property, and the tenant) so each can be ticked off with its mailing date and tracking number, and watched for
+    delivery. Only for notices that go certified (the Notice of Hearing and the decision letter). Safe to call twice.
+    A newer notice of the same kind makes the older one's unmailed letters 'not needed' (the hearing was moved). Returns how many were listed."""
+    plan = _services_for(notice.kind)
+    if not any(svc == "certified" for _extra, svc in plan) or notice.pieces.exists():
+        return 0
+    o = notice.violation.owner
+    labels = [f"owner {k}" for k in o.owner_mail_kinds()] + (["tenant"] if o.has_tenant else [])
+    made = [MailPiece.objects.create(notice=notice, label=label, service=svc, status="To be mailed", by_hand=True)
+            for label in labels for _extra, svc in plan]
+    from . import services   # avoid circular import
+    services.close_unmailed_pieces(notice.violation, "A newer notice of the same kind replaced it (for example, the hearing was moved).",
+                                   exclude_notice=notice, kinds=(notice.kind,))
+    services.log(notice.violation, f"{notice.get_kind_display()}: {len(made)} letter(s) to mail by hand ("
+                 + ", ".join(sorted({p.service_label.lower() for p in made}, reverse=True))
+                 + "). Under Mailing log, record the mailing date and the certified tracking number for each.")
+    return len(made)
+
+
 def dispatch(notice, render, user=None):
     """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
     while the lease is active the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
@@ -141,6 +173,7 @@ def dispatch(notice, render, user=None):
     from .services import log  # avoid circular import
     v = notice.violation
     if settings.MAIL_PROVIDER != "lob":
+        plan_manual_pieces(notice)
         return False
     o = v.owner
     targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
@@ -159,7 +192,7 @@ def dispatch(notice, render, user=None):
                 if svc == "certified":
                     tracking = tracking or r.get("tracking_number") or ""
                 piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
-                                                 tracking_number=r.get("tracking_number") or "")
+                                                 tracking_number=r.get("tracking_number") or "", mailed_on=date.today())
                 apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
                 from .services import _keep_copy
                 _keep_copy(notice, pdf, variant, "certified" if svc == "certified" else "first_class",

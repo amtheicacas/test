@@ -38,3 +38,14 @@ Add to this list; do not delete (mark answered items with the date and answer in
 14. Committee site-visit observations are internal (committee, Board and manager only; never owners). Confirm they may be
     kept that way, and whether they would have to be produced in a dispute.
 15. Official-records and privacy questions about the owner and email data held by the app.
+
+## E. Added after the certified-mail tracking feature (Notice of Hearing)
+16. Notice of Hearing goes by email, certified mail (return receipt) AND first-class mail. If the certified letter comes back
+    unclaimed, refused or undeliverable, is the first-class copy (and the email) enough notice, or must the Association
+    do something more (re-send, post at the property, hand deliver) or move the hearing? The application only WARNS the
+    Board and manager; it does not change the case, block the hearing or send anything by itself.
+17. How long should the Association wait for a delivery result before treating a certified letter as not delivered?
+    (The application reminds staff to check USPS tracking after 7 days; that number is only a starting point.)
+18. What must be kept as proof of mailing and delivery for each letter: the certified receipt (PS Form 3800), the signed
+    return receipt (green card or electronic), the USPS tracking history, the first-class mailing record? The application
+    stores the mailing date, tracking number and result for each letter and includes them in the case file.

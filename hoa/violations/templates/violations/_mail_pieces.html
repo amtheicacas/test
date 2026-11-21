@@ -1,0 +1,44 @@
+{# The letters of one notice that are mailed by hand (or by the print service): what to mail, tracking number, delivery result. Staff only. Needs n, piece_problems, today_iso. #}
+{% for p in n.pieces.all %}<div class="piece" style="margin:6px 0;padding:8px 12px;border:1px solid {% if p.needs_attention %}var(--bad){% else %}var(--line){% endif %};border-radius:8px">
+<div style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center"><b>{{ p.service_label }}</b> <span>to {{ p.label }}</span>
+{% if p.delivered_on %}<span class="pill" style="color:var(--ok);border-color:var(--ok)">&#10004; Delivered {{ p.delivered_on|date:"M j, Y" }}</span>
+{% elif p.needs_attention %}<span class="pill late">&#9888; {{ p.status|default:"Not delivered" }}{% if p.problem_on %} since {{ p.problem_on|date:"M j" }}{% endif %}</span>
+{% elif p.handled_on and not p.is_mailed %}<span class="pill">Not needed</span>
+{% elif p.problem %}<span class="pill">{{ p.status }}: handled {{ p.handled_on|date:"M j" }}</span>
+{% elif p.to_mail %}<span class="pill flag">To be mailed</span>
+{% else %}<span class="pill">Mailed {{ p.mailed_on|date:"M j, Y" }}</span>{% endif %}
+{% if p.tracking_number %}<span><code>{{ p.tracking_number }}</code> &middot; <a href="{{ p.usps_url }}" target="_blank" rel="noopener">Track on USPS</a></span>{% endif %}
+{% if p.to_mail %}<a href="{% url 'notice_pdf' n.pk %}{% if p.label == 'owner property' %}?to=owner_property{% elif p.label == 'tenant' %}?to=tenant{% endif %}" target="_blank" rel="noopener">Print this letter</a>{% endif %}</div>
+{% if p.problem_note %}<div class="mut" style="font-size:.88rem">Note: {{ p.problem_note }}</div>{% endif %}
+{% if p.handled_on %}<div class="mut" style="font-size:.88rem">{% if p.is_mailed %}Handled{% else %}Marked not needed{% endif %} {{ p.handled_on|date:"M j, Y" }}: {{ p.handled_note }}</div>{% endif %}
+
+{% if p.to_mail %}
+<form method="post" action="{% url 'mail_piece_action' p.pk 'mailed' %}" class="row" style="align-items:end;margin-top:6px">{% csrf_token %}
+<div style="flex:0 1 170px"><label>Date mailed</label><input type="date" name="mailed_on" value="{{ today_iso }}" required></div>
+{% if p.is_certified %}<div style="flex:2 1 280px"><label>Certified mail tracking number</label><input name="tracking_number" required autocomplete="off" placeholder="from the Certified Mail receipt"></div>{% endif %}
+<div style="flex:0 0 auto"><button>Mark mailed</button></div></form>
+<details style="margin-top:4px"><summary class="mut">Not needed?</summary>
+<form method="post" action="{% url 'mail_piece_action' p.pk 'handled' %}" class="row" style="align-items:end">{% csrf_token %}<div style="flex:2 1 300px"><label>Why this letter is not needed</label><input name="note" required maxlength="300"></div><div style="flex:0 0 auto"><button class="sec">Mark not needed</button></div></form></details>
+
+{% elif p.needs_attention %}
+<form method="post" action="{% url 'mail_piece_action' p.pk 'handled' %}" class="row" style="align-items:end;margin-top:6px">{% csrf_token %}
+<div style="flex:2 1 320px"><label>What was done about it</label><input name="note" required maxlength="300" placeholder="e.g. re-sent by first class mail and posted at the property"></div>
+<div style="flex:0 0 auto"><button>Mark handled</button></div></form>
+<details style="margin-top:4px"><summary class="mut">It was delivered after all</summary>
+<form method="post" action="{% url 'mail_piece_action' p.pk 'delivered' %}" class="row" style="align-items:end">{% csrf_token %}<div style="flex:0 1 170px"><label>Delivered on</label><input type="date" name="delivered_on" value="{{ today_iso }}" required></div><div style="flex:0 0 auto"><button class="sec">Record delivery</button></div></form></details>
+
+{% elif p.is_certified and p.is_mailed and not p.delivered_on %}
+<details style="margin-top:6px"><summary>Record the result (delivered, or could not be delivered)</summary>
+<form method="post" action="{% url 'mail_piece_action' p.pk 'delivered' %}" class="row" style="align-items:end;margin-top:6px">{% csrf_token %}<div style="flex:0 1 170px"><label>Delivered on</label><input type="date" name="delivered_on" value="{{ today_iso }}" required></div><div style="flex:0 0 auto"><button>Delivered</button></div></form>
+<form method="post" action="{% url 'mail_piece_action' p.pk 'not_delivered' %}" class="row" style="align-items:end;margin-top:6px">{% csrf_token %}
+<div style="flex:2 1 280px"><label>Could not be delivered: what happened</label><select name="reason">{% for k, text in piece_problems %}<option value="{{ k }}">{{ text }}</option>{% endfor %}</select></div>
+<div style="flex:0 1 170px"><label>Date you found out</label><input type="date" name="on" value="{{ today_iso }}" required></div>
+<div style="flex:2 1 240px"><label>Note (staff only)</label><input name="note" maxlength="300"></div>
+<div style="flex:0 0 auto"><button class="bad">Not delivered</button></div></form></details>
+{% endif %}
+{% if p.by_hand and p.is_mailed %}<details style="margin-top:4px"><summary class="mut">Correct the date or number</summary>
+<form method="post" action="{% url 'mail_piece_action' p.pk 'mailed' %}" class="row" style="align-items:end">{% csrf_token %}
+<div style="flex:0 1 170px"><label>Date mailed</label><input type="date" name="mailed_on" value="{{ p.mailed_on|date:'Y-m-d' }}" required></div>
+{% if p.is_certified %}<div style="flex:2 1 280px"><label>Tracking number</label><input name="tracking_number" value="{{ p.tracking_number }}" required autocomplete="off"></div>{% endif %}
+<div style="flex:0 0 auto"><button class="sec">Save</button></div></form></details>{% endif %}
+</div>{% endfor %}

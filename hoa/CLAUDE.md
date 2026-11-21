@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~70 s, 836 tests, must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~60 s, 906 tests + 1 skipped on SQLite [907 on PostgreSQL], must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -65,3 +65,6 @@ Fixed with tests: the old committee vote page now enforces abstention (F-01a); `
 
 ## Point-in-time fine prefill
 `Violation.suggested_fine` ($100 via `settings.POINT_IN_TIME_FINE` for a point-in-time violation, otherwise the type's `default_fine`) fills the Board queue fine box and, for point-in-time only, the single-case vote form. Prefill only: never save it automatically.
+
+## Certified + first-class mailing by hand, tracking, "not delivered" alert (PROJECT_STATUS.md section 32)
+`MailPiece` = one physical letter; `by_hand` pieces are created by `mailing.plan_manual_pieces` for hearing notices and decision letters when `MAIL_PROVIDER` is not `lob`. Record changes ONLY through `services.record_piece_mailed/delivered/not_delivered/handled` (they keep `Notice.mailed_on/method/tracking_number/return_receipt_on` in step via `_sync_notice_from_pieces`, and write the case history). A certified letter needs a tracking number to be marked mailed. The red "Certified mail problems" box (first thing on the staff dashboard) and the menu "N to do" count use `needs_attention`, `to_mail` and `services.certified_to_check()`. Staff-only notes (`problem_note`, `handled_note`) and "to be mailed" items must never reach an owner page (owners get `correspondence(v)` which shows only `is_mailed` letters). Letter wording/layout untouched; the printed letter shows only the first certified number (known limit, waits for Part B). Route `mail_piece_action` is STAFF_ONLY in `test_access_matrix.py`.
