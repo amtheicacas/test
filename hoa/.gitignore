@@ -7,3 +7,4 @@ staticfiles/
 local.*.env
 backup-private-key*
 .coverage
+.hypothesis/

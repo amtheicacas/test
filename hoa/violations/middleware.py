@@ -1,4 +1,6 @@
 """Force two-step login (authenticator app) for privileged roles, and for anyone who has turned it on."""
+from urllib.parse import quote
+
 from django.conf import settings
 from django.http import HttpResponseNotFound, QueryDict
 from django.shortcuts import redirect
@@ -54,7 +56,7 @@ class RequireTwoStep:
         if (u.is_authenticated and not u.is_verified() and not request.path.startswith(ALLOWED_PREFIXES) and not own_area
                 and (accounts.role_of(u) in settings.MFA_REQUIRED_ROLES or user_has_device(u))):
             target = "security_verify" if user_has_device(u) else "security_setup"
-            return redirect(f"{reverse(target)}?next={request.get_full_path()}")
+            return redirect(f"{reverse(target)}?next={quote(request.get_full_path(), safe='/')}")      # quoted, so a page address with its own ?a=1&b=2 survives the trip
         return self.get_response(request)
 
 

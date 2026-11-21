@@ -47,7 +47,9 @@ def _safe_next(request):
     address) is ignored, so a crafted form can't send a Board member somewhere else after they act."""
     from django.utils.http import url_has_allowed_host_and_scheme
     n = request.POST.get("next") or ""
-    return n if n and url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()}, require_https=request.is_secure()) else ""
+    # only a path on this site: Django's own check also lets through a bare word such as "abc" (a relative address), which made the redirect fail with an error page
+    ok = n.startswith("/") and not n.startswith("//") and url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+    return n if ok else ""
 
 
 def _int(value, default=0):

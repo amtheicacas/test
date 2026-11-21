@@ -599,3 +599,51 @@ def test_PERF1_a_longer_list_does_not_mean_more_queries_per_row(world, status, u
     _backlog(8, status)
     big = _queries(c, url)
     assert big - small <= 4, f"{url}: {small} queries for 2 extra cases, {big} for 10 (about {(big - small) / 8:.1f} more per case)"
+
+
+# ======================================================================================================================================
+# NEXT-1: a hand-edited "go back to" value that is not a page on this site must be ignored, not crash
+# ======================================================================================================================================
+@pytest.mark.parametrize("bad_next", ["0", "abc", "evil", "javascript:alert(1)", "//evil.example/x", "/\\evil.example", "https://evil.example/", "\t//evil.example", "..", " /ok"])
+def test_NEXT1_a_bad_next_value_after_a_staff_action_goes_to_the_case_not_to_an_error_or_another_site(world, bad_next):
+    vid = world["ids"]["violation"]
+    r = board_client(world).post(reverse("violation_action", args=[vid, "ext_decline"]), {"response_id": "999", "next": bad_next})
+    assert r.status_code == 302, r.status_code
+    assert r["Location"].startswith("/") and not r["Location"].startswith("//") and "evil" not in r["Location"]
+
+
+def test_NEXT1_a_proper_next_value_is_still_followed(world):
+    vid = world["ids"]["violation"]
+    r = board_client(world).post(reverse("violation_action", args=[vid, "ext_decline"]), {"response_id": "999", "next": "/board/?x=1"})
+    assert r.status_code == 302 and r["Location"] == "/board/?x=1"
+
+
+@pytest.mark.parametrize("bad_next", ["abc", "0", "..", "//evil.example/", "https://evil.example/", "javascript:alert(1)"])
+def test_NEXT1_a_bad_next_value_on_the_two_step_page_goes_home_not_to_an_error_page(client, settings, bad_next):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+    from violations.tests.test_security import PW, code, mk_user
+    settings.MFA_REQUIRED_ROLES = ("manager",)
+    mk_user("manager")
+    client.post("/accounts/login/", {"username": "manager", "password": PW})
+    client.get("/security/setup/")
+    dev = TOTPDevice.objects.get()
+    r = client.post("/security/setup/", {"code": code(dev), "next": bad_next})
+    assert r.status_code == 302 and r.url == "/"
+
+
+def test_NEXT2_the_page_you_wanted_survives_the_two_step_sign_in_with_its_own_search_terms(client, settings):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+    from violations.tests.test_security import PW, code, mk_user
+    settings.MFA_REQUIRED_ROLES = ("manager",)
+    mk_user("manager")
+    client.post("/accounts/login/", {"username": "manager", "password": PW})
+    client.get("/security/setup/")
+    dev = TOTPDevice.objects.get()
+    client.post("/security/setup/", {"code": code(dev)})
+    client.logout()
+    client.post("/accounts/login/", {"username": "manager", "password": PW})
+    r = client.get("/violations/?status=open&q=a+b")
+    assert r.status_code == 302 and r.url.startswith("/security/verify/")
+    TOTPDevice.objects.update(last_t=-1, throttling_failure_count=0, throttling_failure_timestamp=None)
+    r = client.post(r.url, {"code": code(TOTPDevice.objects.get())})
+    assert r.status_code == 302 and r.url == "/violations/?status=open&q=a+b"

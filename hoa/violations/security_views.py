@@ -32,7 +32,8 @@ class CodeForm(forms.Form):
 
 def _next(request):
     n = request.GET.get("next") or request.POST.get("next") or "/"
-    return n if url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()}) else "/"
+    ok = n.startswith("/") and not n.startswith("//") and url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()})     # a path on this site only (a bare word crashed the redirect)
+    return n if ok else "/"
 
 
 def _qr_svg(url):
