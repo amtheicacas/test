@@ -11,6 +11,18 @@ from django.utils import timezone
 
 from .models import LoginLink, Owner, Profile
 
+
+def local_path(value, host, secure=False):
+    """`value` if it is a page address on THIS site (a path starting with one "/"), else "". Used for every "go back to where you were" value that comes
+    from a form or a link: another website, a script address, a bare word ("abc" used to crash the redirect) and anything with a control character
+    (which has no place in an address) are all refused."""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    n = value or ""
+    if (not n.startswith("/") or n.startswith("//") or any(ord(ch) < 32 or ord(ch) == 127 for ch in n)
+            or not url_has_allowed_host_and_scheme(n, allowed_hosts={host}, require_https=secure)):
+        return ""
+    return n
+
 STAFF_ROLES = ("manager", "board")
 
 

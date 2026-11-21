@@ -688,3 +688,10 @@ def test_MTG1_a_failure_while_saving_the_cases_moves_nothing(django_user_model):
             services.reschedule_meeting(m, tz.now() + timedelta(days=40), cu, notify=False)
     assert CommitteeMeeting.objects.get(pk=m.pk).starts_at == old
     assert {Violation.objects.get(pk=c.pk).hearing_date for c in cases} == {old}
+
+
+@pytest.mark.parametrize("value", ["/\x1f", "/\x00x", "/a\x7fb", "/\t/evil.example", "/ok\x0bx", "\x1f/ok"])
+def test_NEXT1_an_address_with_a_control_character_in_it_is_never_followed(value):
+    from violations import accounts
+    assert accounts.local_path(value, "testserver") == ""
+    assert accounts.local_path("/ok/?a=1&b=2", "testserver") == "/ok/?a=1&b=2"

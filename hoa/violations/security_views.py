@@ -12,7 +12,6 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import PasswordResetCompleteView, PasswordResetConfirmView, PasswordResetDoneView, PasswordResetView
 from django.http import HttpResponseRedirect
 from django.shortcuts import redirect, render
-from django.utils.http import url_has_allowed_host_and_scheme
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
@@ -31,9 +30,7 @@ class CodeForm(forms.Form):
 
 
 def _next(request):
-    n = request.GET.get("next") or request.POST.get("next") or "/"
-    ok = n.startswith("/") and not n.startswith("//") and url_has_allowed_host_and_scheme(n, allowed_hosts={request.get_host()})     # a path on this site only (a bare word crashed the redirect)
-    return n if ok else "/"
+    return accounts.local_path(request.GET.get("next") or request.POST.get("next"), request.get_host()) or "/"
 
 
 def _qr_svg(url):
