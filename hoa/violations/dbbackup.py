@@ -3,7 +3,6 @@
 The server only ever holds the PUBLIC key, so it can write backups but cannot read them back; a stolen server key does not expose history.
 The private key lives in two places chosen by the Board (see BACKUP_AND_RECOVERY.md). Nothing is ever overwritten or deleted here."""
 import hashlib
-import io
 import os
 import subprocess
 
