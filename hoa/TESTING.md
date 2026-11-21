@@ -101,3 +101,10 @@ Use the test copy, never real owners. `MAIL_PROVIDER` is `manual` (the default).
 - [ ] On the case, "Mark handled" WITHOUT a note is refused; with a note the red box disappears. The case history shows what happened.
 - [ ] A certified letter mailed 7 or more days ago with no result appears under "Check delivery" on the Dashboard, with a USPS link.
 - [ ] Move the hearing to another meeting: the old, never-mailed letters are marked "Not needed" and the new notice lists new ones.
+
+## Browser checks (second stabilisation pass, Nov 2026; for the developer, not part of the automatic tests)
+Two small Playwright scripts in `tools/browser_checks/` drive a real browser against a scratch copy of the site (never the live one):
+- `phone_layout_check.js`: signs in as manager, Board, committee and homeowner at phone width (375 px), follows every link and reports any page that scrolls sideways, throws a script error or shows an error page.
+- `script_injection_check.js`: after text such as `<img src=x onerror=...>` has been put into the owner names, descriptions and replies of a scratch database, follows every link, opens the map popups and the pickers and reports if any script ever ran.
+How: use a scratch database (`DATABASE_URL` pointing at an empty one), `python manage.py migrate`, `python manage.py seed_demo`, `python manage.py runserver 127.0.0.1:8020 --noreload`, then `node tools/browser_checks/phone_layout_check.js` (needs Node and `npm i playwright`).
+Result on 2026-11-21: no sideways scrolling after the table / link / map fixes, no script errors, and no script ran anywhere.

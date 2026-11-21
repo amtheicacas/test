@@ -54,7 +54,7 @@ details.x{}
 .substeps li.done i{color:var(--ok)}.substeps li.current i{color:#2563c9}.substeps li.todo,.substeps li.skipped{color:var(--mut)}
 ol.steps li small{display:block;font-size:.7rem;margin-top:2px;text-transform:uppercase;letter-spacing:.04em}
 details summary{cursor:pointer;text-decoration:underline}
-@media(max-width:600px){th{display:none}header .brand small{display:none}header .brand .appname{font-size:.95rem}}
+@media(max-width:600px){th{display:none}header .brand small{display:none}header .brand .appname{font-size:.95rem}.card table{display:block;overflow-x:auto;max-width:100%}.card a{overflow-wrap:anywhere}}
 </style></head><body>{% if STAGING %}<div style="background:#b42318;color:#fff;text-align:center;padding:6px 10px;font-weight:700">STAGING SITE: test data only. Nothing here is real, and no email or letter leaves this site.</div>{% endif %}
 <header><a class="brand" href="/"><img src="{% static 'violations/heron-landing-logo.png' %}" alt="Heron Landing"><span class="brandname"><span class="appname">{{ APP_NAME }}</span><small>{{ HOA_NAME }}</small></span></a>
 {% if user.is_authenticated %}
