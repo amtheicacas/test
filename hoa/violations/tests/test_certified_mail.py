@@ -664,3 +664,35 @@ def test_lobs_certified_tracking_event_names_are_flagged_or_not(lob, event, flag
     mailing.apply_tracking(p, {"tracking_events": [{"name": event, "location": "SARASOTA FL", "time": "2026-11-25T09:00:00Z"}]})
     p.refresh_from_db()
     assert p.problem is flagged
+
+
+# ---------- the case page is crowded: the saved-copies and mailing cards are collapsed and sit low on the page ----------
+def _card(html, ident):
+    start = html.index(f'<details class="card" id="{ident}"')
+    return html[start:html.index("</details>", start)]
+
+
+def test_the_saved_copies_and_mailing_cards_are_collapsed_and_low_on_the_case_page(client):
+    v = case()
+    hearing(v)
+    client.force_login(staff())
+    html = client.get(f"/violations/{v.pk}/").content.decode()
+    for ident in ("mailing", "saved-letters"):
+        assert f'<details class="card" id="{ident}">' in html                      # closed: no "open" attribute
+    assert html.index('id="mailing"') > html.index("<h2>Conversation</h2>")        # below the action cards
+    assert html.index('id="saved-letters"') < html.index("<h2>Timeline</h2>") and html.index('id="mailing"') < html.index("<h2>Timeline</h2>")
+    assert 'location.hash' in html and 'el.tagName==="DETAILS"' in html            # a link ending #mailing opens it
+
+
+def test_the_collapsed_mailing_card_still_flags_what_needs_doing(client):
+    v = case()
+    n = hearing(v)
+    cert, first = pieces(n)
+    client.force_login(staff())
+    summary = lambda: (lambda c: c[c.index("<summary"):c.index("</summary>")])(_card(client.get(f"/violations/{v.pk}/").content.decode(), "mailing"))
+    assert "2 letters to mail" in summary()
+    services.record_piece_mailed(cert, TODAY, NUM)
+    services.record_piece_mailed(first, TODAY, "")
+    assert "to mail" not in summary() and "1 notice" in summary()
+    services.record_piece_not_delivered(cert, "refused", TODAY)
+    assert "1 certified letter not delivered" in summary()

@@ -511,6 +511,13 @@ def owner_correspondence(request, pk):
     return render(request, "violations/owner_correspondence.html", {"owner": o, "cases": cases})
 
 
+def _mail_flags(v):
+    """What the collapsed "Mailing log" card must still tell staff at a glance: letters to mail, certified letters not delivered, mail on hold."""
+    pieces = list(MailPiece.objects.filter(notice__violation=v))
+    return {"to_mail": sum(1 for p in pieces if p.to_mail), "problems": sum(1 for p in pieces if p.needs_attention),
+            "held": sum(1 for n in v.notices.all() if n.mail_held)}
+
+
 @staff_only
 def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
@@ -530,6 +537,7 @@ def violation_detail(request, pk):
         "sent_letters": v.sent_letters.select_related("sent_by"),
         "no_copy": [n for n in v.notices.all() if not n.sent_copies.exists()],
         "piece_problems": [(k, text[1]) for k, text in MailPiece.PROBLEMS.items()], "today_iso": date.today().isoformat(),
+        "mail_flags": _mail_flags(v),
     }
     return render(request, "violations/detail.html", ctx)
 
