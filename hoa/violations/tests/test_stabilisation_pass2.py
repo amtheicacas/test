@@ -545,3 +545,57 @@ def test_LEDGER1_after_a_time_out_the_message_does_not_claim_that_nothing_was_po
     text = str(e.value)
     assert ("NOT certain" in text and f"HOA-VIOL-{v.pk}" in text and "Nothing was posted" not in text) == says_maybe
     assert ("Nothing was posted" in text) != says_maybe
+
+
+# ======================================================================================================================================
+# The private owner link shows a case without a login (PRIV-1)
+# ======================================================================================================================================
+def test_PRIV1_the_private_link_page_is_never_kept_by_the_browser(world):
+    v = _case_with_a_private_link(world)
+    for path in (f"/r/{v.token}/",):
+        r = Client().get(path)
+        assert r.status_code == 200 and "no-store" in r["Cache-Control"] and r["Referrer-Policy"] == "no-referrer"
+    r = Client().post(f"/r/{v.token}/", {"message": ""})                   # the page re-shown with a form error is private too
+    assert "no-store" in r["Cache-Control"]
+
+
+# ======================================================================================================================================
+# Pages must not run a few more database queries for every row (PERF-1): the Board queue and the dashboard on a big backlog
+# ======================================================================================================================================
+from django.db import connection as _conn
+from django.test.utils import CaptureQueriesContext
+
+
+def _queries(client, url):
+    with CaptureQueriesContext(_conn) as ctx:
+        r = client.get(url)
+    assert r.status_code == 200
+    return len(ctx)
+
+
+_made = [0]
+
+
+def _backlog(n, status):
+    from violations.models import Photo, Response
+    t = ViolationType.objects.get_or_create(name=f"Backlog type {status}")[0]
+    for _ in range(n):
+        _made[0] += 1
+        k = _made[0]
+        v = Violation.objects.create(owner=Owner.objects.create(name=f"B{k} Family", property_address=f"{k} {status} Way"), vtype=t, description="d",
+                                     cure_required="c", status=status, fine_amount=100,
+                                     cure_deadline=date.today() + timedelta(days=10 if status == Violation.Status.NOTICE_SENT else -3))
+        Notice.objects.create(violation=v, kind="violation")
+        Response.objects.create(violation=v, message="hello", from_resident=True, extension_requested=bool(k % 2))
+        Photo.objects.create(violation=v, image="photos/none.jpg")
+
+
+@pytest.mark.parametrize("status,url", [(Violation.Status.PENDING_BOARD, "/board/"), (Violation.Status.FINE_APPROVED, "/"), (Violation.Status.HEARING_NEEDED, "/meetings/"),
+                                        (Violation.Status.NOTICE_SENT, "/"), (Violation.Status.LEDGER_PENDING, "/")])
+def test_PERF1_a_longer_list_does_not_mean_more_queries_per_row(world, status, url):
+    c = board_client(world)
+    _backlog(2, status)
+    small = _queries(c, url)
+    _backlog(8, status)
+    big = _queries(c, url)
+    assert big - small <= 4, f"{url}: {small} queries for 2 extra cases, {big} for 10 (about {(big - small) / 8:.1f} more per case)"

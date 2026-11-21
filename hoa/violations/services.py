@@ -1420,11 +1420,16 @@ def finalize_imposition(v, user=None, method="manual", reference="", today=None)
     return notice
 
 
-def owner_history(v, today=None):
+def owner_history(v, today=None, pool=None):
     """What else this owner/home has on record, for the staff view of a violation: how many times the same violation has come up,
-    their other open violations, past ones, fines imposed, and whether this is a repeat within 3 months of a cure."""
+    their other open violations, past ones, fines imposed, and whether this is a repeat within 3 months of a cure.
+    `pool` ({owner id: that owner's cases, newest first, not drafts, each with its type}) lets a page that shows many cases (the Board queue)
+    load them all at once instead of running its own queries for every case."""
     today = today or date.today()
-    others = list(v.owner.violations.exclude(pk=v.pk).exclude(status=S.DRAFT).select_related("vtype").order_by("-created_at"))
+    if pool is None:
+        others = list(v.owner.violations.exclude(pk=v.pk).exclude(status=S.DRAFT).select_related("vtype").order_by("-created_at"))
+    else:
+        others = [o for o in pool.get(v.owner_id, ()) if o.pk != v.pk]
     open_states = set(Violation.OPEN) - {S.DRAFT}
     same_type = [o for o in others if o.vtype_id == v.vtype_id]
     same_section = [o for o in others if v.vtype.section and o.vtype.section == v.vtype.section and o.vtype.source == v.vtype.source
@@ -1432,7 +1437,7 @@ def owner_history(v, today=None):
     open_others = [o for o in others if o.status in open_states]
     past = [o for o in others if o.status not in open_states]
     imposed = [o for o in others if o.fine_amount and o.status in (S.FINE_APPROVED, S.CLOSED, S.REFERRED_LEGAL)]
-    this_issued = (v.notices.filter(kind=Notice.Kind.VIOLATION).values_list("created_at", flat=True).first() or v.created_at).date()
+    this_issued = (next((n.created_at for n in v.notices.all() if n.kind == Notice.Kind.VIOLATION), None) or v.created_at).date()      # the first Notice of Violation
     repeat_of = next((o for o in same_type if o.cured_on and 0 <= (this_issued - o.cured_on).days <= 90), None)
     pit_prior = [o for o in others if o.non_curable]
     return {

@@ -198,7 +198,7 @@ def _dashboard(request):
         "counts": [(label, counts.get(val, 0), val) for val, label in S.choices],
         "pending_requests": Response.objects.filter(extension_requested=True, handled=False,
                                                     violation__status__in=Violation.OPEN).select_related("violation__owner"),
-        "expiring": Violation.objects.filter(status=S.NOTICE_SENT).order_by("cure_deadline")[:8],
+        "expiring": Violation.objects.filter(status=S.NOTICE_SENT).select_related("owner", "vtype").order_by("cure_deadline")[:8],
         "board_queue": Violation.objects.filter(status=S.PENDING_BOARD).count(),
         "need_hearing": Violation.objects.filter(status=S.HEARING_NEEDED).count(),
         "unmailed": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False).filter(
@@ -215,7 +215,7 @@ def _dashboard(request):
                           .select_related("notice__violation__owner").order_by("notice__created_at", "pk"),
         "legal_drafts": Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).select_related("owner", "vtype"),
         "awaiting_reply": _awaiting_reply(),
-        "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).order_by("fine_due_on"),
+        "unpaid": Violation.objects.filter(status=S.FINE_APPROVED).select_related("owner", "vtype").order_by("fine_due_on"),
         "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
         "today": date.today(),
     }
@@ -850,13 +850,16 @@ def board_bulk(request):
 @staff_only
 def board_queue(request):
     services.advance_expired()
-    vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype"))
+    vs = list(Violation.objects.filter(status=S.PENDING_BOARD).select_related("owner", "vtype").prefetch_related("photos", "responses", "notices"))
+    pool = {}       # every owner's other cases, loaded once for the whole list (not one set of queries per case)
+    for o in (Violation.objects.filter(owner_id__in={v.owner_id for v in vs}).exclude(status=S.DRAFT).select_related("vtype").order_by("-created_at")):
+        pool.setdefault(o.owner_id, []).append(o)
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
         v.bform = forms.BoardForm(initial={"proposed_fine": v.suggested_fine})
-        v.history = services.owner_history(v)
+        v.history = services.owner_history(v, pool=pool)
         v.peek = next((p for p in v.photos.all() if not p.from_resident), None)
-        v.pending_ext = v.pending_extension
-        v.unread = v.responses.filter(from_resident=True, read_at__isnull=True).exists()
+        v.pending_ext = next((r for r in v.responses.all() if r.extension_requested and not r.handled), None)     # the oldest unanswered request (same as pending_extension)
+        v.unread = any(r.from_resident and r.read_at is None for r in v.responses.all())
     return render(request, "violations/board.html", {"today": date.today(), "verify_list": _verify_list(), "ledger_pending": Violation.objects.filter(status=S.LEDGER_PENDING).select_related("owner", "vtype"),
                                                       "violations": vs, "board_form": forms.BoardForm(),
                                                       "approve_form": forms.ExtApproveForm(), "decline_form": forms.ExtDeclineForm(),
@@ -1498,6 +1501,7 @@ def resident(request, token):
             return redirect("resident", token=token)
     resp = render(request, "violations/resident.html", {"v": v, "form": form}, status=status)
     resp["Referrer-Policy"] = "no-referrer"       # the private address is never passed on to other sites
+    resp["Cache-Control"] = "no-store, private"   # the page shows the case without a login: a shared computer's browser must not keep it
     return resp
 
 
