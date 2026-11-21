@@ -25,7 +25,8 @@ def database_from_url(url, conn_max_age=60, ssl_require=False):
     return cfg
 
 
-def production_problems(*, secret_key, allowed_hosts, site_url, database_url, email_host, from_email, mfa_roles, file_storage=True, vantaca_url=""):
+def production_problems(*, secret_key, allowed_hosts, site_url, database_url, email_host, from_email, mfa_roles, file_storage=True, vantaca_url="",
+                        mail_provider="manual", lob_key="", staging=False):
     """Plain-language list of what is wrong for a live site (empty list = fine)."""
     out = []
     if not secret_key or secret_key == DEV_SECRET or secret_key.startswith("django-insecure") or len(secret_key) < 32:
@@ -48,6 +49,16 @@ def production_problems(*, secret_key, allowed_hosts, site_url, database_url, em
                    "of every letter sent, the photos and the minutes would be lost each time the site is updated.")
     if vantaca_url and not vantaca_url.strip().lower().startswith("https://"):
         out.append("VANTACA_BASE_URL must start with https:// (the Vantaca password is sent with every request).")
+    if mail_provider == "lob":
+        key = (lob_key or "").strip()
+        if not key:
+            out.append("MAIL_PROVIDER=lob needs LOB_API_KEY (the secret key from your Lob account).")
+        elif staging and not key.startswith("test_"):
+            out.append("This is a staging site (STAGING=1), so LOB_API_KEY must be a Lob TEST key (it starts with test_), never a live key: "
+                       "a live key would print and mail real letters and charge real postage.")
+        elif not staging and key.startswith("test_"):
+            out.append("LOB_API_KEY is a Lob TEST key (test_...). Lob would accept the letters but MAIL NOTHING, while this site showed them as "
+                       "mailed. Use the live key (live_...) on the live site.")
     if not mfa_roles:
         out.append("Two-step login is switched off (MFA_REQUIRED_ROLES is empty or 'none'). Remove that setting on the live site.")
     return out

@@ -303,3 +303,10 @@ Checked against Lob's published documentation (WebSearch; the sandbox cannot fet
 - The user completed the staging two-step (authenticator) sign-in: two-step is demanded for staff (a section 8 check). The scheduled 2FA reminder was cancelled.
 - `check_storage` passed in Render's Shell (key lengths 25/31, test bucket); six fake owners imported; Manual Deploy done by the user.
 - Next on staging: `python manage.py load_standards` in the Shell (a fresh database has no violation types), the trial run of the mailing screens (RENDER_STAGING.md "Added 2026-11-21"), then the rest of section 8 (owner link once-only, other-owner case/photo refused, committee cannot reach the Board queue, sign out then Back, branded 404).
+
+### Update 2026-11-21: Lob safety checks built (no letters touched, nothing sent)
+- Option B / letter changes: the owner chose to WAIT for legal's final Word letters (reply "option b" to the A/B question); letters stay frozen. If they meant "build Option B now", they will say "build now" and attach the Word files.
+- `mailing.lob_key_mode()` (test/live/missing/unknown, never returns the key), `mailing.return_name()` (`HOA_RETURN_NAME`, default the Association's name cut at a word to Lob's 40 characters; curly quotes made plain), `mailing.lob_ping()` (read-only `GET /v1/addresses?limit=1`).
+- `lob_send` refuses before any network call when the key is missing, and when the site is not the real live site (`PRODUCTION and not STAGING`) unless the key is a TEST key. `config/deploy.production_problems` also refuses to START a live site with `MAIL_PROVIDER=lob` and a test key or no key, and a staging site with a live key.
+- `manage.py check_lob [--ping]`: prints the kind of key (length only), the return address as it will print, and fails on unsafe or incomplete settings. Staging steps: RENDER_STAGING.md section 10. Tests: `test_lob_checks.py`.
+- STILL OPEN: the real return address (the owner is signing up for a virtual mailbox; ask whether it accepts certified mail and returned certified letters), the Lob account, background sending to Lob (a batch could hit the 60 s limit).

@@ -37,9 +37,10 @@ def _services_for(kind):
 
 
 def _clean(value):
-    """A value going into a form field for the print service: control characters and line breaks removed, quotes made harmless, so a name or
-    address can never break the request."""
-    return re.sub(r"[\x00-\x1f\x7f]+", " ", str(value)).replace('"', "'").strip()
+    """A value going into a form field for the print service: control characters and line breaks removed, quotes made harmless (curly quotes
+    become plain ones, as address labels are plain text), so a name or address can never break the request."""
+    return (re.sub(r"[\x00-\x1f\x7f]+", " ", str(value)).replace('"', "'")
+            .replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", "'").replace("\u201d", "'").strip())
 
 
 def _multipart(fields, file_field, filename, file_bytes):
@@ -61,7 +62,7 @@ def _name_for_lob(name):
     if len(name) <= 40:
         return name
     cut = name[:40]
-    return (cut.rsplit(" ", 1)[0] if " " in cut else cut).strip()
+    return (cut.rsplit(" ", 1)[0] if " " in cut else cut).strip().rstrip(",;:")
 
 
 def _lob_error_text(e):
@@ -74,8 +75,37 @@ def _lob_error_text(e):
     return f"Lob refused the request (HTTP {e.code})" + (f": {msg}" if msg else "")
 
 
+def lob_key_mode(key=None):
+    """What kind of Lob key is set: 'test' (test_...: Lob accepts and shows letters but MAILS NOTHING), 'live' (live_...: real mail and real
+    postage), 'missing', or 'unknown'. Never returns or prints the key itself."""
+    k = ((settings.LOB_API_KEY if key is None else key) or "").strip()
+    return "missing" if not k else "test" if k.startswith("test_") else "live" if k.startswith("live_") else "unknown"
+
+
+def lob_ping():
+    """Ask Lob a read-only question (list one saved address) to learn whether it accepts our key. Creates and costs nothing. Returns the HTTP status."""
+    token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
+    req = urllib.request.Request("https://api.lob.com/v1/addresses?limit=1", headers={"Authorization": f"Basic {token}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def return_name():
+    """The name printed above the return address on the envelope (Lob allows 40 characters)."""
+    return _name_for_lob(settings.HOA_RETURN_NAME or settings.HOA_NAME)
+
+
 def lob_send(to, pdf, description, extra_service=None):
-    ret = {"name": settings.HOA_NAME[:40], "line1": settings.HOA_RETURN_LINE1, "city": settings.HOA_RETURN_CITY,
+    mode = lob_key_mode()
+    if mode == "missing":
+        raise RuntimeError("LOB_API_KEY is not set, so nothing was sent.")
+    if not (settings.PRODUCTION and not settings.STAGING) and mode != "test":      # only the real live site may mail for real
+        raise RuntimeError("This is not the live site (it is staging or a test copy): it may only use a Lob TEST key (it starts with test_). "
+                           "Nothing was sent.")
+    ret = {"name": return_name(), "line1": settings.HOA_RETURN_LINE1, "city": settings.HOA_RETURN_CITY,
            "state": settings.HOA_RETURN_STATE, "zip": settings.HOA_RETURN_ZIP}
     if not all(to.get(k) for k in ("name", "line1", "city", "state", "zip")):
         raise ValueError("incomplete mailing address (need street, city, state, ZIP)")

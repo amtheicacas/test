@@ -209,6 +209,7 @@ VANTACA_OWNERS_PATH = env("VANTACA_OWNERS_PATH", "")      # read endpoint that l
 # ---- Print & mail provider (optional) ----------------------------------
 MAIL_PROVIDER = env("MAIL_PROVIDER", "manual")            # "manual" or "lob"
 LOB_API_KEY = env("LOB_API_KEY", "")                      # use a Lob TEST key first
+HOA_RETURN_NAME = env("HOA_RETURN_NAME", "")               # name printed above the return address on envelopes (Lob allows 40 characters); blank = the Association's name, cut to fit
 HOA_RETURN_LINE1 = env("HOA_RETURN_LINE1", "")            # return address printed on mailed letters
 HOA_RETURN_CITY = env("HOA_RETURN_CITY", "Sarasota")
 HOA_RETURN_STATE = env("HOA_RETURN_STATE", "FL")
@@ -306,6 +307,7 @@ if PRODUCTION:
     _problems = deploy.production_problems(
         secret_key=SECRET_KEY, allowed_hosts=ALLOWED_HOSTS, site_url=SITE_URL, database_url=env("DATABASE_URL", ""),
         email_host=env("EMAIL_HOST", "") or ("(printed in the log: staging)" if EMAIL_TO_LOG else ""), from_email=DEFAULT_FROM_EMAIL, mfa_roles=MFA_REQUIRED_ROLES,
-        file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")), vantaca_url=env("VANTACA_BASE_URL", ""))
+        file_storage=bool(env("STORAGE_BUCKET") or env("MEDIA_ROOT")), vantaca_url=env("VANTACA_BASE_URL", ""),
+        mail_provider=MAIL_PROVIDER, lob_key=LOB_API_KEY, staging=STAGING)
     if _problems:
         raise ImproperlyConfigured(deploy.explain(_problems))

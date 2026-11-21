@@ -87,3 +87,18 @@ service. Everything on staging uses test data and the TEST bucket only.
 ## Added 2026-11-21: load the violation list first, and a trial run of the certified-mail screens
 - A fresh database has NO violation types (no migration creates them). After the first deploy and before creating test violations, open the **Shell** and run `python manage.py load_standards` (it prints "N created, M updated" twice, once per list; safe to run again).
 - Trial run on fake data (Pat Testowner, 101 Staging Test Lane): New violation with the **Point-in-time** box ticked and a photo (it goes straight to the Board queue; the fine box is pre-filled with 100.00) -> Board queue: tick the row, tick the majority box, "Record decisions" -> Committee meetings: create a meeting about 3 weeks ahead (untick "Create the Zoom meeting for me", type a location) -> "Assign selected" -> open the case: "Mailing log and print copies" lists the certified and first-class letters to mail. Then follow the checklist "Certified mail and first-class mail for the Notice of Hearing" at the end of TESTING.md. Emails are not sent on staging: they are printed in the **Logs** tab.
+
+## 10. Lob TEST key on staging (added 2026-11-21; nothing is mailed and nothing is charged)
+Do this only when you are ready; no Lob account is needed before that. Lob has never been run from this app, so this is the first real check of it.
+1. Create a free account at lob.com (Lob says its Developer plan has no monthly fee).
+2. In Lob's dashboard, under **Settings**, find the API keys and copy the **Test** secret key. It starts with `test_`. Never paste it into chat or GitHub.
+3. In Render, on the `hoa-staging` page, open **Environment** and add these (mark the key as secret):
+   - `MAIL_PROVIDER` = `lob`
+   - `LOB_API_KEY` = the test key
+   - `HOA_RETURN_NAME` = `Heron Landing HOA` (or the name you want above the return address on the envelope; Lob allows 40 characters)
+   - `HOA_RETURN_LINE1` = any made-up street address for now (later: your virtual mailbox address, including the box or suite number)
+   - `HOA_RETURN_ZIP` = for example `34236` (city and state default to Sarasota, FL)
+4. Save and let it redeploy. A site marked STAGING refuses to start or to send with a live key (`live_...`); the live site refuses a test key.
+5. In the Shell run `python manage.py check_lob --ping`. Expected: "a TEST key ... NOTHING IS MAILED", "Lob answered HTTP 200: it accepts the key", "All checks passed". It sends no letter; the ping is a free read-only question.
+6. Run the trial again (send a fake case's hearing notice to a meeting). On the case page, **Mailing log** should now list a certified and a first-class letter per address, each handed to Lob, or show Lob's own reason if Lob refused it. The test letters appear in Lob's dashboard and are not mailed.
+7. Test mode has NO USPS tracking events, so "returned" and "not delivered" cannot be proven here; they need a few real certified letters later, each about $8, and only with the owner's explicit approval.

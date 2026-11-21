@@ -4,7 +4,7 @@ Django 5.2 app (folder `hoa/`) for Heron Landing HOA (Sarasota FL): violation no
 
 ## Run / test (Linux sandbox)
 - venv: `/tmp/claude-0/venv/bin/python` (recreate if gone: `pip install -r requirements.txt pytest pytest-django`)
-- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~60 s, 918 tests + 1 skipped on SQLite [919 on PostgreSQL], must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
+- Tests: `/tmp/claude-0/venv/bin/python -m pytest -q` (~60 s, 943 tests + 1 skipped on SQLite [944 on PostgreSQL], must all pass before every commit; they run on `config.test_settings`, i.e. as a development site). Checks: `manage.py check`, `manage.py makemigrations --check --dry-run`.
 - Local: `start-site.bat` (Windows, user's PC; runs `migrate`, sets `DJANGO_DEBUG=1` and `MFA_REQUIRED_ROLES=none`). **A site is LIVE unless `DJANGO_DEBUG=1`**: a live site refuses to start without real SECRET_KEY / ALLOWED_HOSTS / SITE_URL (https) / DATABASE_URL / EMAIL_HOST / DEFAULT_FROM_EMAIL and with two-step login on (`config/deploy.py`). On the user's PC, commands run in a terminal need `DJANGO_DEBUG=1` in `local.env`. Live installs use `requirements-production.txt`. Secrets go in untracked `hoa/local.env` (see `local.env.example`).
 - Git: develop on branch `claude/brave-galileo-mddme9`, commit + `git push -q origin <branch>`; end commit messages with the Co-Authored-By / Claude-Session trailers from the system reminder. Never create a PR unless asked. **Chain commands with `&&`, not `;`, so a failing test never gets pushed.**
 
@@ -71,3 +71,6 @@ Fixed with tests: the old committee vote page now enforces abstention (F-01a); `
 
 ## Mail goes through Lob, never by hand (PROJECT_STATUS.md section 33)
 The Association will NOT mail by hand: all first-class and certified mail goes through Lob. `MAIL_PROVIDER=manual` and its `by_hand` pieces are only a fallback. `mailing.lob_send` must keep sending `use_type=operational` (Lob refuses a request without it), cuts names to 40 characters, and raises Lob's own error message; `PROBLEM_WORDS` follow Lob's certified event names. Lob test keys do not mail and have no certified tracking events, so the returned-mail flow is unproven until real certified letters are sent (needs the owner's explicit approval: "do not mail or send anything real"). The envelope RETURN ADDRESS (`HOA_RETURN_*`) is undecided and must not show the management company.
+
+## Lob safety checks (PROJECT_STATUS.md section 33 update)
+`mailing.lob_send` refuses to send (before any network call) with no key, or with anything but a `test_` key unless `settings.PRODUCTION and not settings.STAGING`: test copies and staging can never mail for real, and the live site's start check (`deploy.production_problems`) refuses a test key. Keep that. `manage.py check_lob [--ping]` sends nothing (ping = a free read-only call); never print the key (length only). Return name = `mailing.return_name()` (`HOA_RETURN_NAME`). Tests set `settings.PRODUCTION`/`STAGING` explicitly when they need a live-site case.
