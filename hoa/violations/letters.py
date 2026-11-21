@@ -3,7 +3,6 @@ import hashlib
 import io
 
 from django.core.files.base import ContentFile
-from django.utils import timezone
 
 from .models import Notice, SentLetter
 
