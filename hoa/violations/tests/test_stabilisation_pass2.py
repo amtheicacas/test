@@ -647,3 +647,44 @@ def test_NEXT2_the_page_you_wanted_survives_the_two_step_sign_in_with_its_own_se
     TOTPDevice.objects.update(last_t=-1, throttling_failure_count=0, throttling_failure_timestamp=None)
     r = client.post(r.url, {"code": code(TOTPDevice.objects.get())})
     assert r.status_code == 302 and r.url == "/violations/?status=open&q=a+b"
+
+
+# ======================================================================================================================================
+# Moving a meeting: every case on it moves together or not at all (MTG-1)
+# ======================================================================================================================================
+def test_MTG1_moving_a_meeting_keeps_the_meeting_and_all_its_cases_in_step_even_if_a_notice_fails(django_user_model):
+    from django.utils import timezone as tz
+    from violations.models import CommitteeMeeting
+    m, cases, cu = _meeting_with(2, django_user_model)
+    new_start = tz.now() + timedelta(days=40)
+    real, calls = services.send_notice, []
+
+    def flaky(v, kind, user=None, hold_mail_days=0):
+        calls.append(v.pk)
+        if len(calls) == 1:
+            raise RuntimeError("storage hiccup")           # the first owner's notice blows up
+        return real(v, kind, user, hold_mail_days)
+    with mock.patch.object(services, "send_notice", side_effect=flaky):
+        warnings = services.reschedule_meeting(m, new_start, cu, notify=True)
+    assert CommitteeMeeting.objects.get(pk=m.pk).starts_at == new_start
+    assert {Violation.objects.get(pk=c.pk).hearing_date for c in cases} == {new_start}          # (used to stop half way: the second case kept the old date)
+    assert len(calls) == 2 and any("could not be sent" in w for w in warnings)
+
+
+def test_MTG1_a_failure_while_saving_the_cases_moves_nothing(django_user_model):
+    from django.utils import timezone as tz
+    from violations.models import CommitteeMeeting
+    m, cases, cu = _meeting_with(2, django_user_model)
+    old = CommitteeMeeting.objects.get(pk=m.pk).starts_at
+    real_log, n = services.log, []
+
+    def log_then_fail(v, text, user=None):
+        n.append(1)
+        if len(n) == 2:
+            raise RuntimeError("database hiccup")
+        return real_log(v, text, user)
+    with mock.patch.object(services, "log", side_effect=log_then_fail):
+        with pytest.raises(RuntimeError):
+            services.reschedule_meeting(m, tz.now() + timedelta(days=40), cu, notify=False)
+    assert CommitteeMeeting.objects.get(pk=m.pk).starts_at == old
+    assert {Violation.objects.get(pk=c.pk).hearing_date for c in cases} == {old}

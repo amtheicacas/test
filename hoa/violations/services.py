@@ -1113,7 +1113,9 @@ def _meeting_changeable(m):
 
 def reschedule_meeting(m, new_start, user=None, notify=True):
     """Move a meeting. Its cases follow the new date, the Zoom meeting is moved too (same link), and, if cases are assigned and `notify`,
-    each owner gets a fresh hearing notice (certified mail and email) with the new date. Returns a list of warnings."""
+    each owner gets a fresh hearing notice (certified mail and email) with the new date. Returns a list of warnings.
+    The meeting and every case on it are saved together (all or nothing) BEFORE anything is sent; a notice that then fails is reported as a
+    warning and the others still go (it used to stop half way, leaving later cases on the old date)."""
     from . import zoom
     _meeting_changeable(m)
     if isinstance(new_start, datetime) and timezone.is_naive(new_start):
@@ -1124,20 +1126,26 @@ def reschedule_meeting(m, new_start, user=None, notify=True):
     if cases and timezone.localtime(new_start).date() < date.today() + timedelta(days=settings.HEARING_NOTICE_DAYS):
         raise WorkflowError(f"Owners with cases on this meeting must get at least {settings.HEARING_NOTICE_DAYS} days' notice of the new date.")
     old = timezone.localtime(m.starts_at)
-    m.starts_at = new_start
-    m.save()
-    audit.record("meeting.rescheduled", _when(m), f"from {old:%b} {old.day}, {old.year} to {_when(m)[8:]}; {len(cases)} case(s); owners notified: {'yes' if notify and cases else 'no'}", actor=user)
+    with transaction.atomic():
+        m.starts_at = new_start
+        m.save()
+        for v in cases:
+            v.hearing_date = new_start
+            v.save(update_fields=["hearing_date"])
+            log(v, f"Hearing moved from {old:%b} {old.day} to {timezone.localtime(new_start):%b} {timezone.localtime(new_start).day}", user)
+        audit.record("meeting.rescheduled", _when(m), f"from {old:%b} {old.day}, {old.year} to {_when(m)[8:]}; {len(cases)} case(s); owners notified: {'yes' if notify and cases else 'no'}", actor=user)
     warnings = []
     try:
         zoom.update_meeting_time(m.zoom_api_id, new_start)
     except zoom.ZoomError as e:
         warnings.append(f"{e} Update the time in Zoom by hand.")
-    for v in cases:
-        v.hearing_date = new_start
-        v.save(update_fields=["hearing_date"])
-        log(v, f"Hearing moved from {old:%b} {old.day} to {timezone.localtime(new_start):%b} {timezone.localtime(new_start).day}", user)
-        if notify:
-            send_notice(v, Notice.Kind.HEARING, user)
+    if notify:
+        for v in cases:
+            try:
+                send_notice(v, Notice.Kind.HEARING, user)
+            except Exception as e:      # noqa: BLE001  (one owner's notice failing must not stop the others)
+                log(v, f"WARNING: the new hearing notice could not be sent ({type(e).__name__}); send it again by hand.", user)
+                warnings.append(f"The new hearing notice for case #{v.pk} ({v.owner.property_address}) could not be sent ({type(e).__name__}). Send it by hand.")
     if cases and not notify:
         warnings.append("The owners were not sent new hearing notices.")
     return warnings
