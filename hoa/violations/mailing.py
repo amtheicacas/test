@@ -104,14 +104,16 @@ def apply_tracking(piece, r, mark_checked=True):
     events.sort(key=lambda e: e["time"])
     if events:
         piece.events = events
-        piece.status = events[-1]["name"]
         for e in events:
             if e["name"].lower().startswith("delivered") and not piece.delivered_on:
                 try:
                     piece.delivered_on = date.fromisoformat(e["time"][:10])
                 except ValueError:
                     piece.delivered_on = date.today()
-        piece.problem = any(w in e["name"].lower() for e in events for w in PROBLEM_WORDS) and not piece.delivered_on
+        derived = any(w in e["name"].lower() for e in events for w in PROBLEM_WORDS)
+        if derived or not was_problem or piece.delivered_on:     # a problem recorded by hand keeps its own wording until the letter is delivered
+            piece.status = events[-1]["name"]
+        piece.problem = (derived or was_problem) and not piece.delivered_on          # tracking never clears a problem; only delivery does
         if piece.problem and not was_problem:      # first time it shows up: remember the day, and put it in the case history
             piece.problem_on = date.today()
             piece.handled_on, piece.handled_note = None, ""       # a new problem reopens one that had been cleared

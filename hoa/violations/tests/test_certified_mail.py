@@ -576,3 +576,21 @@ def test_notes_and_numbers_are_shown_as_text_never_as_markup(client):
         html = client.get(url).content.decode()
         assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in client.get(f"/violations/{v.pk}/").content.decode()
+
+
+def test_a_problem_recorded_by_hand_on_a_print_service_letter_survives_the_next_tracking_refresh(lob):
+    n = Notice.objects.create(violation=case(), kind=K.HEARING)
+    with mock.patch.object(mailing, "lob_send", return_value={"id": "ltr_1", "tracking_number": NUM_CLEAN}):
+        mailing.dispatch(n, lambda who: b"%PDF-1")
+    p = n.pieces.get()
+    services.record_piece_not_delivered(p, "unclaimed", TODAY, "Postal notice left")
+    transit = {"time": "2026-11-20T10:00:00Z", "name": "In Transit", "location": "TAMPA FL"}
+    with mock.patch.object(mailing, "lob_get", return_value={"tracking_events": [transit]}):
+        services.refresh_mail_tracking(force_for=n.violation)
+    p.refresh_from_db()
+    assert p.needs_attention and p.status == "Unclaimed"                 # not wiped by a refresh that shows nothing alarming
+    done = {"tracking_events": [transit, {"name": "Delivered", "location": "SARASOTA FL", "time": "2026-11-23T14:30:00Z"}]}
+    with mock.patch.object(mailing, "lob_get", return_value=done):
+        services.refresh_mail_tracking(force_for=n.violation)
+    p.refresh_from_db()
+    assert not p.problem and p.delivered_on == date(2026, 11, 23) and p.status == "Delivered"      # delivery does clear it
