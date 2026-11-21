@@ -8,7 +8,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-from .models import CommitteeMeeting, Violation
 from .pdf import BODY, BOLD, SMALL, TITLE, letterhead
 
 
