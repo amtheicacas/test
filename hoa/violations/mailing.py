@@ -13,6 +13,7 @@ import base64
 import json
 import re
 import uuid
+import urllib.error
 import urllib.request
 from datetime import date
 
@@ -53,6 +54,26 @@ def _multipart(fields, file_field, filename, file_bytes):
     return b"".join(out), f"multipart/form-data; boundary={boundary}"
 
 
+def _name_for_lob(name):
+    """Lob accepts at most 40 characters in a name. Cut a longer one (two owners' names, for example) at a word boundary: this is only the
+    name on the envelope's address label; the letter itself shows the full name."""
+    name = re.sub(r"\s+", " ", str(name or "")).strip()
+    if len(name) <= 40:
+        return name
+    cut = name[:40]
+    return (cut.rsplit(" ", 1)[0] if " " in cut else cut).strip()
+
+
+def _lob_error_text(e):
+    """What Lob said when it refused a request, so the case page says WHY (for example 'use_type is required'), not just 'HTTP 422'."""
+    try:
+        msg = ((json.loads(e.read().decode("utf-8", "replace")) or {}).get("error") or {}).get("message") or ""
+    except Exception:       # noqa: BLE001  (not JSON, or unreadable)
+        msg = ""
+    msg = re.sub(r"[\x00-\x1f\x7f]+", " ", str(msg)).strip()[:200]
+    return f"Lob refused the request (HTTP {e.code})" + (f": {msg}" if msg else "")
+
+
 def lob_send(to, pdf, description, extra_service=None):
     ret = {"name": settings.HOA_NAME[:40], "line1": settings.HOA_RETURN_LINE1, "city": settings.HOA_RETURN_CITY,
            "state": settings.HOA_RETURN_STATE, "zip": settings.HOA_RETURN_ZIP}
@@ -60,7 +81,10 @@ def lob_send(to, pdf, description, extra_service=None):
         raise ValueError("incomplete mailing address (need street, city, state, ZIP)")
     if not all(ret.values()):
         raise ValueError("HOA return address not configured (HOA_RETURN_*)")
-    fields = {"description": description[:255], "color": "false", "double_sided": "true",
+    to = dict(to, name=_name_for_lob(to["name"]))
+    # use_type is REQUIRED by Lob ("marketing" or "operational"; a request without it is refused with HTTP 422 unless the Lob account has a
+    # default). Violation notices are operational mail: they concern an existing relationship, not advertising.
+    fields = {"description": description[:255], "color": "false", "double_sided": "true", "use_type": "operational",
               "address_placement": "insert_blank_page", "mail_type": "usps_first_class"}
     for pre, a in (("to", to), ("from", ret)):
         fields.update({f"{pre}[name]": a["name"], f"{pre}[address_line1]": a["line1"], f"{pre}[address_city]": a["city"],
@@ -71,8 +95,11 @@ def lob_send(to, pdf, description, extra_service=None):
     token = base64.b64encode(f"{settings.LOB_API_KEY}:".encode()).decode()
     req = urllib.request.Request("https://api.lob.com/v1/letters", data=body, method="POST",
                                  headers={"Authorization": f"Basic {token}", "Content-Type": ctype})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.load(resp)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(_lob_error_text(e)) from None
 
 
 def lob_get(letter_id):
@@ -83,7 +110,11 @@ def lob_get(letter_id):
         return json.load(resp)
 
 
-PROBLEM_WORDS = ("returned", "re-routed", "rerouted", "undeliverable", "return to sender", "notice left", "pick up", "no such", "refused", "vacant")
+# Words in a tracking event that mean the letter was not simply delivered. Lob's certified-mail event names (from its API reference) are:
+# Mailed, In Transit, In Local Area, Processed for Delivery, Re-Routed, Returned to Sender, Delivered, Pickup Available, Issue.
+# "Pickup Available" means delivery was not possible and the letter is waiting at the post office. Not yet seen on a live letter.
+PROBLEM_WORDS = ("returned", "re-routed", "rerouted", "undeliverable", "return to sender", "notice left", "pick up", "pickup", "unclaimed", "issue",
+                 "no such", "refused", "vacant")
 
 
 def apply_tracking(piece, r, mark_checked=True):

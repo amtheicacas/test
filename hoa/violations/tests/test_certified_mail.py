@@ -594,3 +594,73 @@ def test_a_problem_recorded_by_hand_on_a_print_service_letter_survives_the_next_
         services.refresh_mail_tracking(force_for=n.violation)
     p.refresh_from_db()
     assert not p.problem and p.delivered_on == date(2026, 11, 23) and p.status == "Delivered"      # delivery does clear it
+
+
+# ---------- the print service (Lob) request, checked against Lob's published API rules (never run against a real account) ----------
+class _FakeResponse:
+    def __init__(self, payload):
+        self._p = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, *a):
+        import json
+        return json.dumps(self._p).encode()
+
+
+def _sent_to_lob(settings, to, extra="certified_return_receipt", reply=None):
+    settings.LOB_API_KEY, settings.HOA_RETURN_LINE1, settings.HOA_RETURN_ZIP = "test_key", "PO Box 1", "34241"
+    seen = {}
+
+    def fake(req, timeout=None):
+        seen["body"] = req.data
+        return _FakeResponse(reply or {"id": "ltr_1"})
+    with mock.patch("urllib.request.urlopen", fake):
+        mailing.lob_send(to, b"%PDF-1", "Case 1", extra)
+    return seen["body"].decode("utf-8", "replace")
+
+
+ADDR = {"name": "Pat Owner", "line1": "1 Palm Way", "city": "Sarasota", "state": "FL", "zip": "34240"}
+
+
+def test_the_request_to_lob_declares_its_use_type_which_lob_requires(settings):
+    body = _sent_to_lob(settings, ADDR)
+    assert 'name="use_type"\r\n\r\noperational' in body
+    assert 'name="extra_service"\r\n\r\ncertified_return_receipt' in body and 'name="mail_type"\r\n\r\nusps_first_class' in body
+
+
+def test_a_name_longer_than_lobs_40_character_limit_is_cut_at_a_word(settings):
+    long = dict(ADDR, name="Alexandria Montgomery-Wellington and Bartholomew Montgomery-Wellington")
+    body = _sent_to_lob(settings, long)
+    sent = re.search(r'name="to\[name\]"\r\n\r\n([^\r]*)', body).group(1)
+    assert len(sent) <= 40 and long["name"].startswith(sent) and not sent.endswith(" ")
+    assert re.search(r'name="to\[name\]"\r\n\r\nPat Owner', _sent_to_lob(settings, ADDR))          # a short name is untouched
+
+
+def test_when_lob_refuses_a_letter_the_reason_is_recorded_on_the_case_and_nothing_breaks(settings):
+    import json, urllib.error
+    settings.MAIL_PROVIDER, settings.LOB_API_KEY, settings.HOA_RETURN_LINE1, settings.HOA_RETURN_ZIP = "lob", "test_key", "PO Box 1", "34241"
+    n = Notice.objects.create(violation=case(), kind=K.HEARING)
+
+    def refuse(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 422, "Unprocessable", {}, io.BytesIO(json.dumps({"error": {"message": "use_type is required", "status_code": 422}}).encode()))
+    with mock.patch("urllib.request.urlopen", refuse):
+        assert mailing.dispatch(n, lambda who: b"%PDF-1") is False
+    n.refresh_from_db()
+    assert "HTTP 422" in n.provider_note and "use_type is required" in n.provider_note
+    assert Event.objects.filter(violation=n.violation, text__contains="use_type is required").exists()
+    assert not n.pieces.exists() and n.mailed_on is None                             # it shows as not mailed, so it cannot be forgotten
+
+
+@pytest.mark.parametrize("event,flagged", [("Pickup Available", True), ("Issue", True), ("Returned to Sender", True), ("Re-Routed", True),
+                                           ("In Transit", False), ("In Local Area", False), ("Processed for Delivery", False), ("Mailed", False)])
+def test_lobs_certified_tracking_event_names_are_flagged_or_not(lob, event, flagged):
+    n = Notice.objects.create(violation=case(), kind=K.HEARING)
+    p = MailPiece.objects.create(notice=n, provider_id="ltr_1", service="certified", label="owner property", mailed_on=TODAY)
+    mailing.apply_tracking(p, {"tracking_events": [{"name": event, "location": "SARASOTA FL", "time": "2026-11-25T09:00:00Z"}]})
+    p.refresh_from_db()
+    assert p.problem is flagged

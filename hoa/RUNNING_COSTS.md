@@ -40,3 +40,6 @@ before signing up.** Items marked (?) could not be confirmed. US dollars, per mo
 Card numbers and logins never go in chat or in this repository.
 
 Open question for the Board: which of options 2 and 3 the Association will use, and who the billing contact is.
+
+## Update 2026-11-21: Lob figures checked against Lob's own pages (confirm before relying on them)
+Lob's help-center "Pricing details" page (dated 11/01/2026) lists a black-and-white first-class letter at about **$0.87 to $1.07** (the three plan columns; which column is which plan was not clear) and a **certified mail add-on of $6.95 per letter**. The price of the electronic return receipt option was NOT visible: ask Lob. Lob's main pricing page says there is a monthly/annual platform fee on every plan except the Developer plan. Rough cost of ONE Notice of Hearing to ONE address (a certified letter plus a first-class copy): about **$8.70 to $9.10** before the return receipt option and any extra-page charge; an owner with a separate mailing address and a tenant means up to three addresses (about $27). The decision letter is certified only (about $7.80 to $8.00 per address). The envelope address page is an inserted blank page (`address_placement=insert_blank_page`), which Lob says is charged as an extra page.
