@@ -49,3 +49,5 @@ Add to this list; do not delete (mark answered items with the date and answer in
 18. What must be kept as proof of mailing and delivery for each letter: the certified receipt (PS Form 3800), the signed
     return receipt (green card or electronic), the USPS tracking history, the first-class mailing record? The application
     stores the mailing date, tracking number and result for each letter and includes them in the case file.
+
+Note 2026-11-21: a reader-friendly copy of questions 1-18 for sending to the attorney was made as a Claude Doc ("Questions for the Association's attorney", private to the Board member's claude.ai account), with project-only wording removed and the same numbers. THIS file stays the master list: questions added here later must be added to that copy too (ask Claude to refresh it).
