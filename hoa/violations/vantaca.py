@@ -17,6 +17,7 @@ import urllib.request
 from datetime import date, datetime
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from . import accounts
@@ -61,13 +62,30 @@ def _norm(k):
     return "".join(c for c in str(k).lower() if c.isalnum())
 
 
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")      # NUL and other control characters (tab, line feed and carriage return are kept)
+
+
 def _pick(row, field):
     lookup = {_norm(k): v for k, v in row.items()}
     for alias in FIELD_ALIASES[field]:
         v = lookup.get(_norm(alias))
         if v not in (None, ""):
-            return str(v).strip()
+            return _CONTROL.sub("", str(v)).strip()      # PostgreSQL cannot store a NUL, and a pasted control character breaks letters and emails
     return ""
+
+
+def _one_line(text):
+    """A value that belongs on one line (a name, a street): line breaks, tabs and runs of spaces become single spaces."""
+    return " ".join(str(text or "").split())
+
+
+def _coordinate(text, low, high):
+    """A latitude or longitude as a number, or None when it is blank, not a number or outside the possible range (the street map is optional)."""
+    try:
+        x = float(text) if text else None
+    except ValueError:
+        return None
+    return x if x is not None and low <= x <= high else None
 
 
 def _has_column(row, field):
@@ -135,7 +153,7 @@ def normalize(row):
          "name": name, "property_address": street, "lot_no": _pick(row, "lot_no"),
          "email": emails[0] if emails else "", "additional_emails": ";".join(emails[1:]), "phone": _pick(row, "phone"),
          **{f: _pick(row, f) for f in ("city", "state", "zip_code")},
-         **{f: (float(_pick(row, f)) if _pick(row, f) else None) for f in ("lat", "lng")}}
+         "lat": _coordinate(_pick(row, "lat"), -90, 90), "lng": _coordinate(_pick(row, "lng"), -180, 180)}
     if _any_column(row, ("second_first", "second_last")):
         d["second_owner_name"] = f"{_pick(row, 'second_first')} {_pick(row, 'second_last')}".strip()
     for f in HOUSEHOLD_FIELDS:
@@ -166,6 +184,10 @@ def normalize(row):
             if not (d["mail_city"] and d["mail_state"] and d["mail_zip"]):
                 notes.append("The mailing address is somewhere other than the property but has no city, state and ZIP, which the print service "
                              "needs. Letters will go to the property address only until the mailing city, state and ZIP are added.")
+    for f in ("name", "property_address", "lot_no", "account_number", "city", "state", "zip_code", "phone", "second_owner_name", "tenant_name", "tenant_phone",
+              "mail_line1", "mail_city", "mail_state", "mail_zip"):
+        if d.get(f):
+            d[f] = _one_line(d[f])
     d["_notes"] = notes
     return d
 
@@ -273,15 +295,26 @@ def _sync_rows(rows, invite, deactivate_missing, force, actor, result):
     from . import audit
     seen = set()
     rows, _ = infer_lots(list(rows))
-    for r in rows:
-        status, owner = upsert_owner(r)
-        result[status] += 1
-        if owner:
-            seen.add(owner.pk)
-            if accounts.sync_account(owner) == "updated":
-                result["logins_updated"] += 1
-            if invite and accounts.invite_owner(owner):
-                result["invited"] += 1
+    result.setdefault("failed", 0)
+    for n, r in enumerate(rows, start=2):           # row 1 of the file is the column names
+        try:
+            with transaction.atomic():              # a row that fails is undone on its own; the others carry on
+                status, owner = upsert_owner(r)
+                result[status] += 1
+                if owner:
+                    seen.add(owner.pk)
+                    if accounts.sync_account(owner) == "updated":
+                        result["logins_updated"] += 1
+                    if invite and accounts.invite_owner(owner):
+                        result["invited"] += 1
+        except Exception as e:      # noqa: BLE001  (one unreadable row must not stop the whole import, nor leave the rest unprocessed)
+            result["failed"] += 1
+            if result["failed"] <= 20:
+                audit.record("owners.row_failed", f"Row {n}", f"{type(e).__name__}: {str(e)[:150]}", actor=actor)
+    if deactivate_missing and result["failed"]:
+        audit.record("owners.synced", "Owner import / Vantaca sync", ", ".join(f"{k}: {v}" for k, v in result.items()), actor=actor)
+        raise SafetyStop(f"{result['failed']} row(s) could not be read (see the Audit log), so nobody was deactivated: an owner whose row failed "
+                         "would look 'missing'. Fix those rows and run it again.")
     if deactivate_missing:
         missing = list(Owner.objects.filter(active=True, external_id__isnull=False).exclude(pk__in=seen))
         total = Owner.objects.filter(active=True).count()

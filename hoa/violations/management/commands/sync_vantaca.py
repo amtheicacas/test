@@ -24,3 +24,5 @@ class Command(BaseCommand):
         except vantaca.SafetyStop as e:
             raise CommandError(str(e))
         self.stdout.write(", ".join(f"{k} {v}" for k, v in r.items()))
+        if r.get("failed"):
+            raise CommandError(f"{r['failed']} row(s) could not be imported (the others were); see the Audit log for which. The scheduler should flag this run.")

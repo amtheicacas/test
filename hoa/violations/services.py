@@ -95,6 +95,13 @@ def recipient_groups(v):
     return groups
 
 
+def one_line(text, limit=200):
+    """Text for an email subject (or any one-line header): control characters and line breaks become spaces and runs of spaces collapse. A line
+    break in an owner's address (an import can bring one in) used to make EVERY email about that owner fail with "Header values can't contain
+    newlines", so the owner was never emailed a notice."""
+    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(text))).strip()[:limit]
+
+
 def _signature():
     contact = ", ".join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)
     return (f"\n\nQuestions? {contact}" if contact else "") + f"\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}"
@@ -178,7 +185,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
         mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
     sent_to, errors = [], []
     for who, emails, name in recipient_groups(v):
-        subject = f"{notice.get_kind_display()} - {v.owner.property_address} (Case #{v.pk})"       # built BEFORE the try: a failure below is
+        subject = one_line(f"{notice.get_kind_display()} - {v.owner.property_address} (Case #{v.pk})")       # built BEFORE the try: a failure below is
         body = (f"Dear {name},\n\nPlease see the attached {notice.get_kind_display().lower()} regarding "          # recorded with THIS recipient's text
                 f"{v.owner.property_address}.\n\nYou can view details, reply, request more time or send photos of the cure through the {settings.APP_NAME} here:\n"
                 f"{v.resident_url()}{_signature()}")
@@ -803,6 +810,7 @@ def dismiss(v, user=None, note=""):
 def _email_owner(v, subject, body):
     """Plain email to the owner(s) and tenant, each addressed by name. Returns the recipients."""
     to = []
+    subject = one_line(subject)
     for who, emails, name in recipient_groups(v):
         full = f"Dear {name},\n\n{body}\n\nView your case or reply: {v.resident_url()}{_signature()}"
         try:

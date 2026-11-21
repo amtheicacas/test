@@ -1643,7 +1643,11 @@ def import_owners(request):
                 if action == "apply":
                     result = vantaca.sync_rows(mapped, invite=bool(request.POST.get("invite")), actor=request.user)
                     sess.pop("import", None)
-                    messages.success(request, "Imported: " + ", ".join(f"{v} {k}" for k, v in result.items() if v))
+                    summary = ", ".join(f"{v} {k}" for k, v in result.items() if v)
+                    if result.get("failed"):
+                        messages.warning(request, f"Imported: {summary}. {result['failed']} row(s) could not be imported: see the Audit log for which rows and why.")
+                    else:
+                        messages.success(request, "Imported: " + summary)
                     return redirect("import_owners")
                 _, result, problems = vantaca.preview_rows(mapped)
                 ctx.update(step="preview", mapping=mapping, preview=result, problems=vantaca.group_problems(problems), n=len(rows))
