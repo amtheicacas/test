@@ -273,3 +273,18 @@ def test_weeds_finds_the_beds_and_lawn_clauses(db):
     assert "4.02-a" in top[:2] and "4.05-w" in top[:2], top
     assert [t.code for t in standards_search.local_search("weeds in planter")][0] == "4.02-a"
     assert [t.code for t in standards_search.local_search("weeds in my lawn")][0] == "4.05-w"
+
+
+def test_a_draft_case_says_where_to_submit_and_asks_for_the_missing_photo(client):
+    """A violation saved as a draft (for example because no photo was added) must show a clearly named way to submit it."""
+    manager(client)
+    o = Owner.objects.create(name="Draft Owner", property_address="9 Draft Way", email="d@example.com")
+    t = ViolationType.objects.get_or_create(name="Draft type", defaults={"default_cure_days": 15})[0]
+    v = Violation.objects.create(owner=o, vtype=t, description="d", cure_required="c", status="draft")
+    html = client.get(f"/violations/{v.pk}/").content.decode()
+    assert "Ready to submit?" in html and html.count("Submit Violation:") == 2
+    assert "A photo of the violation is required before it can be submitted" in html
+    b = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(b, "PNG")
+    Photo.objects.create(violation=v, image=SimpleUploadedFile("p.png", b.getvalue(), content_type="image/png"))
+    assert "A photo of the violation is required" not in client.get(f"/violations/{v.pk}/").content.decode()
