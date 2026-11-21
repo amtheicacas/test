@@ -88,3 +88,7 @@ Nothing else was removed. `vulture` at 60% confidence gave 66 function/class can
 3. Pin the dependencies.
 4. Wait for the attorney's final letters (Part B), then fix F-05 and the suspension wording together.
 5. Schedule the nightly jobs with heartbeats (the daily job now fails loudly, but nothing pings a monitor yet).
+
+---
+## Decision recorded: F-10 resolved
+The owner decided to **remove** `icac/` and the root `tests/`. Done. Nothing in `hoa/` referenced them, and they remain in git history (commit c1e1345).
