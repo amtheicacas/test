@@ -1,5 +1,6 @@
 """Force two-step login (authenticator app) for privileged roles, and for anyone who has turned it on."""
 from django.conf import settings
+from django.http import HttpResponseNotFound, QueryDict
 from django.shortcuts import redirect
 from django.urls import reverse
 from django_otp import user_has_device
@@ -7,6 +8,38 @@ from django_otp import user_has_device
 from . import accounts
 
 ALLOWED_PREFIXES = ("/security/", "/accounts/", "/static/")
+
+
+def _without_nul(data):
+    """The same form/link data with every NUL (0x00) character removed. Returns the SAME object when there is nothing to remove."""
+    if not any("\x00" in k or any("\x00" in v for v in vs) for k, vs in data.lists()):
+        return data
+    clean = QueryDict(mutable=True, encoding=data.encoding)
+    for k, vs in data.lists():
+        for v in vs:
+            clean.appendlist(k.replace("\x00", ""), v.replace("\x00", ""))
+    clean._mutable = False       # like the original: a request's form data cannot be changed afterwards
+    return clean
+
+
+class StripNulCharacters:
+    """PostgreSQL cannot store a NUL (0x00) character in text, so one typed or pasted into a form, a search box or a link (or sent by a
+    program) ended in a server error on the live site; the test database (SQLite) accepts it, which hid the problem. Every NUL is removed from
+    what is sent (form fields, search boxes, link parameters, in the website's own pages and the private owner links alike); a NUL in the
+    address itself is simply "page not found". Nothing a person legitimately types contains one."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if "\x00" in request.path_info:
+            return HttpResponseNotFound("Page not found", content_type="text/plain")
+        request.GET = _without_nul(request.GET)
+        return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        if request.method == "POST":                 # runs after Django's own check of the form's security code, which has already read the form
+            request.POST = _without_nul(request.POST)
 
 
 class RequireTwoStep:

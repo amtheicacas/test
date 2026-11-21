@@ -58,6 +58,14 @@ def _int(value, default=0):
         return default
 
 
+def _date(value):
+    """A date typed or put in a link by a person: anything that is not a real calendar date (YYYY-MM-DD) becomes None (never a server error)."""
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
+
+
 staff_only = role_required(*STAFF)
 staff_or_committee = role_required(*STAFF, "committee")
 def owner_only(fn):
@@ -330,8 +338,9 @@ def violation_list(request):
         qs = qs.filter(status__in=Violation.OPEN)
     elif status:
         qs = qs.filter(status=status)
-    if vtype:
-        qs = qs.filter(vtype_id=vtype)
+    type_id = _int(vtype, 0)
+    if 0 < type_id < 2 ** 31:               # a link edited by hand to something that is not a type number is simply not applied
+        qs = qs.filter(vtype_id=type_id)
     if g.get("reinspect"):
         qs = qs.filter(reinspect_on__isnull=False, status__in=Violation.OPEN)
     if g.get("overdue") in ("board", "hearing", "fine", "letter3"):
@@ -339,14 +348,15 @@ def violation_list(request):
     if q:
         qs = qs.filter(Q(owner__name__icontains=q) | Q(owner__property_address__icontains=q)
                        | Q(description__icontains=q) | Q(vtype__name__icontains=q))
-    if g.get("from"):
-        qs = qs.filter(observed_on__gte=g["from"])
-    if g.get("to"):
-        qs = qs.filter(observed_on__lte=g["to"])
+    frm, to = _date(g.get("from")), _date(g.get("to"))
+    if frm:
+        qs = qs.filter(observed_on__gte=frm)
+    if to:
+        qs = qs.filter(observed_on__lte=to)
     from .models import ViolationType
     return render(request, "violations/list.html", {"violations": qs, "status": status, "q": q, "statuses": S.choices,
                                                     "types": ViolationType.objects.filter(violation__isnull=False).distinct().order_by("name"), "vtype": vtype,
-                                                    "frm": g.get("from", ""), "to": g.get("to", "")})
+                                                    "frm": frm.isoformat() if frm else "", "to": to.isoformat() if to else ""})
 
 
 @staff_only
