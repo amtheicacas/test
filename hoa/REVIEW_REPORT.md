@@ -92,3 +92,14 @@ Nothing else was removed. `vulture` at 60% confidence gave 66 function/class can
 ---
 ## Decision recorded: F-10 resolved
 The owner decided to **remove** `icac/` and the root `tests/`. Done. Nothing in `hoa/` referenced them, and they remain in git history (commit c1e1345).
+
+---
+## Decisions recorded and carried out (owner answers)
+| # | Finding | Decision | Done |
+|---|---|---|---|
+| 1 | F-01b old `committee_vote` route | Restrict to Board/manager | `committee_vote` now `@staff_only` (committee members use the meeting page); abstention check kept; tests updated (`test_stabilisation.py`, `test_portal.py`, `test_access_matrix.py` now lists it as STAFF_ONLY). **User-visible change by the owner's decision.** |
+| 2 | F-08 double ledger posting | Fix now | `finalize_imposition`: one transaction that locks the case row, re-reads status and posting state, posts, and saves the posting together with the new status BEFORE any letter is sent; `board_review_item` saves through `_save_locked` so a stale second click cannot write an old status back. Two-thread test on PostgreSQL (`test_two_simultaneous_approvals_post_the_fine_to_the_ledger_only_once`) FAILS on the old code (both approvals went through) and passes now. SQLite cannot show the race (the test skips there). Residual: if the database itself fails in the instant after Vantaca accepted the post, the saved reference could roll back; a retry would then post again. |
+| 3 | F-05 unreadable photo | Warn on case | `services._warn_if_photo_unreadable` writes a "WARNING: ... built WITHOUT its photo" event on the case when a Notice of Violation, Second Notice or Notice of Hearing is built (and when a held mailing is released). `pdf.py` untouched; the letter is still produced and sent exactly as before. |
+| 4 | F-11 three unused settings | Keep until the attorney's letters arrive | Unchanged. Revisit with Part B. |
+| 5 | F-13 pin dependencies | Yes | `requirements-production.lock.txt` (exact versions from a clean Python 3.13 install; whole suite run against them; pip-audit: no known vulnerabilities), `requirements-dev.txt` (pytest, pytest-django), `README_DEPENDENCIES.md`; `build.sh` now installs the lock file (affects the NEXT Render deploy: if that build fails, say so). |
+| 6 | F-07 apostrophe in CSV cells | Accept | Unchanged. |

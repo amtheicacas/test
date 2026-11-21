@@ -268,3 +268,8 @@ Baseline `c12298b` (713 tests) -> last code commit `ab8d945`. 7 fixes with faili
 
 ### Update: unrelated ICAC prototype removed
 Decision (owner): the root `icac/` folder and root `tests/` folder (an unrelated earlier Flask membership app, REVIEW_REPORT.md F-10) were removed from the repository. Nothing in `hoa/` used them. They remain in git history (commit c1e1345). The root `README.md` was kept and marked as describing the removed project. The note in section 1 saying "`icac/` and `tests/` at the root are an unrelated earlier Flask app" is now historical.
+
+### Update: owner decisions on the review carried out (see REVIEW_REPORT.md "Decisions recorded and carried out")
+- Old committee vote route now Board/manager only; ledger posting made race-safe (verified with a real two-thread test on PostgreSQL 16; it failed on the old code); an unreadable letter photo now writes a visible WARNING on the case (pdf.py untouched); dependencies pinned (`requirements-production.lock.txt`, `requirements-dev.txt`, `README_DEPENDENCIES.md`; `build.sh` installs the lock). F-11 kept until the attorney's letters; F-07 accepted.
+- Tests now 845 on PostgreSQL (844 passed + 1 skipped on SQLite: the concurrency test needs PostgreSQL).
+- **DEFERRED, REMIND THE USER:** finish the staging 2FA sign-in (scan the QR code with an authenticator app, save the backup codes), then in Render's Shell run `python manage.py check_storage` (expect key lengths 25/31), import `staging-test-owners.csv`, and run the smoke tests in RENDER_STAGING.md section 8. Also outstanding: confirm SECRET_KEY was regenerated (user said yes), and check the database's allowed-IP list has no 0.0.0.0/0 (user asked for instructions; given in chat).

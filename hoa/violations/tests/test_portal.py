@@ -104,12 +104,18 @@ def test_committee_sees_only_assigned_cases(client):
     assert assigned.status == S.HEARING_SCHEDULED  # hearing hasn't happened yet, so no vote
 
 
-def test_committee_can_vote_after_meeting(client):
+def test_old_vote_page_is_board_and_manager_only_not_committee(client):
+    """Owner decision (REVIEW_REPORT F-01b): the old vote page skips the meeting-level review, so a committee member can't use it
+    (they record the decision on the meeting page); Board and manager still can."""
     v = make_case("1 A St", status=S.HEARING_SCHEDULED, proposed_fine=100)
     m = CommitteeMeeting.objects.create(starts_at=timezone.now() - timedelta(hours=1), zoom_link="https://z.us/1")
     v.committee_meeting, v.hearing_date = m, m.starts_at
     v.save()
     login(client, "committee")
+    assert client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "x"}).status_code == 403
+    v.refresh_from_db()
+    assert v.status == S.HEARING_SCHEDULED
+    login(client, "board")
     client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Photos and testimony confirm the violation."})
     v.refresh_from_db()
     assert v.status == S.LEDGER_PENDING and v.fine_amount == 100  # awaits Board/manager approval before the letter

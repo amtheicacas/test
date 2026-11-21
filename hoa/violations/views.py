@@ -1256,7 +1256,7 @@ def committee_case(request, pk):
         "can_vote": v.status == S.HEARING_SCHEDULED and v.hearing_date and v.hearing_date <= timezone.now()})
 
 
-@staff_or_committee
+@staff_only      # Board and manager only: a committee member records the decision on the meeting page, where the meeting-level review applies
 @require_POST
 def committee_vote(request, pk):
     v = get_object_or_404(Violation, pk=pk)

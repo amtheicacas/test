@@ -47,6 +47,34 @@ def _require(v, *allowed):
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
 
 
+def _save_locked(v, *allowed):
+    """Save the case's changes (including the new status already set on `v`) only if the case is STILL in one of the `allowed`
+    statuses, checked under a row lock. Used where two people (or a double click) could otherwise write over each other."""
+    new_status = v.status
+    with transaction.atomic():
+        _require(v, *allowed)          # re-reads the real status (and refuses if it moved on)
+        v.status = new_status
+        v.save()
+
+
+def _warn_if_photo_unreadable(v, kind, user=None):
+    """The letters that carry the first photo (Notice of Violation, Second Notice, Notice of Hearing) are built without it, silently, if the
+    stored photo cannot be read (pdf.py is frozen, so the check lives here). Record a visible WARNING on the case instead of hiding it."""
+    if kind not in (Notice.Kind.VIOLATION, Notice.Kind.SECOND, Notice.Kind.HEARING):
+        return
+    ph = v.photos.filter(from_resident=False).first()
+    if ph is None:
+        return
+    try:
+        from io import BytesIO
+        from reportlab.platypus import Image
+        with ph.image.open("rb") as fh:
+            Image(BytesIO(fh.read()))        # the same read and parse the letter does
+    except Exception as e:      # noqa: BLE001  (file missing from storage, storage unreachable, not a readable picture...)
+        log(v, f"WARNING: the violation photo could not be read, so the {Notice.Kind(kind).label.lower()} was built WITHOUT its photo. "
+               f"Check the photo on this case and tell the owner if the letter needs to be re-sent. ({type(e).__name__})"[:480], user)
+
+
 def recipient_groups(v):
     """[(who, emails, name)]: the owner(s) (every email on record) and, while the lease is active, the tenant(s).
     Each group gets its own email, addressed by name, with its own letter."""
@@ -131,6 +159,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             log(v, "NOTE: no exact copy of the original Notice of Violation was on file (it was sent before copies were kept), so a REBUILT copy "
                    "is attached to this Notice of Hearing.", user)
     notice = Notice.objects.create(violation=v, kind=kind)
+    _warn_if_photo_unreadable(v, kind, user)
     if hold_mail_days:
         notice.mail_hold_until = add_business_days(date.today(), hold_mail_days)
         notice.save()
@@ -197,6 +226,7 @@ def _mail_due(notice, user=None):
     """Hand a held notice to the mail provider now (it stays on the print list when no provider is on)."""
     notice.mail_tried_on = date.today()
     notice.save()
+    _warn_if_photo_unreadable(notice.violation, notice.kind, user)
     mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
 
 
@@ -1021,7 +1051,7 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
             raise WorkflowError("Say what the committee should look at again.")
         v.status, v.committee_outcome, v.board_review_note = S.HEARING_SCHEDULED, "", note.strip()
         v.committee_findings = (v.committee_findings + f"\n[Returned by the Board: {note.strip()}]").strip()
-        v.save()
+        _save_locked(v, S.LEDGER_PENDING)
         m.results_status, m.submitted_at, m.processed_at = CommitteeMeeting.Results.OPEN, None, None
         m.save()
         log(v, f"Board returned the committee result for another look: {note.strip()}", user)
@@ -1050,11 +1080,11 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
     result = None
     if final in ("confirm", "amend"):
         v.fine_amount = fine
-        v.save()
+        _save_locked(v, S.LEDGER_PENDING)      # refused if another Board member already processed this case
         result = finalize_imposition(v, user, method, reference)
     elif final == "waive":
         v.status, v.fine_amount, v.suspension = S.WAIVED, None, ""
-        v.save()
+        _save_locked(v, S.LEDGER_PENDING)
         cancel_held_mailings(v, "waived by the Compliance Committee")
         _email_owner(v, f"Violation waived: {v.owner.property_address}",
                      f"The Compliance Committee reviewed the {v.vtype.name.lower()} violation at {v.owner.property_address} and waived it. "
@@ -1063,7 +1093,7 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
         log(v, "Board processed: violation waived and closed" + (f" ({note.strip()})" if note and note.strip() else ""), user)
     else:   # the committee rejected the fine
         v.status, v.fine_amount, v.suspension = S.FINE_REJECTED, None, ""
-        v.save()
+        _save_locked(v, S.LEDGER_PENDING)
         log(v, "Board processed: committee rejected the fine; nothing imposed. Notice of committee decision sent.", user)
         result = send_notice(v, Notice.Kind.FINE, user)
     if not m.violations.filter(status=S.LEDGER_PENDING).exists():
@@ -1076,30 +1106,38 @@ def finalize_imposition(v, user=None, method="manual", reference="", today=None)
     """Board member / manager approves the Committee's decision: post the fine to the owner's ledger (Vantaca API, or record that
     it was posted by hand), then send the Notice of Imposition to the owner (and tenant). The fine is due FINE_PAYMENT_DAYS days
     after the letter date. The Committee's approval is what imposes the fine (no new Board vote); this step is the administrative
-    review and posting. Safe to retry: a fine already posted is never posted twice."""
-    _require(v, S.LEDGER_PENDING)
-    if v.committee_outcome in ("waive", "reject"):
-        raise WorkflowError("This committee result is a waiver or rejection: process it from the committee results page.")
+    review and posting.
+    Posting is done once even if two people approve at the same moment: the case row is locked, the status is re-read, and the
+    posting and the new status are saved together BEFORE any letter goes out. The second person is refused. (A fine already posted
+    is also never posted twice on a retry.)"""
     today = today or date.today()
-    if v.fine_amount and not v.ledger_posted_on:
-        if method == "api":
-            try:
-                reference = ledger.post_fine(v, today)
-            except ledger.LedgerError as e:
-                raise WorkflowError(str(e))
-            how = "posted to the Vantaca ledger"
-        else:
-            how = "recorded as posted in Vantaca by hand"
-        v.ledger_posted_on, v.ledger_reference = today, (reference or "").strip()[:120]
-        v.save(update_fields=["ledger_posted_on", "ledger_reference"])  # committed now, so a later hiccup can't cause a double post
-        log(v, f"Fine of ${v.fine_amount:,.2f} {how}" + (f" (ref {v.ledger_reference})" if v.ledger_reference else ""), user)
     with transaction.atomic():
-        v.status = S.FINE_APPROVED
-        v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS + settings.FINE_MAIL_BUFFER_DAYS) if v.fine_amount else None
-        v.suspension_effective_on = today if v.suspension else None
-        v.save()
+        _require(v, S.LEDGER_PENDING)            # locks the row and re-reads the real status: a second approval stops here
+        if v.committee_outcome in ("waive", "reject"):
+            raise WorkflowError("This committee result is a waiver or rejection: process it from the committee results page.")
+        v.refresh_from_db(fields=["ledger_posted_on", "ledger_reference"])      # the posting state as it is NOW, not as this page loaded it
+        if v.fine_amount and not v.ledger_posted_on:
+            if method == "api":
+                try:
+                    reference = ledger.post_fine(v, today)
+                except ledger.LedgerError as e:
+                    raise WorkflowError(str(e))
+                how = "posted to the Vantaca ledger"
+            else:
+                how = "recorded as posted in Vantaca by hand"
+            v.ledger_posted_on, v.ledger_reference = today, (reference or "").strip()[:120]
+            v.status = S.FINE_APPROVED         # saved in the same write as the posting
+            v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS + settings.FINE_MAIL_BUFFER_DAYS)
+            v.suspension_effective_on = today if v.suspension else None
+            v.save()
+            log(v, f"Fine of ${v.fine_amount:,.2f} {how}" + (f" (ref {v.ledger_reference})" if v.ledger_reference else ""), user)
+        else:
+            v.status = S.FINE_APPROVED
+            v.fine_due_on = today + timedelta(days=settings.FINE_PAYMENT_DAYS + settings.FINE_MAIL_BUFFER_DAYS) if v.fine_amount else None
+            v.suspension_effective_on = today if v.suspension else None
+            v.save()
         log(v, "Imposition approved" + (f"; fine due {v.fine_due_on:%b %d, %Y}" if v.fine_due_on else "") + ". Notice of committee decision (written findings) sent.", user)
-    notice = send_notice(v, Notice.Kind.FINE, user)
+    notice = send_notice(v, Notice.Kind.FINE, user)       # outside the transaction: a letter problem can never undo the posting
     _close_if_done(v, user)
     v.save()
     return notice

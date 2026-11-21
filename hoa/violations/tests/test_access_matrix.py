@@ -20,12 +20,12 @@ pytestmark = pytest.mark.django_db
 U = get_user_model()
 S = Violation.Status
 
-STAFF_ONLY = """dashboard violation_list violation_create standards_search violation_detail canned_replies board_bulk legal_refer legal_email
+STAFF_ONLY = """committee_vote dashboard violation_list violation_create standards_search violation_detail canned_replies board_bulk legal_refer legal_email
 owner_correspondence case_file sent_letter violation_action notice_mailed board_queue meetings meeting_manage meeting_assign_selected
 meeting_assign_all owner_archive owner_logins staff_logins audit_log results_list results_detail results_review import_owners import_template
 locate_homes map map_api""".split()
 COMMITTEE_OR_STAFF = """committee_home committee_meeting committee_meeting_save committee_submit meeting_minutes committee_members committee_minutes
-minutes_approve committee_case_record committee_case committee_vote site_visit_add site_visit_photo""".split()
+minutes_approve committee_case_record committee_case site_visit_add site_visit_photo""".split()
 OWNER_PAGES = "my_home my_violations my_hearing my_violation my_violation_state my_household my_password".split()
 KIND = {}
 for n in "violation_detail legal_refer legal_email case_file site_visit_add violation_action committee_case_record results_review committee_case committee_vote my_violation my_violation_state".split():

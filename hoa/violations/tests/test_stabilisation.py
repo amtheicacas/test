@@ -26,13 +26,12 @@ def past_hearing_case(owner):
     return m, v
 
 
-def test_a_committee_member_cannot_vote_on_their_own_violation_through_the_old_vote_page(client):
-    """F-01: the old /committee/cases/<id>/vote/ page had no abstention check, so an owner who also sits on the committee could decide
+def test_a_board_member_cannot_vote_on_their_own_violation_through_the_old_vote_page(client):
+    """F-01: the old /committee/cases/<id>/vote/ page had no abstention check, so an owner who is also on the Board could decide
     (reject) their own fine. The meeting page already blocks this; the old page must too."""
     me = Owner.objects.create(name="Dual Member", property_address="1 Own Way", email="dual@example.com")
     m, v = past_hearing_case(me)
-    u = mk("dual", "committee", me)
-    CommitteeMember.objects.create(name="Dual Member", year=timezone.localdate().year, user=u, owner=me)
+    u = mk("dual", "board", me)
     client.force_login(u)
     r = client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 0, "votes_against": 3, "findings": "I reject my own fine."}, follow=True)
     v.refresh_from_db()
@@ -43,7 +42,7 @@ def test_a_committee_member_cannot_vote_on_their_own_violation_through_the_old_v
 def test_a_household_member_on_the_roster_cannot_vote_either(client):
     owner = Owner.objects.create(name="Pat Owner", property_address="2 Own Way", email="pat@example.com")
     m, v = past_hearing_case(owner)
-    spouse = mk("spouse", "committee")                                         # a different login, but the roster says it is the same household
+    spouse = mk("spouse", "board")                                             # a different login, but the roster says it is the same household
     CommitteeMember.objects.create(name="Spouse Owner", year=timezone.localdate().year, user=spouse, owner=owner)
     client.force_login(spouse)
     client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 0, "votes_against": 3, "findings": "x"})
@@ -51,13 +50,17 @@ def test_a_household_member_on_the_roster_cannot_vote_either(client):
     assert v.status == S.HEARING_SCHEDULED
 
 
-def test_an_unrelated_committee_member_can_still_use_the_old_vote_page_as_before(client):
-    """The old page keeps working for everyone else: this fix only stops the conflict of interest."""
+def test_the_old_vote_page_is_now_for_board_and_manager_only(client):
+    """F-01b (owner decision): it skips the meeting-level review, so a committee member must use the meeting page instead."""
     other = Owner.objects.create(name="Someone Else", property_address="3 Other Way", email="se@example.com")
     m, v = past_hearing_case(other)
-    u = mk("member", "committee")
-    CommitteeMember.objects.create(name="Member", year=timezone.localdate().year, user=u)
-    client.force_login(u)
+    member = mk("member", "committee")
+    CommitteeMember.objects.create(name="Member", year=timezone.localdate().year, user=member)
+    client.force_login(member)
+    r = client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Confirmed."})
+    v.refresh_from_db()
+    assert r.status_code == 403 and v.status == S.HEARING_SCHEDULED and v.committee_votes_for is None
+    client.force_login(mk("boss", "board"))
     client.post(f"/committee/cases/{v.pk}/vote/", {"votes_for": 3, "votes_against": 0, "findings": "Confirmed."})
     v.refresh_from_db()
     assert v.status == S.LEDGER_PENDING and v.committee_votes_for == 3
