@@ -5,7 +5,6 @@
 * the same six steps for the Board / Manager with sub-steps (done / current / not yet / bypassed) and their dates.
 
 All wording lives here, so renaming a step or sentence is a one-place edit."""
-from datetime import date
 
 from django.utils import timezone
 
