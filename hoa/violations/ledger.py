@@ -4,7 +4,11 @@ IMPORTANT: this is configurable rather than hard-wired because Vantaca's ledger/
 Get the endpoint, required fields, charge code and a test environment from Vantaca vendor support, then set
 VANTACA_LEDGER_POST_PATH, VANTACA_FINE_CHARGE_CODE and (if their fields differ) VANTACA_LEDGER_BODY. Until then
 posting is manual: staff post the fine in Vantaca and record the reference here. It has not been run against a live account."""
+import http.client
 import json
+import socket
+import ssl
+import urllib.error
 from string import Template
 
 from django.conf import settings
@@ -38,6 +42,18 @@ def build_body(v, today):
     return json.loads(body)
 
 
+def maybe_posted(e):
+    """True when Vantaca MAY have acted on the request before it failed: it took too long, the connection dropped, its answer could not be read,
+    or it reported a server error. False when the request clearly never got that far (not set up, refused, a 4xx answer, could not connect)."""
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code >= 500
+    if isinstance(e, urllib.error.URLError):
+        return not isinstance(e.reason, (ConnectionRefusedError, socket.gaierror, ssl.SSLError))
+    if isinstance(e, (ConnectionRefusedError, socket.gaierror, ssl.SSLError)):
+        return False
+    return isinstance(e, (OSError, http.client.HTTPException, ValueError))     # time-out, dropped connection, unreadable answer
+
+
 def post_fine(v, today):
     """Post v.fine_amount to the owner's Vantaca account. Returns the transaction reference."""
     if not configured():
@@ -47,6 +63,9 @@ def post_fine(v, today):
     try:
         reply = vantaca.api_request("POST", settings.VANTACA_LEDGER_POST_PATH, build_body(v, today))
     except Exception as e:
+        if maybe_posted(e):
+            raise LedgerError(f"Vantaca did not accept the posting ({e}). It is NOT certain that nothing was posted: look in Vantaca for the charge "
+                              f"{reference_for(v)} BEFORE you retry or post it by hand, so the owner is not charged twice.")
         raise LedgerError(f"Vantaca did not accept the posting ({e}). Nothing was posted; you can retry or post it by hand.")
     ref = reply.get(settings.VANTACA_LEDGER_REF_KEY) if isinstance(reply, dict) else None
     return str(ref) if ref else reference_for(v)

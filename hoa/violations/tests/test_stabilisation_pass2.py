@@ -83,15 +83,18 @@ def test_the_nul_filter_cleans_get_and_post_and_leaves_clean_requests_untouched(
 # ======================================================================================================================================
 # Mail dispatch safety (LB-1, LB-2, KEY-1, LB-5)
 # ======================================================================================================================================
+import http.client
+import socket
 import threading
 import time
+import urllib.error
 from datetime import date, timedelta
 from unittest import mock
 
 from django.db import connection, connections
 
 from violations import mailing, services
-from violations.models import MailPiece, Notice, Violation
+from violations.models import MailPiece, Notice, Owner, Violation, ViolationType
 from violations.tests.test_certified_mail import ADDR, _FakeResponse
 from violations.tests.test_tenant_mail import rented  # noqa: F401  (an owner with a mailing address, a property address and a tenant, MAIL_PROVIDER=lob)
 
@@ -414,3 +417,131 @@ def test_NUM2_proper_amounts_still_work(django_user_model):
 def test_CSV1_a_cell_that_could_run_as_a_formula_is_defused(text, safe):
     from violations import casefile
     assert casefile._safe_cell(text) == safe
+
+
+# ======================================================================================================================================
+# Recording what happened to each mailed letter (PIECE-1)
+# ======================================================================================================================================
+NUM = "94071000000000000000"
+
+
+def _mailed_piece(world):
+    piece = MailPiece.objects.get()
+    services.record_piece_mailed(piece, date.today() - timedelta(days=3), NUM)
+    return piece
+
+
+def test_PIECE1_a_stale_page_cannot_overwrite_a_delivery_that_was_just_recorded(world):
+    piece = _mailed_piece(world)
+    first, stale = MailPiece.objects.get(pk=piece.pk), MailPiece.objects.get(pk=piece.pk)
+    services.record_piece_delivered(first, date.today() - timedelta(days=1))
+    with pytest.raises(services.WorkflowError, match="recorded as delivered"):
+        services.record_piece_not_delivered(stale, "refused")                    # (used to pass: the stale copy still said "not delivered")
+    piece.refresh_from_db()
+    assert piece.delivered_on and not piece.problem and piece.status == "Delivered"
+
+
+def test_PIECE1_a_stale_page_cannot_clear_a_problem_that_was_already_cleared_nor_report_it_twice(world):
+    piece = _mailed_piece(world)
+    services.record_piece_not_delivered(MailPiece.objects.get(pk=piece.pk), "refused")
+    a, b = MailPiece.objects.get(pk=piece.pk), MailPiece.objects.get(pk=piece.pk)
+    services.record_piece_handled(a, "Called the owner")
+    with pytest.raises(services.WorkflowError, match="nothing to clear"):
+        services.record_piece_handled(b, "Called the owner again")
+    assert Violation.objects.get().events.filter(text__contains="marked handled").count() == 1
+
+
+def test_PIECE1_an_error_half_way_leaves_the_letter_unchanged(world):
+    piece = MailPiece.objects.get()
+    with mock.patch.object(services, "_sync_notice_from_pieces", side_effect=RuntimeError("database hiccup")):
+        with pytest.raises(RuntimeError):
+            services.record_piece_mailed(piece, date.today() - timedelta(days=3), NUM)
+    fresh = MailPiece.objects.get(pk=piece.pk)
+    assert fresh.mailed_on is None and fresh.tracking_number == ""                # all or nothing: not half recorded
+    assert not Violation.objects.get().events.filter(text__contains="mailed").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_PIECE1_two_people_recording_the_two_letters_of_one_notice_at_once_still_mark_the_notice_mailed(world):
+    if connection.vendor != "postgresql":
+        pytest.skip("row locks need PostgreSQL; run with DATABASE_URL set")
+    n = Notice.objects.get()
+    other = MailPiece.objects.create(notice=n, label="owner property", service="first_class", by_hand=True, status="To be mailed")
+    first = MailPiece.objects.exclude(pk=other.pk).get()
+    real = services._sync_notice_from_pieces
+
+    def slow_sync(notice):
+        time.sleep(0.4)                    # long enough for the other person's save to happen before this one works out the notice
+        return real(notice)
+
+    def record(piece):
+        try:
+            services.record_piece_mailed(MailPiece.objects.get(pk=piece.pk), date.today(), NUM if piece.service == "certified" else "")
+        finally:
+            connections.close_all()
+    with mock.patch.object(services, "_sync_notice_from_pieces", side_effect=slow_sync):
+        ts = [threading.Thread(target=record, args=(p,)) for p in (first, other)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+    n.refresh_from_db()
+    assert n.mailed_on == date.today() and n.tracking_number == NUM
+
+
+# ======================================================================================================================================
+# Submitting a meeting's results twice (RM-5) and the ledger message after a time-out (LEDGER-1)
+# ======================================================================================================================================
+@pytest.mark.django_db(transaction=True)
+def test_RM5_two_people_submitting_a_meetings_results_at_once_submit_them_only_once(django_user_model):
+    if connection.vendor != "postgresql":
+        pytest.skip("row locks need PostgreSQL; run with DATABASE_URL set")
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="ok")
+    real_log, results = services.log, []
+
+    def slow_log(v, text, user=None):
+        real_log(v, text, user)
+        time.sleep(0.4)
+
+    def submit():
+        try:
+            from violations.models import CommitteeMeeting
+            services.submit_meeting_results(CommitteeMeeting.objects.get(pk=m.pk), cu)          # each person's page loaded the meeting before either clicked
+            results.append("ok")
+        except services.WorkflowError:
+            results.append("refused")
+        finally:
+            connections.close_all()
+    with mock.patch.object(services, "log", side_effect=slow_log):
+        ts = [threading.Thread(target=submit) for _ in range(2)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+    assert sorted(results) == ["ok", "refused"], results
+    assert Violation.objects.get(pk=a.pk).events.filter(text__startswith="Committee results submitted").count() == 1
+
+
+def test_RM5_a_stale_second_submit_is_refused(django_user_model):
+    from violations.models import CommitteeMeeting
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="ok")
+    first, stale = CommitteeMeeting.objects.get(pk=m.pk), CommitteeMeeting.objects.get(pk=m.pk)
+    services.submit_meeting_results(first, cu)
+    with pytest.raises(services.WorkflowError, match="already submitted"):
+        services.submit_meeting_results(stale, cu)
+
+
+@pytest.mark.parametrize("error,says_maybe", [
+    (TimeoutError("timed out"), True), (ConnectionResetError("reset"), True), (ValueError("not JSON"), True), (http.client.RemoteDisconnected("closed"), True),
+    (urllib.error.HTTPError("https://v", 502, "Bad Gateway", {}, None), True), (urllib.error.URLError(TimeoutError("timed out")), True),
+    (urllib.error.HTTPError("https://v", 422, "Unprocessable", {}, None), False), (urllib.error.URLError(ConnectionRefusedError("refused")), False),
+    (urllib.error.URLError(socket.gaierror("no such host")), False), (RuntimeError("Vantaca API is not configured"), False)])
+def test_LEDGER1_after_a_time_out_the_message_does_not_claim_that_nothing_was_posted(settings, error, says_maybe):
+    from violations import ledger, vantaca
+    settings.VANTACA_LEDGER_POST_PATH, settings.VANTACA_FINE_CHARGE_CODE, settings.VANTACA_BASE_URL = "/ledger", "FINE", "https://vantaca.example"
+    o = Owner.objects.create(name="Pat", property_address="1 A St", account_number="A1")
+    v = Violation.objects.create(owner=o, vtype=ViolationType.objects.create(name="T3"), description="d", cure_required="c", fine_amount=100)
+    with mock.patch.object(vantaca, "api_request", side_effect=error):
+        with pytest.raises(ledger.LedgerError) as e:
+            ledger.post_fine(v, date.today())
+    text = str(e.value)
+    assert ("NOT certain" in text and f"HOA-VIOL-{v.pk}" in text and "Nothing was posted" not in text) == says_maybe
+    assert ("Nothing was posted" in text) != says_maybe

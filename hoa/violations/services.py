@@ -47,12 +47,12 @@ def _require(v, *allowed):
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
 
 
-def _fresh(v, *fields):
-    """Lock the case's row and re-read the named fields (call inside a transaction). A decision about a double click, or about two people acting
-    at once, must use what is true NOW, not what this request loaded a moment ago."""
-    row = Violation.objects.select_for_update().filter(pk=v.pk).values(*fields).first()
+def _fresh(obj, *fields):
+    """Lock the row of a case (or any record) and re-read the named fields (call inside a transaction). A decision about a double click, or
+    about two people acting at once, must use what is true NOW, not what this request loaded a moment ago."""
+    row = type(obj).objects.select_for_update().filter(pk=obj.pk).values(*fields).first()
     for k, value in (row or {}).items():
-        setattr(v, k, value)
+        setattr(obj, k, value)
 
 
 def _save_locked(v, *allowed):
@@ -361,9 +361,21 @@ def _check_day(day, label, today, not_before=None):
         raise WorkflowError(f"{label[0].upper() + label[1:]} can't be before it was mailed ({short_date(not_before)}).")
 
 
+def _lock_piece(piece):
+    """Lock the letter (and, first, its notice: the letters of one notice are recorded one at a time, so the notice's 'mailed on' and tracking number
+    are always worked out from ALL of them) and re-read it. Call inside a transaction. Two people, or a double click, can then never overwrite
+    each other, and every check that follows uses the letter as it is NOW."""
+    notice_id = MailPiece.objects.filter(pk=piece.pk).values_list("notice_id", flat=True).first()
+    Notice.objects.select_for_update().filter(pk=notice_id).first()
+    MailPiece.objects.select_for_update().filter(pk=piece.pk).first()
+    piece.refresh_from_db()
+
+
+@transaction.atomic
 def record_piece_mailed(piece, mailed_on, tracking="", user=None, today=None):
     """A letter was handed to the post office. A certified letter needs its tracking number (from the Certified Mail receipt).
     Also used to correct the date or number later."""
+    _lock_piece(piece)
     today = today or date.today()
     _check_day(mailed_on, "the date it was mailed", today)
     tracking = clean_tracking_number(tracking)
@@ -387,8 +399,10 @@ def record_piece_mailed(piece, mailed_on, tracking="", user=None, today=None):
     return piece
 
 
+@transaction.atomic
 def record_piece_delivered(piece, delivered_on, user=None, today=None):
     """The post office delivered it (tracking says delivered, or the signed return receipt came back)."""
+    _lock_piece(piece)
     today = today or date.today()
     if not piece.is_certified:
         raise WorkflowError("Only certified mail has a delivery record (first class mail has no tracking).")
@@ -403,9 +417,11 @@ def record_piece_delivered(piece, delivered_on, user=None, today=None):
     return piece
 
 
+@transaction.atomic
 def record_piece_not_delivered(piece, reason, on=None, note="", user=None, today=None):
     """The letter could not be delivered (unclaimed, refused, returned...). It shows on the Board/manager home screen until someone
     records what was done about it ('handled')."""
+    _lock_piece(piece)
     today = today or date.today()
     if not piece.is_certified:
         raise WorkflowError("Only certified mail has a delivery record (first class mail has no tracking).")
@@ -428,9 +444,11 @@ def record_piece_not_delivered(piece, reason, on=None, note="", user=None, today
     return piece
 
 
+@transaction.atomic
 def record_piece_handled(piece, note, user=None, today=None):
     """Clear a delivery problem from the home screen once someone has dealt with it (the note says how), or mark a letter that was
     never mailed as 'not needed'. The record stays; only the warning goes away."""
+    _lock_piece(piece)
     today = today or date.today()
     note = (note or "").strip()
     if len(note) < 3:
@@ -1262,10 +1280,13 @@ def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_a
 
 @transaction.atomic
 def submit_meeting_results(m, user=None):
-    """The committee is done: every case needs a decision. Cases move to administrative review; nothing is imposed yet."""
+    """The committee is done: every case needs a decision. Cases move to administrative review; nothing is imposed yet.
+    The meeting and its cases are locked and re-read first: two people pressing Submit at once (or a decision saved at that moment) can
+    neither submit twice nor lose a decision."""
+    _fresh(m, "results_status")
     if m.results_status != CommitteeMeeting.Results.OPEN:
         raise WorkflowError("These results were already submitted.")
-    cases = list(m.violations.filter(status=S.HEARING_SCHEDULED))
+    cases = list(m.violations.select_for_update().filter(status=S.HEARING_SCHEDULED))
     if not cases:
         raise WorkflowError("There are no cases waiting for a decision at this meeting.")
     undecided = [v for v in cases if not v.committee_outcome]
