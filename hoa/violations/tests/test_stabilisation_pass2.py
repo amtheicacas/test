@@ -235,3 +235,182 @@ def test_ADV1_a_hold_lifted_by_someone_else_a_moment_ago_does_not_break_the_page
     with mock.patch.object(services, "log", side_effect=log_then_lift_the_other_hold):
         assert services.lift_expired_holds(date.today()) == 1
     assert Violation.objects.get(pk=lifted[0]).status == S_NOTICE_SENT
+
+
+# ======================================================================================================================================
+# Reminders, re-inspection, extensions (RM-1, RM-1b, RM-3, EXT-1)
+# ======================================================================================================================================
+from django.core import mail
+
+from violations.models import Reminder
+from violations.tests.test_extensions import TODAY, case  # noqa: E402
+
+
+def test_RM1_a_cure_reminder_that_could_not_be_emailed_is_not_marked_as_sent_and_is_tried_again(settings):
+    settings.REMINDER_DAYS = (7, 2)
+    v = case(deadline_in=2)
+    with mock.patch("violations.services.EmailMessage.send", side_effect=OSError("mail server down")):
+        assert services.send_cure_reminders() == 0
+    assert not Reminder.objects.filter(violation=v).exists()                                    # (used to be recorded as sent: never retried)
+    assert not v.events.filter(text__startswith="Reminder emailed").exists()
+    mail.outbox.clear()
+    assert services.send_cure_reminders() == 1                                                  # the mail server is back: the next daily job sends it
+    assert len(mail.outbox) == 1 and Reminder.objects.filter(violation=v, sent_at__isnull=False).count() == 1
+    assert v.events.filter(text__startswith="Reminder emailed").count() == 1
+    assert services.send_cure_reminders() == 0                                                  # and only once
+
+
+def test_RM1b_a_hold_reminder_that_could_not_be_emailed_is_not_marked_as_sent_and_is_tried_again(settings):
+    settings.REMINDER_DAYS = (7, 2)
+    v = case(deadline_in=30, status=Violation.Status.ON_HOLD, hold_until=TODAY + timedelta(days=5))
+    with mock.patch("violations.services.EmailMessage.send", side_effect=OSError("mail server down")):
+        assert services.send_hold_reminders() == 0
+    assert not Reminder.objects.filter(violation=v).exists()
+    assert not v.events.filter(text__startswith="Hold-ending reminder emailed").exists()
+    mail.outbox.clear()
+    assert services.send_hold_reminders() == 1 and len(mail.outbox) == 1
+    assert Reminder.objects.filter(violation=v, sent_at__isnull=False).count() == 1
+    assert services.send_hold_reminders() == 0
+
+
+def test_RM1b_a_hold_with_nobody_to_email_is_recorded_as_skipped_not_as_sent(settings):
+    settings.REMINDER_DAYS = (7, 2)
+    v = case(deadline_in=30, status=Violation.Status.ON_HOLD, hold_until=TODAY + timedelta(days=5), email="")
+    assert services.send_hold_reminders() == 0
+    assert Reminder.objects.filter(violation=v).count() == 1 and Reminder.objects.filter(violation=v, sent_at__isnull=False).count() == 0
+
+
+def test_RM3_a_double_click_on_reinspect_does_not_thank_the_owner_twice():
+    v = case(deadline_in=5)
+    first, second = Violation.objects.get(pk=v.pk), Violation.objects.get(pk=v.pk)           # two pages loaded before either click
+    services.mark_reinspect(first)
+    with pytest.raises(services.WorkflowError):
+        services.mark_reinspect(second)
+    assert v.responses.filter(from_resident=False, message__startswith="Thank you. Your reply has been received").count() == 1
+    assert v.events.filter(text__startswith="Marked for re-inspection").count() == 1
+
+
+def test_RM3_a_double_click_on_the_reinspection_result_does_not_message_the_owner_twice():
+    v = case(deadline_in=5)
+    services.mark_reinspect(v, notify=False)
+    first, second = Violation.objects.get(pk=v.pk), Violation.objects.get(pk=v.pk)
+    services.reinspect_result(first, corrected=False, note="Still there")
+    with pytest.raises(services.WorkflowError):
+        services.reinspect_result(second, corrected=False, note="Still there")
+    assert v.responses.filter(message__startswith="We re-inspected").count() == 1
+    assert v.events.filter(text__startswith="Re-inspected: still not corrected").count() == 1
+
+
+def test_EXT1_give_more_time_cannot_shorten_the_cure_period():
+    v = case(deadline_in=10)
+    for bad in (TODAY + timedelta(days=3), TODAY + timedelta(days=10)):                       # earlier than, or equal to, the current deadline
+        with pytest.raises(services.WorkflowError, match="later than the current deadline"):
+            services.grant_extension(v, new_deadline=bad)
+    v.refresh_from_db()
+    assert v.cure_deadline == TODAY + timedelta(days=10) and v.extended_days == 0 and mail.outbox == []
+    services.grant_extension(v, new_deadline=TODAY + timedelta(days=11))                      # a later date still works
+    v.refresh_from_db()
+    assert v.cure_deadline == TODAY + timedelta(days=11) and v.extended_days == 1
+
+
+def test_EXT1_a_second_notice_may_still_reset_the_deadline_to_any_future_date():
+    v = case(deadline_in=10)
+    services.grant_extension(v, new_deadline=TODAY + timedelta(days=4), second_notice=True)
+    v.refresh_from_db()
+    assert v.cure_deadline == TODAY + timedelta(days=4)
+
+
+# ======================================================================================================================================
+# Staff input that is not a number / not one of ours (RM-2, NUM-1, NUM-2, CSV-1)
+# ======================================================================================================================================
+from violations.tests.test_history_nav import _meeting_with  # noqa: E402
+
+
+@pytest.mark.parametrize("do", ["download", "send"])
+def test_RM2_tampered_attachment_keys_on_the_attorney_email_are_ignored_not_a_server_error(world, do):
+    Violation.objects.filter(pk=world["ids"]["violation"]).update(status=Violation.Status.REFERRED_LEGAL)
+    r = board_client(world).post(reverse("legal_email", args=[world["ids"]["violation"]]),
+                                 {"do": do, "to": "lawyer@example.com", "subject": "s", "body": "b",
+                                  "att": ["letter-abc", "photo-", "letter-99999999999999999999999", "x", "letter--1", "photo-1e5", "letter-", "photo-٣"]})
+    assert r.status_code in (200, 302), r.status_code
+
+
+def test_RM2_real_attachment_keys_still_work(world):
+    vid = world["ids"]["violation"]
+    Violation.objects.filter(pk=vid).update(status=Violation.Status.REFERRED_LEGAL)
+    draft = services.legal_email_draft(Violation.objects.get(pk=vid))
+    keys = [a["key"] for a in draft["attachments"]]
+    assert any(k.startswith("letter-") for k in keys) and any(k.startswith("photo-") for k in keys)
+    r = board_client(world).post(reverse("legal_email", args=[vid]), {"do": "download", "to": "l@example.com", "subject": "s", "body": "b", "att": keys})
+    assert r.status_code == 200 and r["Content-Type"] == "application/zip"
+    import io, zipfile
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "email-draft.txt" in names and len(names) == 1 + len(keys)
+
+
+@pytest.mark.parametrize("votes", [(4, -1), (-1, 4), (3, 200), (500, 0), (0, -3)])
+def test_NUM1_negative_or_absurd_vote_counts_are_refused(django_user_model, votes):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    with pytest.raises(services.WorkflowError, match="whole numbers"):
+        services.committee_record(a, "confirm", cu, votes_for=votes[0], votes_against=votes[1], findings="ok")
+    a.refresh_from_db()
+    assert a.committee_outcome == "" and a.committee_votes_for is None
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="ok")          # a normal vote still works
+
+
+def test_NUM1_the_older_vote_service_refuses_negative_counts_too(django_user_model):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    with pytest.raises(services.WorkflowError, match="whole numbers"):
+        services.committee_decide(a, 4, -1, cu)
+    a.refresh_from_db()
+    assert a.status == Violation.Status.HEARING_SCHEDULED
+
+
+def test_NUM1_through_the_page_a_vote_of_4_to_minus_1_records_nothing(django_user_model):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    c = Client(raise_request_exception=False)
+    c.force_login(cu)
+    r = c.post(f"/committee/cases/{a.pk}/record/", {"outcome": "confirm", "votes_for": "4", "votes_against": "-1", "findings": "x"})
+    assert r.status_code == 302
+    a.refresh_from_db()
+    assert a.committee_outcome == "" and a.committee_votes_for is None
+
+
+@pytest.mark.parametrize("bad", ["abc", "NaN", "-NaN", "sNaN", "Infinity", "-Infinity", "1e999", "12.345", "99999999", "1,000", "$100", "--5"])
+def test_NUM2_an_amount_that_is_not_money_is_a_plain_message_never_a_server_error(django_user_model, bad):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    with pytest.raises(services.WorkflowError):
+        services.committee_record(a, "amend", cu, amount=bad, votes_for=3, votes_against=0, findings="x")
+    c = Client(raise_request_exception=False)
+    c.force_login(cu)
+    assert c.post(f"/committee/cases/{a.pk}/record/", {"outcome": "amend", "amount": bad, "votes_for": "3", "votes_against": "0", "findings": "x"}).status_code == 302
+    a.refresh_from_db()
+    assert a.committee_outcome == "" and a.committee_amended_fine is None
+
+
+def test_NUM2_a_Board_modify_with_a_bad_amount_is_a_plain_message(django_user_model):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    services.committee_record(a, "confirm", cu, votes_for=3, votes_against=0, findings="ok")
+    services.submit_meeting_results(m, cu)
+    a.refresh_from_db()
+    for bad in ("abc", "NaN", "12.345", "1e999"):
+        with pytest.raises(services.WorkflowError):
+            services.board_review_item(a, cu, "modify", amount=bad)
+    services.board_review_item(a, cu, "modify", amount="40")                                         # a proper amount still works
+    a.refresh_from_db()
+    assert a.fine_amount == 40
+
+
+def test_NUM2_proper_amounts_still_work(django_user_model):
+    m, (a,), cu = _meeting_with(1, django_user_model)
+    services.committee_record(a, "amend", cu, amount="60.50", votes_for=3, votes_against=0, findings="x")
+    a.refresh_from_db()
+    assert str(a.committee_amended_fine) == "60.50"
+
+
+@pytest.mark.parametrize("text,safe", [("- 1+cmd|' /C calc'!A0", "'- 1+cmd|' /C calc'!A0"), ("- gate was open", "'- gate was open"), ("  =1+1", "'  =1+1"),
+                                       ("@SUM(1)", "'@SUM(1)"), ("\n=1+1", "'\n=1+1"), ("+1", "'+1"), ("=1", "'=1"), ("\t=1", "'\t=1"),
+                                       ("Gate was open", "Gate was open"), ("Re: - note", "Re: - note"), ("   ", "   "), ("", "")])
+def test_CSV1_a_cell_that_could_run_as_a_formula_is_defused(text, safe):
+    from violations import casefile
+    assert casefile._safe_cell(text) == safe

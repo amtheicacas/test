@@ -9,7 +9,7 @@ Follows the Heron Landing "Violation and Fining Procedure" (rev. Oct 2026) and f
 """
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.mail import EmailMessage
@@ -45,6 +45,14 @@ def _require(v, *allowed):
             v.status = current
     if v.status not in allowed:
         raise WorkflowError(f"Not allowed while status is '{v.get_status_display()}'.")
+
+
+def _fresh(v, *fields):
+    """Lock the case's row and re-read the named fields (call inside a transaction). A decision about a double click, or about two people acting
+    at once, must use what is true NOW, not what this request loaded a moment ago."""
+    row = Violation.objects.select_for_update().filter(pk=v.pk).values(*fields).first()
+    for k, value in (row or {}).items():
+        setattr(v, k, value)
 
 
 def _save_locked(v, *allowed):
@@ -541,6 +549,8 @@ def legal_attachments(v):
 def legal_attachment_bytes(v, key):
     import os
     kind, _, pk = key.partition("-")
+    if not (pk.isascii() and pk.isdigit() and len(pk) <= 18):      # a key that is not one of ours (edited by hand): simply no attachment
+        return None
     if kind == "letter":
         n = v.notices.filter(pk=pk).first()
         return (f"{n.kind}-letter-{timezone.localtime(n.created_at):%Y-%m-%d}.pdf", render_notice_pdf(n, "owner"), "application/pdf") if n else None
@@ -688,8 +698,17 @@ def lift_expired_holds(today=None):
     return n
 
 
+def _record_reminders(v, deadline, todo, sent_at):
+    """Record the reminder thresholds in `todo` as dealt with: the most urgent one with the time it was emailed (None = skipped), the rest as
+    skipped so they never fire later."""
+    for d in todo:
+        Reminder.objects.get_or_create(violation=v, deadline=deadline, days_before=d, defaults={"sent_at": sent_at if d == todo[0] else None})
+
+
 def send_hold_reminders(today=None):
-    """Daily job: warn the owner that a hold is about to end and that they need to take action to cure (REMINDER_DAYS before)."""
+    """Daily job: warn the owner that a hold is about to end and that they need to take action to cure (REMINDER_DAYS before).
+    A reminder is recorded as sent only when at least one email really went out; if every email failed, nothing is recorded and the next
+    daily job tries again."""
     today = today or date.today()
     sent = 0
     for v in Violation.objects.filter(status=S.ON_HOLD, hold_until__gt=today).select_related("owner", "vtype"):
@@ -701,18 +720,19 @@ def send_hold_reminders(today=None):
         todo = [d for d in due if d not in done]
         if not todo:
             continue
-        for d in todo:
-            Reminder.objects.get_or_create(violation=v, deadline=v.hold_until, days_before=d,
-                                           defaults={"sent_at": timezone.now() if d == todo[0] else None})
         if not recipient_groups(v):
+            _record_reminders(v, v.hold_until, todo, None)         # nobody to email: skipped, not "sent"
             continue
         when = "tomorrow" if left == 1 else f"in {left} days"
-        _email_owner(v, f"Reminder: the hold on the violation at {v.owner.property_address} ends {when}",
-                     f"The hold on the {v.vtype.name.lower()} violation at {v.owner.property_address} ends on {v.hold_until:%A, %B %d, %Y} ({when}). "
-                     "When it ends, the cure period starts over"
-                     + (" and the violation must be corrected immediately" if v.cure_days == 0 else f" and you will have {v.cure_days} days to correct it")
-                     + f".\n\nRequired cure: {v.cure_required}\n\nPlease take action now so the violation is corrected before the hold ends. "
-                     "If it is already corrected, tell us (a photo helps) so it can be reinspected. If you need more time, please contact us before the hold ends.")
+        emailed = _email_owner(v, f"Reminder: the hold on the violation at {v.owner.property_address} ends {when}",
+                               f"The hold on the {v.vtype.name.lower()} violation at {v.owner.property_address} ends on {v.hold_until:%A, %B %d, %Y} ({when}). "
+                               "When it ends, the cure period starts over"
+                               + (" and the violation must be corrected immediately" if v.cure_days == 0 else f" and you will have {v.cure_days} days to correct it")
+                               + f".\n\nRequired cure: {v.cure_required}\n\nPlease take action now so the violation is corrected before the hold ends. "
+                               "If it is already corrected, tell us (a photo helps) so it can be reinspected. If you need more time, please contact us before the hold ends.")
+        if not emailed:
+            continue                  # every email failed (each failure is on the case): not recorded, so the next daily job tries again
+        _record_reminders(v, v.hold_until, todo, timezone.now())
         log(v, f"Hold-ending reminder emailed ({left} day{'s' if left != 1 else ''} left)")
         sent += 1
     return sent
@@ -723,6 +743,7 @@ def mark_reinspect(v, user=None, note="", notify=True):
     """The owner says it is fixed: flag the case 'Re-inspect'. The case keeps aging in its stage and stays on the verify list
     (dashboard and Board queue) until someone verifies it or records that it is still not corrected."""
     _require(v, *[st for st in Violation.OPEN if st != S.DRAFT])
+    _fresh(v, "reinspect_on")
     if v.reinspect_on:
         raise WorkflowError("This case is already marked for re-inspection.")
     v.reinspect_on = date.today()
@@ -737,6 +758,7 @@ def mark_reinspect(v, user=None, note="", notify=True):
 @transaction.atomic
 def reinspect_result(v, corrected, user=None, note=""):
     """Record the result of the re-inspection: verified corrected (closes the case) or still not corrected (the case carries on)."""
+    _fresh(v, "reinspect_on")
     if not v.reinspect_on:
         raise WorkflowError("This case is not marked for re-inspection.")
     if corrected:
@@ -792,6 +814,9 @@ def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, sec
     if new_deadline <= date.today():
         raise WorkflowError(f"The new deadline ({new_deadline:%b %d, %Y}) would already be in the past. "
                             "Enter a later exact date, or more days.")
+    if old and new_deadline <= old and not second_notice:      # "more time" must never shorten the cure period (a second notice may reset it to any future date)
+        raise WorkflowError(f"The new deadline ({new_deadline:%b %d, %Y}) is not later than the current deadline ({old:%b %d, %Y}). "
+                            "To give more time, enter a later exact date, or a number of days to add.")
     added = (new_deadline - old).days if old else 0
     v.extended_days += max(added, 0)
     v.cure_deadline, v.status = new_deadline, S.NOTICE_SENT
@@ -840,19 +865,18 @@ def send_cure_reminders(today=None):
         todo = [d for d in due if d not in done]
         if not todo:
             continue
-        mark = lambda sent_at: [Reminder.objects.get_or_create(violation=v, deadline=v.cure_deadline, days_before=d,
-                                                                defaults={"sent_at": sent_at if d == todo[0] else None})
-                                for d in todo]  # the rest are recorded as skipped so they never fire later
         if v.responses.filter(cure_reported=True, handled=False).exists() or not recipient_groups(v):
-            mark(None)
+            _record_reminders(v, v.cure_deadline, todo, None)           # skipped, not "sent"
             continue
         when = "today" if left == 0 else "tomorrow" if left == 1 else f"in {left} days"
-        _email_owner(v, f"Reminder: violation at {v.owner.property_address} is due {when}",
-                     f"This is a friendly reminder that the {v.vtype.name.lower()} violation at {v.owner.property_address} "
-                     f"must be corrected by {v.cure_deadline:%A, %B %d, %Y} ({when}).\n\nRequired cure: {v.cure_required}\n\n"
-                     "If you have already corrected it, please tell us (a photo helps) so it can be reinspected. If you need more "
-                     "time, please ask before the deadline. After the deadline the matter may be referred to the Board of Directors.")
-        mark(timezone.now())
+        emailed = _email_owner(v, f"Reminder: violation at {v.owner.property_address} is due {when}",
+                               f"This is a friendly reminder that the {v.vtype.name.lower()} violation at {v.owner.property_address} "
+                               f"must be corrected by {v.cure_deadline:%A, %B %d, %Y} ({when}).\n\nRequired cure: {v.cure_required}\n\n"
+                               "If you have already corrected it, please tell us (a photo helps) so it can be reinspected. If you need more "
+                               "time, please ask before the deadline. After the deadline the matter may be referred to the Board of Directors.")
+        if not emailed:
+            continue                  # every email failed (each failure is on the case): not recorded, so the next daily job tries again
+        _record_reminders(v, v.cure_deadline, todo, timezone.now())
         log(v, f"Reminder emailed to owner ({left} day{'s' if left != 1 else ''} left)")
         sent += 1
     return sent
@@ -901,6 +925,30 @@ def refer_urgent(v, user=None, note=""):
     v.safety_issue, v.status = True, S.PENDING_BOARD
     v.save()
     log(v, "Referred to board early — safety situation" + (f": {note}" if note else ""), user)
+
+
+MAX_VOTES = 99          # a sanity limit on a typed vote count (a committee or Board is nowhere near this)
+
+
+def _check_votes(votes_for, votes_against):
+    """Vote counts are whole numbers of members, 0 or more. (A negative count used to slip through: 4 for and -1 against 'add up' to 3 votes and win.)"""
+    if not all(isinstance(x, int) and 0 <= x <= MAX_VOTES for x in (votes_for, votes_against)):
+        raise WorkflowError(f"Enter the votes as whole numbers of members, from 0 to {MAX_VOTES}.")
+
+
+def _amount(value):
+    """A fine typed by a person, as a Decimal: a plain number of dollars (cents allowed), never NaN or infinity, under $1,000,000. Empty means 0.
+    Anything else is a plain message for the person, never a server error."""
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return Decimal(0)
+    try:
+        d = Decimal(text)
+    except InvalidOperation:
+        raise WorkflowError("Enter the fine as a number of dollars, for example 100 or 100.50.") from None
+    if not d.is_finite() or abs(d) >= 1_000_000 or d != d.quantize(Decimal("0.01")):
+        raise WorkflowError("Enter the fine as a number of dollars, for example 100 or 100.50 (cents at most, under $1,000,000).")
+    return d
 
 
 def fine_problems(v, amount):
@@ -1132,6 +1180,7 @@ def committee_decide(v, votes_for, votes_against, user=None, note="", today=None
     _require(v, S.HEARING_SCHEDULED)
     if v.hearing_date and v.hearing_date > timezone.now():
         raise WorkflowError("The hearing date has not occurred yet.")
+    _check_votes(votes_for, votes_against)
     if votes_for + votes_against < 3:
         raise WorkflowError("The Compliance Committee must have at least 3 members voting.")
     v.committee_votes_for, v.committee_votes_against = votes_for, votes_against
@@ -1179,14 +1228,17 @@ def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_a
     if outcome != "waive":
         if v.hearing_date and v.hearing_date > timezone.now():
             raise WorkflowError("The hearing has not happened yet. (A case that is already resolved can be waived before then.)")
-        if votes_for is None or votes_against is None or votes_for + votes_against < 3:
+        if votes_for is None or votes_against is None:
+            raise WorkflowError("Enter the committee's votes: at least 3 members must vote.")
+        _check_votes(votes_for, votes_against)
+        if votes_for + votes_against < 3:
             raise WorkflowError("Enter the committee's votes: at least 3 members must vote.")
         if outcome in ("confirm", "amend") and votes_for <= votes_against:
             raise WorkflowError("A fine needs a majority of the committee in favor.")
         if outcome == "reject" and votes_against < votes_for:
             raise WorkflowError("Rejecting the fine means the committee did not vote in favor of it.")
     if outcome == "amend":
-        amount = Decimal(amount or 0)
+        amount = _amount(amount)
         if amount <= 0:
             raise WorkflowError("Enter the new fine amount.")
         if fine_problems(v, amount):
@@ -1259,7 +1311,7 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
         if final_outcome == "waive":
             final, fine = "waive", None
         elif committee in ("confirm", "amend"):
-            fine = Decimal(amount or 0)
+            fine = _amount(amount)
             if fine <= 0:
                 raise WorkflowError("Enter the new fine amount (or choose to waive it).")
             if v.proposed_fine and fine > v.proposed_fine:

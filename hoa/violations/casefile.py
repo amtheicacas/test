@@ -24,10 +24,10 @@ def _day(d):
 
 
 def _safe_cell(value):
-    """Spreadsheet programs treat a cell that STARTS with = + @ (or - followed by something other than a space) as a formula, so a message an
-    owner typed could run when staff open the CSV. A leading apostrophe makes the spreadsheet show it as plain text. Everything else, and
-    every non-text value, is left exactly as it is."""
-    if isinstance(value, str) and value and (value[0] in "=+@\t\r" or (value[0] == "-" and len(value) > 1 and value[1] != " ")):
+    """Spreadsheet programs treat a cell that STARTS with = + - or @ as a formula (Excel ignores blanks before it, and after a minus), so a
+    message an owner typed could run when staff open the CSV. A leading apostrophe makes the spreadsheet show it as plain text. Text that
+    starts with a tab, carriage return or line break is treated the same way. Everything else, and every non-text value, is left as it is."""
+    if isinstance(value, str) and value and (value.lstrip(" ")[:1] in ("=", "+", "-", "@") or value[0] in "\t\r\n"):
         return "'" + value
     return value
 

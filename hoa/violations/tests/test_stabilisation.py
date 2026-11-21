@@ -182,7 +182,7 @@ def test_an_owner_message_that_looks_like_a_spreadsheet_formula_is_defused_in_th
 def test_ordinary_text_is_not_changed_by_the_defusing():
     from violations import casefile
     assert casefile._safe_cell("Gate was open") == "Gate was open"
-    assert casefile._safe_cell("- gate was open") == "- gate was open"                    # a dash then a space is a list, not a formula
+    assert casefile._safe_cell("- gate was open") == "'- gate was open"                   # (2nd pass CSV-1) Excel ignores the blank after a minus: "- 1+cmd|..." ran
     assert casefile._safe_cell("") == "" and casefile._safe_cell(5) == 5 and casefile._safe_cell(None) is None
     assert casefile._safe_cell("=1+1") == "'=1+1" and casefile._safe_cell("-1+1") == "'-1+1" and casefile._safe_cell("\t=1") == "'\t=1"
 
