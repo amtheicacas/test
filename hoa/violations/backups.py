@@ -4,7 +4,6 @@ Rules (they are the point of a backup): COPY ONLY. Nothing in the backup is ever
 exists with a different size is reported as a conflict and left alone. Every new copy is read back and its SHA-256 fingerprint compared with
 the original before it counts as copied."""
 import hashlib
-import io
 from dataclasses import dataclass, field
 
 EXCLUDE = ("storage-check/",)       # the storage self-test's own files are not worth keeping
