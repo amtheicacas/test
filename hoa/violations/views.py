@@ -412,7 +412,9 @@ def recipient_summary(o):
     owner = {"name": o.display_name, "emails": list(o.all_emails), "mail": [lines(k) for k in o.owner_mail_kinds()]}
     out = {"owner": owner, "address": o.property_address, "tenant": None, "tenant_note": ""}
     if o.has_tenant:
-        out["tenant"] = {"name": o.tenant_name, "emails": list(o.tenant_emails), "mail": [lines("tenant")],
+        out["tenant"] = {"name": o.tenant_name, "emails": list(o.tenant_emails) if o.tenant_is_emailed else [],
+                         "mail": [lines("tenant")] if o.tenant_is_mailed else [], "skip_mail": not o.tenant_is_mailed,
+                         "skip_email": not o.tenant_is_emailed,
                          "lease": " to ".join(short_date(d) for d in (o.tenant_start, o.tenant_end) if d)}
     elif o.tenant_name.strip():
         out["tenant_note"] = (f"A tenant ({o.tenant_name}) is on record but the lease "
@@ -725,7 +727,7 @@ def violation_action(request, pk, action):
             n = _run(request, services.finalize_imposition, v, u, f.cleaned_data["method"], f.cleaned_data["reference"])
             if n is not None:
                 messages.success(request, "Approved. " + ("Fine posted to the ledger. " if v.fine_amount else "")
-                                 + "The Notice of Imposition was sent to the owner" + (" and tenant" if v.owner.has_tenant else "") + ".")
+                                 + "The Notice of Imposition was sent to the owner" + (" and tenant" if (v.owner.tenant_is_emailed or v.owner.tenant_is_mailed) else "") + ".")
     elif action == "urgent":
         _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
     elif action == "payment":

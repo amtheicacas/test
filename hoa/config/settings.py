@@ -235,6 +235,11 @@ REMINDER_DAYS = tuple(sorted({int(x) for x in env("REMINDER_DAYS", "7,2").split(
 # ---- Fining Resolution details ------------------------------------------
 HEARING_NOTICE_RECOMMENDED_DAYS = int(env("HEARING_NOTICE_RECOMMENDED_DAYS", "20"))  # the Resolution recommends 20 (law: 14)
 HEARING_REGULAR_COPY = env("HEARING_REGULAR_COPY", "1") == "1"   # optional extra first-class copy of the Notice of Hearing
+# Cost control: PAPER mail (first class or certified, through the print service or by hand) goes to the OWNER only. A separate copy mailed to
+# the tenant is a duplicate to the same house, so it is off (MAIL_TO_TENANT=1 turns it back on). Emailing a tenant costs nothing and stays on
+# (EMAIL_TO_TENANT=0 turns that off too). Whether the law requires notice to a tenant is a question for the attorney (ATTORNEY_QUESTIONS.md 19).
+MAIL_TO_TENANT = env("MAIL_TO_TENANT", "0") == "1"
+EMAIL_TO_TENANT = env("EMAIL_TO_TENANT", "1") == "1"
 # A certified letter you mail by hand that has no delivery result recorded this many days after mailing is listed on the home screen
 # ("check USPS tracking and record the result"), so one that is never delivered cannot go unnoticed. 0 turns the reminder off.
 CERTIFIED_CHECK_AFTER_DAYS = int(env("CERTIFIED_CHECK_AFTER_DAYS", "7"))

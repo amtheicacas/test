@@ -217,7 +217,7 @@ def plan_manual_pieces(notice):
     if not any(svc == "certified" for _extra, svc in plan) or notice.pieces.exists():
         return 0
     o = notice.violation.owner
-    labels = [f"owner {k}" for k in o.owner_mail_kinds()] + (["tenant"] if o.has_tenant else [])
+    labels = [f"owner {k}" for k in o.owner_mail_kinds()] + (["tenant"] if o.tenant_is_mailed else [])
     made = [MailPiece.objects.create(notice=notice, label=label, service=svc, status="To be mailed", by_hand=True)
             for label in labels for _extra, svc in plan]
     from . import services   # avoid circular import
@@ -231,7 +231,7 @@ def plan_manual_pieces(notice):
 
 def dispatch(notice, render, user=None):
     """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
-    while the lease is active the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
+    while the lease is active AND MAIL_TO_TENANT is on the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
     'owner_property' or 'tenant'. Returns True if anything was handed to a provider."""
     from .services import log  # avoid circular import
     v = notice.violation
@@ -240,7 +240,7 @@ def dispatch(notice, render, user=None):
         return False
     o = v.owner
     targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
-    if o.has_tenant:
+    if o.tenant_is_mailed:       # off by default: one mailed letter to the owner covers the house (MAIL_TO_TENANT)
         targets.append(("tenant", o.postal("tenant"), "tenant"))
     ids, tracking, errors = [], "", []
     for variant, addr, label in targets:

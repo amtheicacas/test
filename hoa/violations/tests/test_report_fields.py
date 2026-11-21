@@ -218,6 +218,7 @@ def test_us_mail_goes_to_the_mailing_address_and_the_property_address(settings):
 
 def test_hearing_notice_is_certified_to_both_addresses_and_the_tenant(settings):
     _lob(settings)
+    settings.MAIL_TO_TENANT = True          # the tenant's paper copy is off by default (cost); this is the switched-on behaviour
     load(row(Mailing_Address="PO Box 55, Tampa, FL 33601", Tenant_Name_s_="Tina", **{"Tenant Name(s)": "Tina"}))
     v = case_for(Owner.objects.get())
     v.status, v.proposed_fine, v.hearing_date = S.HEARING_SCHEDULED, 100, __import__("django.utils.timezone", fromlist=["now"]).now()

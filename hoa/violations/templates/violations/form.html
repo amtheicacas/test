@@ -79,8 +79,8 @@
     own.parentNode.insertBefore(panel, own.nextSibling);
     function who(label, p) {
       return '<p style="margin:4px 0"><b>' + label + ': ' + esc(p.name) + '</b>' + (p.lease ? ' <span class="mut">(lease ' + esc(p.lease) + ')</span>' : '') + '<br>' +
-        'Email: ' + (p.emails.length ? esc(p.emails.join("; ")) : '<span class="late">none on file</span>') + '<br>' +
-        'US Mail: ' + (p.mail.length ? p.mail.map(esc).join('<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : '<span class="late">no address</span>') + '</p>';
+        'Email: ' + (p.emails.length ? esc(p.emails.join("; ")) : (p.skip_email ? '<span class="mut">not emailed</span>' : '<span class="late">none on file</span>')) + '<br>' +
+        'US Mail: ' + (p.mail.length ? p.mail.map(esc).join('<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;') : (p.skip_mail ? '<span class="mut">not mailed: the owner\'s letter is the mailed copy</span>' : '<span class="late">no address</span>')) + '</p>';
     }
     function showRecips() {
       var i = INFO[own.value];

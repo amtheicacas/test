@@ -82,7 +82,7 @@ def recipient_groups(v):
     groups = []
     if o.all_emails:
         groups.append(("owner", o.all_emails, o.display_name))
-    if o.has_tenant and o.tenant_emails:
+    if o.tenant_is_emailed:
         groups.append(("tenant", o.tenant_emails, o.tenant_name))
     return groups
 

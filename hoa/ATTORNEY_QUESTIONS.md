@@ -51,3 +51,6 @@ Add to this list; do not delete (mark answered items with the date and answer in
     stores the mailing date, tracking number and result for each letter and includes them in the case file.
 
 Note 2026-11-21: a reader-friendly copy of questions 1-18 for sending to the attorney was made as a Claude Doc ("Questions for the Association's attorney", private to the Board member's claude.ai account), with project-only wording removed and the same numbers. THIS file stays the master list: questions added here later must be added to that copy too (ask Claude to refresh it).
+
+## F. Tenants (added 2026-11-21)
+19. To save postage, the Association mails (first class or certified) ONLY the owner and does not mail a separate copy to a tenant; a tenant with an email on file is emailed a copy. Does FS 720.305, the Declaration or the Fining Resolution require the notice of violation, the notice of hearing or the decision letter to be delivered to the tenant (occupant) as well as the owner, and by what method (mail, email, posting)? Fines are charged to the owner's account; if a tenant rather than the owner is the person "sought to be fined", who must receive the notice? The Fining Resolution exhibits say a notice is "also being provided to the record Owner(s)" when the lot is occupied by someone else: should the tenant version of the letters still be used?

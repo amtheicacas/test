@@ -126,6 +126,16 @@ class Owner(models.Model):
         return split_emails(";".join(x for x in (self.tenant_email, self.tenant_additional_emails) if x))
 
     @property
+    def tenant_is_mailed(self):
+        """Paper mail goes to the tenant too (MAIL_TO_TENANT; off by default to save the duplicate mailing)."""
+        return bool(self.has_tenant and settings.MAIL_TO_TENANT)
+
+    @property
+    def tenant_is_emailed(self):
+        """The tenant is emailed their own copy (EMAIL_TO_TENANT; on by default; needs an email on file)."""
+        return bool(self.has_tenant and self.tenant_emails and settings.EMAIL_TO_TENANT)
+
+    @property
     def has_tenant(self):
         """A tenant is on record AND the lease (if dates are given) covers today."""
         if not self.tenant_name.strip():

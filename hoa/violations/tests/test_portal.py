@@ -214,6 +214,7 @@ def _lob(settings):
 
 def test_lob_hearing_goes_certified_and_regular_to_owner_and_tenant(settings):
     _lob(settings)
+    settings.MAIL_TO_TENANT = True          # the tenant's paper copy is off by default (cost); this is the switched-on behaviour
     v = make_case("1 A St", status=S.HEARING_SCHEDULED, cure_deadline=date.today(), proposed_fine=100,
                   board_meeting_date=date.today(), hearing_date=timezone.now() + timedelta(days=20),
                   hearing_location="Zoom")

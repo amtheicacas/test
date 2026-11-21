@@ -65,6 +65,7 @@ def test_a_hearing_notice_lists_a_certified_and_a_first_class_letter_to_mail():
 
 
 def test_each_address_gets_its_own_pair_of_letters(settings):
+    settings.MAIL_TO_TENANT = True          # the tenant's paper copy is off by default (cost); this is the switched-on behaviour
     v = case(mailing_address="PO Box 5\nVenice, FL 34285", tenant=True)
     ps = pieces(hearing(v))
     assert sorted((p.label, p.service) for p in ps) == sorted([(lab, svc) for lab in ("owner mailing", "owner property", "tenant") for svc in ("certified", "first_class")])
@@ -499,7 +500,8 @@ def test_the_menu_counter_counts_letters_to_mail_and_undelivered_certified_lette
     assert nav_count(client) == 0
 
 
-def test_each_letter_still_to_mail_has_a_link_that_prints_that_version(client):
+def test_each_letter_still_to_mail_has_a_link_that_prints_that_version(client, settings):
+    settings.MAIL_TO_TENANT = True
     v = case(mailing_address="PO Box 5\nVenice, FL 34285", tenant=True)
     n = hearing(v)
     client.force_login(staff())
