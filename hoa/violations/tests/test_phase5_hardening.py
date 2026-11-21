@@ -351,4 +351,16 @@ def test_the_staging_test_owner_file_imports_and_is_clearly_fake(w):
 
 def test_the_build_script_installs_the_live_requirements_and_gathers_static_files():
     text = (HOA_DIR / "build.sh").read_text(encoding="utf-8")
-    assert "requirements-production.txt" in text and "collectstatic" in text and "errexit" in text and os.access(HOA_DIR / "build.sh", os.X_OK)
+    assert "requirements-production.lock.txt" in text and "collectstatic" in text and "errexit" in text and os.access(HOA_DIR / "build.sh", os.X_OK)
+
+
+def test_the_pinned_lock_file_covers_every_live_package_with_exact_versions():
+    """build.sh installs the lock file, so every package the live list names must be in it, pinned with ==."""
+    import re
+    names = lambda f: {re.split(r"[<>=\[ #;]", ln.strip(), 1)[0].lower().replace("_", "-") for ln in (HOA_DIR / f).read_text(encoding="utf-8").splitlines()
+                       if ln.strip() and not ln.startswith(("#", "-r"))}
+    lock = [ln for ln in (HOA_DIR / "requirements-production.lock.txt").read_text(encoding="utf-8").splitlines() if ln.strip() and not ln.startswith("#")]
+    assert all("==" in ln for ln in lock)
+    locked = {ln.split("==")[0].lower().replace("_", "-") for ln in lock}
+    wanted = names("requirements-production.txt") | names("requirements.txt")
+    assert wanted <= locked, sorted(wanted - locked)
