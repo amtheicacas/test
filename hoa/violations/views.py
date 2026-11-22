@@ -549,6 +549,8 @@ def violation_detail(request, pk):
         "no_copy": [n for n in v.notices.all() if not n.sent_copies.exists()],
         "piece_problems": [(k, text[1]) for k, text in MailPiece.PROBLEMS.items()], "today_iso": date.today().isoformat(),
         "mail_flags": _mail_flags(v),
+        "posted_warning": services.posted_fine_warning(v),          # a fine already on the owner's ledger: closing the case does not remove it
+        "cure_closes": v.status not in (S.FINE_APPROVED, S.LEDGER_PENDING),        # (a case with an imposed fine stays open until it is paid)
     }
     return render(request, "violations/detail.html", ctx)
 
@@ -655,10 +657,14 @@ def violation_action(request, pk, action):
     elif action == "reinspect_result":
         _run(request, services.reinspect_result, v, P.get("result") == "corrected", u, P.get("note", ""),
              ok="Re-inspection recorded.")
-    elif action == "cure":
-        _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked corrected.")
-    elif action == "dismiss":
-        _run(request, services.dismiss, v, u, P.get("note", ""), ok="Dismissed.")
+    elif action in ("cure", "dismiss"):
+        if action == "cure":
+            _run(request, services.mark_cured, v, u, P.get("note", ""), ok="Marked corrected.")
+        else:
+            _run(request, services.dismiss, v, u, P.get("note", ""), ok="Dismissed.")
+        v.refresh_from_db()
+        if v.status in (S.DISMISSED, S.CURED) and services.posted_fine_warning(v):       # it was closed with a fine still posted to the ledger
+            messages.warning(request, services.posted_fine_reminder(v))
     elif action == "hold":
         f = forms.HoldForm(P)
         if f.is_valid():

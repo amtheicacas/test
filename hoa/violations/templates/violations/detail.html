@@ -93,9 +93,9 @@
 {% elif v.is_open and v.status != S.DRAFT %}<div class="card"><h2>Hold / legal</h2><div class="row">
 {% if not v.own_household %}<form method="post" action="{% url 'violation_action' v.pk 'hold' %}">{% csrf_token %}{{ hold_form.reason }}<label style="margin-top:6px">On hold until</label>{{ hold_form.until }}<button class="sec" style="margin-top:6px">Put on hold</button></form>{% endif %}
 <a class="btn bad" style="margin-top:6px" href="{% url 'legal_refer' v.pk %}">Send to legal&hellip;</a></div></div>{% endif %}
-{% if not v.own_household %}<div class="card"><h2>Close</h2><div class="row">
-{% if v.status != S.DRAFT %}<form method="post" action="{% url 'violation_action' v.pk 'cure' %}">{% csrf_token %}<input name="note" placeholder="Note (e.g. reinspected, verified)"><button style="margin-top:6px">Mark corrected</button></form>{% endif %}
-<form method="post" action="{% url 'violation_action' v.pk 'dismiss' %}">{% csrf_token %}<input name="note" placeholder="Reason"><button class="bad" style="margin-top:6px">Dismiss (no violation)</button></form></div></div>{% endif %}{% endif %}
+{% if not v.own_household %}<div class="card"><h2>Close</h2>{% if posted_warning %}<div class="msg warning"><b>Check the ledger first.</b> {{ posted_warning }} A note saying why is required.</div>{% endif %}<div class="row">
+{% if v.status != S.DRAFT %}<form method="post" action="{% url 'violation_action' v.pk 'cure' %}"{% if posted_warning and cure_closes %} onsubmit="return confirm('{{ posted_warning|escapejs }} Close the case anyway?')"{% endif %}>{% csrf_token %}<input name="note" placeholder="Note (e.g. reinspected, verified)"{% if posted_warning and cure_closes %} required{% endif %}><button style="margin-top:6px">Mark corrected</button></form>{% endif %}
+<form method="post" action="{% url 'violation_action' v.pk 'dismiss' %}"{% if posted_warning %} onsubmit="return confirm('{{ posted_warning|escapejs }} Dismiss the case anyway?')"{% endif %}>{% csrf_token %}<input name="note" placeholder="Reason"{% if posted_warning %} required{% endif %}><button class="bad" style="margin-top:6px">Dismiss (no violation)</button></form></div></div>{% endif %}{% endif %}
 
 <details class="card" id="saved-letters"><summary style="cursor:pointer"><h2 style="display:inline;margin:0">Exact copies of letters sent</h2> <span class="pill">{{ sent_letters|length }}</span> <span class="mut">&middot; open to see or download them</span></summary>
 <div style="margin-top:10px">

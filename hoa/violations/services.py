@@ -525,18 +525,49 @@ def _close_if_done(v, user=None):
         log(v, "Case closed — corrected and fine paid", user)
 
 
+def posted_fine_warning(v):
+    """"" or one plain sentence for a case whose fine is ALREADY POSTED to the owner's Vantaca ledger: closing the case here (dismissed, or corrected
+    with no fine) does not take that charge off the ledger, and does not give back a payment. That has to be done in Vantaca."""
+    if not (v.ledger_posted_on and v.fine_amount):
+        return ""
+    ref = f", reference {v.ledger_reference}" if v.ledger_reference else ""
+    return (f"A fine of ${v.fine_amount:,.2f} was posted to this owner's ledger in Vantaca on {short_date(v.ledger_posted_on)}{ref}. "
+            "Closing the case here does not take that charge off the ledger" + (" or give the payment back" if v.fine_paid_on else "")
+            + ": that has to be done in Vantaca.")
+
+
+def posted_fine_reminder(v):
+    """The same fact as posted_fine_warning, said once the case HAS been closed."""
+    if not posted_fine_warning(v):
+        return ""
+    return (f"The case is closed, but the ${v.fine_amount:,.2f} fine posted to this owner's ledger on {short_date(v.ledger_posted_on)} is still on the "
+            "owner's ledger until it is reversed in Vantaca.")
+
+
+def _closing_warning(v, note):
+    """The warning for a case about to be closed WITHOUT its fine, refusing (with that warning) if no note says why."""
+    warning = posted_fine_warning(v)
+    if warning and not (note or "").strip():
+        raise WorkflowError(warning + " Write a note saying why you are closing it (it is kept in the case history), and check the ledger first.")
+    return warning
+
+
 @transaction.atomic
 def mark_cured(v, user=None, note="", today=None):
     _not_your_own(v, user, "mark it corrected")
     _require(v, *Violation.OPEN)
+    imposed = v.status in (S.FINE_APPROVED, S.LEDGER_PENDING)      # the fine stands: the case stays open until it is paid
+    warning = "" if imposed else _closing_warning(v, note)
     v.cured_on = today or date.today()
     cancel_held_mailings(v)
-    if v.status in (S.FINE_APPROVED, S.LEDGER_PENDING):
+    if imposed:
         log(v, "Violation corrected" + (f": {note}" if note else ""), user)
         _close_if_done(v, user)
     else:
         v.status = S.CURED
         log(v, "Marked cured — case closed, no fine" + (f": {note}" if note else ""), user)
+        if warning:
+            log(v, "WARNING: " + warning, user)
     v.responses.filter(cure_reported=True, handled=False).update(handled=True)
     v.save()
 
@@ -820,10 +851,13 @@ def reinspect_result(v, corrected, user=None, note=""):
 def dismiss(v, user=None, note=""):
     _not_your_own(v, user, "dismiss it")
     _require(v, *Violation.OPEN)
+    warning = _closing_warning(v, note)
     v.status = S.DISMISSED
     cancel_held_mailings(v, "case dismissed")
     v.save()
     log(v, "Dismissed (no violation / withdrawn)" + (f": {note}" if note else ""), user)
+    if warning:
+        log(v, "WARNING: " + warning, user)
 
 
 def _email_owner(v, subject, body):

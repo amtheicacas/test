@@ -291,3 +291,93 @@ def test_DEC2_web_the_review_page_has_no_buttons_at_all_for_your_own_waived_case
     page = web(ppl.bob).get(f"/results/{ppl.past.pk}/").content.decode()
     assert "Approve as recommended" not in page and "your own household" in page
     assert "Approve as recommended" in web(ppl.ann).get(f"/results/{ppl.past.pk}/").content.decode()
+
+
+# ======================================================================================================================================
+# 2. Closing a case whose fine is already posted to the owner's ledger: warn, and ask for a note
+# ======================================================================================================================================
+def _posted(ppl, status, **kw):
+    """A case for someone else's home (so decision 1 does not apply) with a $100 fine already posted to the Vantaca ledger."""
+    kw = {"fine_amount": 100, "ledger_posted_on": TODAY, "ledger_reference": "V-1", **kw}
+    return ppl.case(ppl.olly, status, **kw)
+
+
+def test_DEC1_dismissing_a_case_with_a_posted_fine_needs_a_note_and_warns(ppl):
+    v = _posted(ppl, S.FINE_APPROVED)
+    with pytest.raises(services.WorkflowError) as e:
+        services.dismiss(v, ppl.ann, "")
+    assert "$100.00 was posted to this owner's ledger" in str(e.value) and "V-1" in str(e.value) and "Write a note saying why" in str(e.value)
+    v.refresh_from_db()
+    assert v.status == S.FINE_APPROVED                                                       # nothing happened
+    services.dismiss(v, ppl.ann, "Posted by mistake; the home was sold before the notice.")
+    v.refresh_from_db()
+    assert v.status == S.DISMISSED
+    warning = v.events.filter(text__startswith="WARNING").get().text
+    assert "$100.00" in warning and "V-1" in warning and "in Vantaca" in warning and "does not take that charge off" in warning
+
+
+def test_DEC1_a_case_with_no_posted_fine_is_dismissed_exactly_as_before(ppl):
+    for status in (S.NOTICE_SENT, S.PENDING_BOARD, S.HEARING_SCHEDULED):
+        v = ppl.case(ppl.olly, status)
+        services.dismiss(v, ppl.ann, "")                                                       # no note needed, no warning
+        v.refresh_from_db()
+        assert v.status == S.DISMISSED and not v.events.filter(text__startswith="WARNING").exists()
+
+
+def test_DEC1_a_posted_fine_in_the_ledger_pending_state_is_not_a_thing_but_an_unposted_fine_never_warns(ppl):
+    v = ppl.case(ppl.olly, S.LEDGER_PENDING)                                                   # a fine decided but NOT yet posted
+    assert v.ledger_posted_on is None and services.posted_fine_warning(v) == ""
+    services.dismiss(v, ppl.ann, "")
+    v.refresh_from_db()
+    assert v.status == S.DISMISSED
+
+
+def test_DEC1_marking_a_referred_case_corrected_with_a_posted_fine_needs_a_note_and_warns(ppl):
+    v = _posted(ppl, S.REFERRED_LEGAL, legal_path="after_fine", legal_referred_on=TODAY)
+    with pytest.raises(services.WorkflowError, match="posted to this owner's ledger"):
+        services.mark_cured(v, ppl.ann, "  ")
+    v.refresh_from_db()
+    assert v.status == S.REFERRED_LEGAL and v.cured_on is None
+    services.mark_cured(v, ppl.ann, "Owner fixed it and paid by cheque.")
+    v.refresh_from_db()
+    assert v.status == S.CURED and v.events.filter(text__startswith="WARNING").exists()
+
+
+def test_DEC1_marking_a_held_case_corrected_with_a_posted_fine_needs_a_note_too(ppl):
+    v = _posted(ppl, S.ON_HOLD, held_from="fine_approved", hold_until=TODAY + timedelta(days=5), hold_reason="away", held_on=TODAY)
+    with pytest.raises(services.WorkflowError, match="posted to this owner's ledger"):
+        services.mark_cured(v, ppl.ann, "")
+
+
+def test_DEC1_marking_an_imposed_case_corrected_does_not_close_it_so_it_needs_no_note_and_shows_no_warning(ppl):
+    v = _posted(ppl, S.FINE_APPROVED)
+    services.mark_cured(v, ppl.ann, "")                                                        # still awaiting payment: it does not close
+    v.refresh_from_db()
+    assert v.status == S.FINE_APPROVED and v.cured_on and not v.events.filter(text__startswith="WARNING").exists()
+
+
+def test_DEC1_a_verified_re_inspection_that_closes_a_posted_case_still_warns(ppl):
+    v = _posted(ppl, S.REFERRED_LEGAL, legal_path="after_fine", legal_referred_on=TODAY, reinspect_on=TODAY)
+    services.reinspect_result(v, True, ppl.ann, "")                                          # its own note ("verified at re-inspection") is used
+    v.refresh_from_db()
+    assert v.status == S.CURED and v.events.filter(text__startswith="WARNING").exists()
+
+
+def test_DEC1_web_the_case_page_warns_before_a_case_with_a_posted_fine_is_closed(ppl):
+    v = _posted(ppl, S.FINE_APPROVED)
+    page = web(ppl.ann).get(f"/violations/{v.pk}/").content.decode()
+    assert "A fine of $100.00 was posted to this owner&#x27;s ledger in Vantaca" in page or "A fine of $100.00 was posted to this owner's ledger in Vantaca" in page
+    assert 'name="note" placeholder="Reason" required' in page                                # the dismiss note is required
+    quiet = web(ppl.ann).get(f"/violations/{ppl.case(ppl.olly, S.NOTICE_SENT).pk}/").content.decode()
+    assert "posted to this owner" not in quiet and 'placeholder="Reason" required' not in quiet
+
+
+def test_DEC1_web_dismissing_without_a_note_is_refused_with_the_warning_and_with_a_note_it_works_and_warns_again(ppl):
+    v = _posted(ppl, S.FINE_APPROVED)
+    r = web(ppl.ann).post(f"/violations/{v.pk}/dismiss/", {"note": ""}, follow=True)
+    assert "posted to this owner's ledger" in messages_of(r)
+    v.refresh_from_db()
+    assert v.status == S.FINE_APPROVED
+    r = web(ppl.ann).post(f"/violations/{v.pk}/dismiss/", {"note": "Posted in error."}, follow=True)
+    v.refresh_from_db()
+    assert v.status == S.DISMISSED and "still on the owner's ledger" in messages_of(r)
