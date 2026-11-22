@@ -191,6 +191,7 @@ def workspace(request):
 
 def _dashboard(request):
     services.advance_expired()
+    mail_problems = list(MailPiece.red_box().select_related("notice__violation__owner").order_by("problem_on", "pk"))     # the red box at the top
     counts = dict(Violation.objects.values_list("status").annotate(c=Count("id")))
     ctx = {
         "counts": [(label, counts.get(val, 0), val) for val, label in S.choices],
@@ -206,8 +207,8 @@ def _dashboard(request):
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
         "results_waiting": CommitteeMeeting.objects.filter(results_status="submitted").annotate(n=Count("violations", filter=Q(violations__status=S.LEDGER_PENDING))),
-        "mail_problems": MailPiece.objects.filter(service="certified", problem=True, delivered_on__isnull=True, handled_on__isnull=True)
-                         .select_related("notice__violation__owner").order_by("problem_on", "pk"),
+        "mail_problems": mail_problems, "mail_unsent": sum(1 for p in mail_problems if p.not_sent),
+        "mail_undelivered": sum(1 for p in mail_problems if not p.not_sent),
         "certified_to_check": services.certified_to_check(),
         "pieces_to_mail": MailPiece.objects.filter(by_hand=True, mailed_on__isnull=True, handled_on__isnull=True)
                           .select_related("notice__violation__owner").order_by("notice__created_at", "pk"),
@@ -524,7 +525,8 @@ def owner_correspondence(request, pk):
 def _mail_flags(v):
     """What the collapsed "Mailing log" card must still tell staff at a glance: letters to mail, certified letters not delivered, mail on hold."""
     pieces = list(MailPiece.objects.filter(notice__violation=v))
-    return {"to_mail": sum(1 for p in pieces if p.to_mail), "problems": sum(1 for p in pieces if p.needs_attention),
+    return {"to_mail": sum(1 for p in pieces if p.to_mail), "problems": sum(1 for p in pieces if p.needs_attention and not p.not_sent),
+            "unsent": sum(1 for p in pieces if p.needs_attention and p.not_sent),
             "held": sum(1 for n in v.notices.all() if n.mail_held)}
 
 

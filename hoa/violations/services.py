@@ -128,7 +128,7 @@ def correspondence(v, staff=False):
     for n in v.notices.all():
         items.append({"when": n.created_at, "kind": "letter", "title": n.get_kind_display(), "notice": n,
                       "lines": n.delivery_lines(staff), "emails": [e for e in n.email_logs.all()],
-                      "pieces": [p for p in n.pieces.all() if (p.is_certified or p.tracking_number) and (staff or p.is_mailed)]})
+                      "pieces": [p for p in n.pieces.all() if (p.is_certified or p.tracking_number or p.not_sent) and (staff or p.is_mailed)]})
     for e in v.emails.filter(notice__isnull=True):
         items.append({"when": e.sent_at, "kind": "email", "title": e.subject, "email": e, "lines": []})
     items.sort(key=lambda i: i["when"])
@@ -404,6 +404,9 @@ def record_piece_mailed(piece, mailed_on, tracking="", user=None, today=None):
     if piece.is_certified and not tracking:
         raise WorkflowError("Enter the certified mail tracking number (the long number on the Certified Mail receipt). "
                             "It is how we follow the letter and prove it was sent.")
+    if piece.not_sent:
+        raise WorkflowError("This letter never went out (the print service did not take it). Once it has been sent some other way, mark it handled "
+                            "and say how.")
     if not piece.by_hand:
         raise WorkflowError("This letter was handed to the print service, which records the mailing itself.")
     again = piece.is_mailed
@@ -475,16 +478,17 @@ def record_piece_handled(piece, note, user=None, today=None):
     note = (note or "").strip()
     if len(note) < 3:
         raise WorkflowError("Say in a few words what was done (or why it is not needed): it is kept in the case history.")
-    if piece.is_mailed and not piece.needs_attention:
+    if (piece.is_mailed or piece.not_sent) and not piece.needs_attention:
         raise WorkflowError("There is nothing to clear on this letter.")
     unmailed = not piece.is_mailed
     piece.handled_on, piece.handled_note = today, note[:300]
-    if unmailed:
+    if unmailed and not piece.not_sent:
         piece.status = "Not mailed (not needed)"
     piece.save()
     _sync_notice_from_pieces(piece.notice)
-    _piece_log(piece, (f"the {_piece_name(piece)} was marked not needed" if unmailed else f"delivery problem with the {_piece_name(piece)} marked handled")
-               + f": {piece.handled_note}", user)
+    _piece_log(piece, (f"the {_piece_name(piece)} that was NOT sent was marked handled" if piece.not_sent
+                       else f"the {_piece_name(piece)} was marked not needed" if unmailed
+                       else f"delivery problem with the {_piece_name(piece)} marked handled") + f": {piece.handled_note}", user)
     return piece
 
 

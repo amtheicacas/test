@@ -114,7 +114,8 @@ def test_LB1_one_letter_that_cannot_be_built_does_not_stop_the_others_or_lose_th
         n = services.send_notice(rented, Notice.Kind.HEARING)              # (used to raise: the letters to the mailing address had already gone to Lob)
     n.refresh_from_db()
     assert [s[0] for s in sent] == ["PO Box 55"] * 2                      # certified + first class to the mailing address went
-    assert MailPiece.objects.filter(notice=n).count() == 2                # ...and both are on record
+    assert MailPiece.objects.filter(notice=n).exclude(status=MailPiece.NOT_SENT).count() == 2      # ...and both are on record
+    assert MailPiece.objects.filter(notice=n, status=MailPiece.NOT_SENT).count() == 2             # (and the two that did not build are listed as NOT sent: decision 3)
     assert n.mailed_on == date.today() and "owner property" in n.provider_note and "could not be built" in n.provider_note
     assert rented.events.filter(text__contains="could not be built").exists()      # the case history says which address did not go
 

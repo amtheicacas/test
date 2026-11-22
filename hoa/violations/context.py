@@ -20,7 +20,8 @@ def _staff_counts():
         Q(extension_requested=True) | Q(cure_reported=True)).count()
     upcoming = CommitteeMeeting.objects.filter(starts_at__gte=timezone.now() - timedelta(hours=12)).count()
     waiting_on_board = c["board"] + c["hearing"] + c["ledger"]
-    mail_bad = MailPiece.objects.filter(service="certified", problem=True, delivered_on__isnull=True, handled_on__isnull=True).count()    # could not be delivered
+    mail_bad = MailPiece.red_box().count()                    # a certified letter that could not be delivered, or a letter that was NOT sent
+    mail_unsent = MailPiece.red_box().filter(status=MailPiece.NOT_SENT).count()
     to_mail = MailPiece.objects.filter(by_hand=True, mailed_on__isnull=True, handled_on__isnull=True).count()                          # still to be mailed by hand
     to_check = services.certified_to_check().count()                                                                                    # certified, no result yet
     return {"open": c["open"], "total": c["total"], "board": waiting_on_board,
@@ -30,7 +31,7 @@ def _staff_counts():
             "results": Violation.objects.filter(status=S.LEDGER_PENDING, committee_meeting__results_status="submitted").count(),
             "attention": waiting_on_board + asks + Violation.objects.filter(reinspect_on__isnull=False, status__in=Violation.OPEN).count()
             + Violation.objects.filter(status=S.REFERRED_LEGAL, legal_sent_on__isnull=True).count() + mail_bad + to_mail + to_check,
-            "mail_problems": mail_bad, "to_mail": to_mail}
+            "mail_problems": mail_bad, "mail_unsent": mail_unsent, "mail_undelivered": mail_bad - mail_unsent, "to_mail": to_mail}
 
 
 def hoa(request):

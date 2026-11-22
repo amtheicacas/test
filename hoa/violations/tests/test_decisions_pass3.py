@@ -381,3 +381,176 @@ def test_DEC1_web_dismissing_without_a_note_is_refused_with_the_warning_and_with
     r = web(ppl.ann).post(f"/violations/{v.pk}/dismiss/", {"note": "Posted in error."}, follow=True)
     v.refresh_from_db()
     assert v.status == S.DISMISSED and "still on the owner's ledger" in messages_of(r)
+
+
+
+# ======================================================================================================================================
+# 3. A letter the print service did not take shows in the red "Certified mail problems" box until someone handles it
+# ======================================================================================================================================
+import io                                                                                 # noqa: E402
+import zipfile                                                                            # noqa: E402
+from unittest import mock                                                                # noqa: E402
+
+from violations import mailing                                                           # noqa: E402
+from violations.models import MailPiece, Notice                                         # noqa: E402
+from violations.tests.test_tenant_mail import rented  # noqa: E402,F401  (an owner with a mailing address, a property address and a tenant; Lob on)
+
+
+def _lob_that_refuses(refuse_line1, sent, why="Lob said: address is undeliverable"):
+    def send(to, pdf, description, extra=None):
+        if to["line1"] == refuse_line1:
+            raise RuntimeError(why)
+        sent.append((to["line1"], extra))
+        return {"id": f"ltr_{len(sent)}", "tracking_number": f"9407100000000000{len(sent):06d}"}
+    return send
+
+
+def _hearing_with_a_refused_property_address(rented):
+    sent = []
+    with mock.patch.object(mailing, "lob_send", side_effect=_lob_that_refuses("12 Palm Way", sent)):
+        n = services.send_notice(rented, Notice.Kind.HEARING)
+    return n, sent
+
+
+def _not_sent(n, **kw):
+    return MailPiece.objects.filter(notice=n, status=MailPiece.NOT_SENT, **kw)
+
+
+def test_LB4_a_letter_that_fails_at_the_print_service_is_listed_as_NOT_sent_while_the_others_are_recorded_as_before(rented):
+    n, sent = _hearing_with_a_refused_property_address(rented)
+    assert [s[0] for s in sent] == ["PO Box 55"] * 2                                         # the mailing address got both letters
+    n.refresh_from_db()
+    assert n.mailed_on == date.today()                                                         # (the notice still counts as mailed: part of it went)
+    real = MailPiece.objects.filter(notice=n).exclude(status=MailPiece.NOT_SENT)
+    assert real.count() == 2 and all(p.is_mailed and not p.not_sent for p in real)
+    failed = _not_sent(n).order_by("service")
+    assert [(p.label, p.service) for p in failed] == [("owner property", "certified"), ("owner property", "first_class")]
+    for p in failed:
+        assert p.not_sent and not p.is_mailed and p.problem and p.needs_attention and p.problem_on == date.today()
+        assert p.mailed_on is None and p.provider_id == "" and not p.by_hand and p.handled_on is None
+        assert "address is undeliverable" in p.problem_note
+    warnings = [e.text for e in rented.events.filter(text__startswith="WARNING")]
+    assert len(warnings) == 2 and all("NOT sent" in w and "owner property" in w for w in warnings)
+
+
+def test_LB4_every_letter_failing_lists_every_letter_and_still_marks_nothing_mailed(rented):
+    with mock.patch.object(mailing, "lob_send", side_effect=RuntimeError("Lob is down")):
+        n = services.send_notice(rented, Notice.Kind.HEARING)
+    n.refresh_from_db()
+    assert n.mailed_on is None
+    assert _not_sent(n).count() == 4                                                           # mailing + property address, certified + first class
+
+
+def test_LB4_an_address_that_is_not_complete_and_a_letter_that_cannot_be_built_are_listed_too(rented):
+    rented.owner.zip_code = ""                                                                 # the property address is incomplete
+    rented.owner.save()
+    real = services.render_notice_pdf
+
+    def render(notice, who):
+        if who == "owner":                                                                     # the mailing-address version will not build
+            raise RuntimeError("will not build")
+        return real(notice, who)
+    with mock.patch.object(services, "render_notice_pdf", side_effect=render), mock.patch.object(mailing, "lob_send", side_effect=_lob_that_refuses("-", [])):
+        n = services.send_notice(rented, Notice.Kind.HEARING)
+    notes = sorted(p.problem_note for p in _not_sent(n))
+    assert len(notes) == 4 and sum("incomplete mailing address" in x for x in notes) == 2 and sum("could not be built" in x for x in notes) == 2
+
+
+def test_LB4_trying_again_does_not_pile_up_duplicates_and_a_later_success_closes_the_old_entries(rented):
+    with mock.patch.object(mailing, "lob_send", side_effect=RuntimeError("Lob is down")):
+        n = services.send_notice(rented, Notice.Kind.HEARING)
+        mailing.dispatch(n, lambda who: b"%PDF-1.4")                                           # the daily job tries the wholly failed notice again
+    assert _not_sent(n).count() == 4 and rented.events.filter(text__startswith="WARNING").count() == 4     # one entry (and one warning) per letter
+    with mock.patch.object(mailing, "lob_send", side_effect=_lob_that_refuses("nowhere", [])):
+        mailing.dispatch(n, lambda who: b"%PDF-1.4")                                           # now Lob works
+    stale = _not_sent(n)
+    assert stale.count() == 4 and all(p.handled_on == date.today() and "later try" in p.handled_note and not p.needs_attention for p in stale)
+    assert MailPiece.objects.filter(notice=n).exclude(status=MailPiece.NOT_SENT).count() == 4
+
+
+def test_LB4_owners_never_see_a_letter_that_was_not_sent(rented):
+    _hearing_with_a_refused_property_address(rented)
+    owner_items, staff_items = services.correspondence(rented), services.correspondence(rented, staff=True)
+    pieces = lambda items: [p for item in items if item["kind"] == "letter" for p in item["pieces"]]            # noqa: E731
+    assert not any(p.not_sent for p in pieces(owner_items)) and sum(p.not_sent for p in pieces(staff_items)) == 2
+    lines = lambda items: [line for item in items if item["kind"] == "letter" for line in item["lines"]]       # noqa: E731
+    assert not any("NOT SENT" in line for line in lines(owner_items)) and any("NOT SENT" in line for line in lines(staff_items))
+
+
+def test_LB4_the_red_box_on_the_home_screen_lists_the_letter_and_the_menu_counts_it(ppl, rented):
+    _hearing_with_a_refused_property_address(rented)
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    box = page.split("Certified mail problems", 1)[1].split("</table>", 1)[0]
+    assert "12 Palm Way" in box and "Letter NOT sent" in box and "address is undeliverable" in box
+    assert "2 letters were NOT sent" in box and "could not be delivered" not in box
+    assert "2 letters were NOT sent" in page.split('title="Items waiting on you', 1)[1].split('"', 1)[0]       # the menu tooltip
+    assert ">2 to do<" in page.replace(" ", "").replace(">2todo<", ">2 to do<") or "2 to do" in page
+
+
+def test_LB4_the_red_box_wording_for_an_undelivered_certified_letter_is_unchanged(ppl, rented):
+    n, _ = _hearing_with_a_refused_property_address(rented)
+    _not_sent(n).update(handled_on=date.today(), handled_note="handled")
+    p = MailPiece.objects.filter(notice=n, service="certified").exclude(status=MailPiece.NOT_SENT).get()
+    services.record_piece_not_delivered(p, "unclaimed", user=ppl.ann)
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    box = page.split("Certified mail problems", 1)[1].split("</table>", 1)[0]
+    assert "1 certified letter could not be delivered" in box and "NOT sent" not in box
+
+
+def test_LB4_handling_a_letter_that_was_not_sent_clears_it_and_says_so_in_the_history(rented, ppl):
+    n, _ = _hearing_with_a_refused_property_address(rented)
+    piece = _not_sent(n, service="certified").get()
+    with pytest.raises(services.WorkflowError, match="few words"):
+        services.record_piece_handled(piece, "", ppl.ann)
+    services.record_piece_handled(piece, "Sent by hand from the post office on Monday.", ppl.ann)
+    piece.refresh_from_db()
+    assert piece.handled_on == date.today() and piece.not_sent and not piece.needs_attention and piece.status == MailPiece.NOT_SENT
+    text = rented.events.order_by("-pk").first().text
+    assert "NOT sent" in text and "marked handled" in text and "not needed" not in text and "post office" in text
+    with pytest.raises(services.WorkflowError, match="nothing to clear"):
+        services.record_piece_handled(piece, "again", ppl.ann)
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    assert "1 letter was NOT sent" in page                                                     # the first-class one is still listed
+
+
+def test_LB4_a_letter_that_was_not_sent_cannot_be_recorded_as_mailed_or_delivered_by_mistake(rented, ppl):
+    n, _ = _hearing_with_a_refused_property_address(rented)
+    piece = _not_sent(n, service="certified").get()
+    with pytest.raises(services.WorkflowError, match="never went out"):
+        services.record_piece_mailed(piece, date.today(), "9407100000000000000001", ppl.ann)
+    with pytest.raises(services.WorkflowError):
+        services.record_piece_delivered(piece, date.today(), ppl.ann)
+    with pytest.raises(services.WorkflowError):
+        services.record_piece_not_delivered(piece, "unclaimed", user=ppl.ann)
+    piece.refresh_from_db()
+    assert piece.not_sent and piece.mailed_on is None and piece.delivered_on is None
+
+
+def test_LB4_the_case_page_shows_the_not_sent_letter_with_a_way_to_mark_it_handled_and_no_delivery_button(rented, ppl):
+    _hearing_with_a_refused_property_address(rented)
+    page = web(ppl.ann).get(f"/violations/{rented.pk}/").content.decode()
+    assert "2 letters not sent" in page
+    row = page.split('id="mailing"', 1)[1].split("Letter NOT sent", 1)[1].split('<div class="piece"', 1)[0]
+    assert "What was done about it" in row and "Mark handled" in row and "It was delivered after all" not in row
+
+
+def test_LB4_a_letter_that_was_not_sent_is_not_a_letter_to_mail_by_hand(rented, ppl):
+    _hearing_with_a_refused_property_address(rented)
+    assert not MailPiece.objects.filter(by_hand=True).exists()
+    assert "Letters to mail by hand" not in web(ppl.ann).get("/workspace/").content.decode()
+
+
+def test_LB4_the_case_file_csv_lists_the_letter_with_its_problem(rented, ppl):
+    _hearing_with_a_refused_property_address(rented)
+    z = zipfile.ZipFile(io.BytesIO(web(ppl.ann).get(f"/violations/{rented.pk}/case-file.zip").content))
+    text = " ".join(z.read(n).decode("utf-8", "replace") for n in z.namelist() if n.endswith(".csv"))
+    assert "Letter NOT sent" in text
+
+
+def test_LB4_a_not_sent_letter_is_handled_through_the_page_and_the_alert_goes_away(rented, ppl):
+    n, _ = _hearing_with_a_refused_property_address(rented)
+    for piece in _not_sent(n):
+        r = web(ppl.ann).post(f"/mail-pieces/{piece.pk}/handled/", {"note": "Re-sent from Lob's own site."}, follow=True)
+        assert r.status_code == 200
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    assert "Certified mail problems" not in page

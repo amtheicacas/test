@@ -63,7 +63,9 @@ def test_a_notice_on_staging_with_a_live_key_is_not_mailed_and_says_why(settings
     with mock.patch("urllib.request.urlopen") as net:
         assert mailing.dispatch(n, lambda who: b"%PDF-1") is False
     n.refresh_from_db()
-    assert not net.called and not MailPiece.objects.exists() and "TEST key" in n.provider_note
+    assert not net.called and "TEST key" in n.provider_note
+    assert not MailPiece.objects.exclude(status=MailPiece.NOT_SENT).exists()          # nothing counts as mailed...
+    assert MailPiece.objects.filter(status=MailPiece.NOT_SENT, problem=True, handled_on__isnull=True).exists()     # ...and the letter is listed as NOT sent
 
 
 # ---------- the live site's start checks ----------

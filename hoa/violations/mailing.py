@@ -237,6 +237,29 @@ def plan_manual_pieces(notice):
     return len(made)
 
 
+def _record_not_sent(notice, failed):
+    """Every letter the print service did not take (`failed` = [(address label, "certified"/"first_class", reason)]) is LISTED as a letter that was NOT
+    sent, so it shows in the red box on the Board / manager home screen until someone handles it (before, only a small staff note recorded it
+    while the notice counted as mailed). A second try at the same letter updates the one entry instead of adding another."""
+    from .services import log   # avoid circular import
+    for label, svc, reason in failed:
+        piece = MailPiece.objects.filter(notice=notice, label=label, service=svc, status=MailPiece.NOT_SENT, handled_on__isnull=True).first()
+        new = piece is None
+        if new:
+            piece = MailPiece(notice=notice, label=label, service=svc, by_hand=False, status=MailPiece.NOT_SENT, problem=True, problem_on=date.today())
+        piece.problem_note = (reason or "")[:300]
+        piece.save()
+        if new:
+            log(notice.violation, f"WARNING: {notice.get_kind_display()}: the {piece.service_label.lower()} copy to {label} was NOT sent: {piece.problem_note}. "
+                                  "It shows in the red box on the home screen until it is handled.")
+
+
+def _clear_earlier_failure(notice, label, svc):
+    """A letter that failed on an earlier try has now been sent: its 'NOT sent' entry is closed (the new letter is the record)."""
+    MailPiece.objects.filter(notice=notice, label=label, service=svc, status=MailPiece.NOT_SENT, handled_on__isnull=True).update(
+        handled_on=date.today(), handled_note="Sent on a later try (see the letter listed with it).")
+
+
 def dispatch(notice, render, user=None):
     """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
     while the lease is active AND MAIL_TO_TENANT is on the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
@@ -250,17 +273,20 @@ def dispatch(notice, render, user=None):
     targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
     if o.tenant_is_mailed:       # off by default: one mailed letter to the owner covers the house (MAIL_TO_TENANT)
         targets.append(("tenant", o.postal("tenant"), "tenant"))
-    ids, tracking, errors = [], "", []
+    ids, tracking, errors, failed = [], "", [], []
+    plan = _services_for(notice.kind)
     for variant, addr, label in targets:
         if not all(addr.get(k) for k in ("name", "line1", "city", "state", "zip")):  # skip this address, keep mailing the others
             errors.append(f"{label}: incomplete mailing address (need street, city, state, ZIP)")
+            failed += [(label, svc, "incomplete mailing address (need street, city, state, ZIP)") for _extra, svc in plan]
             continue
         try:
             pdf = render(variant)
         except Exception as e:  # noqa: BLE001  (one letter that will not build must not stop the others, nor lose the record of those already handed over)
             errors.append(f"{label}: the letter could not be built ({type(e).__name__})")
+            failed += [(label, svc, f"the letter could not be built ({type(e).__name__})") for _extra, svc in plan]
             continue
-        for extra, svc in _services_for(notice.kind):
+        for extra, svc in plan:
             try:
                 r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
                 ids.append(r.get("id", "?"))
@@ -268,6 +294,7 @@ def dispatch(notice, render, user=None):
                     tracking = tracking or r.get("tracking_number") or ""
                 piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
                                                  tracking_number=r.get("tracking_number") or "", mailed_on=date.today())
+                _clear_earlier_failure(notice, label, svc)      # an earlier try of this same letter failed: it is no longer outstanding
                 apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
                 from .services import _keep_copy
                 _keep_copy(notice, pdf, variant, "certified" if svc == "certified" else "first_class",
@@ -275,6 +302,8 @@ def dispatch(notice, render, user=None):
                            tracking=piece.tracking_number, piece=piece)
             except Exception as e:  # never block the workflow on the provider
                 errors.append(f"{label}/{svc}: {e}")
+                failed.append((label, svc, _clean(str(e))))
+    _record_not_sent(notice, failed)
     notice.provider, notice.provider_ids = "lob", ",".join(ids)[:500]
     notice.provider_note = "; ".join(errors)[:300]
     if ids:

@@ -616,6 +616,10 @@ class Notice(models.Model):
             out += [f"Still to be mailed by hand: {p.service_label.lower()} copy to {p.label}" for p in pieces if p.to_mail]
             out += [f"Not mailed (not needed): {p.service_label.lower()} copy to {p.label}: {p.handled_note}" for p in pieces if p.by_hand and not p.mailed_on and p.handled_on]
             for p in pieces:
+                if p.not_sent:
+                    out.append(f"NOT SENT: the {p.service_label.lower()} copy to {p.label}: {p.problem_note}"
+                               + (f" (handled {short_date(p.handled_on)}: {p.handled_note})" if p.handled_on else ""))
+                    continue
                 if p.problem_note:
                     out.append(f"Note on the {p.service_label.lower()} copy to {p.label}: {p.problem_note}")
                 if p.handled_on and p.is_mailed:
@@ -660,14 +664,22 @@ class MailPiece(models.Model):
     class Meta:
         ordering = ["created_at", "pk"]
 
+    NOT_SENT = "Letter NOT sent"      # the status of a letter the print service never took (see mailing.dispatch): it did NOT go out
+
     @property
     def is_certified(self):
         return self.service == "certified"
 
     @property
+    def not_sent(self):
+        """The print service refused this letter, or it could not be built, or the address was not complete: it did NOT go out. It is listed so the
+        Board / manager see it (red box) until someone handles it. Never shown to owners, never counted as mailed."""
+        return not self.by_hand and not self.mailed_on and self.status == self.NOT_SENT
+
+    @property
     def is_mailed(self):
         """Handed to the post office (a letter listed for hand mailing, once its mailing date is recorded) or to the print service."""
-        return bool(self.mailed_on) or not self.by_hand
+        return not self.not_sent and (bool(self.mailed_on) or not self.by_hand)
 
     @property
     def to_mail(self):
@@ -676,8 +688,15 @@ class MailPiece(models.Model):
 
     @property
     def needs_attention(self):
-        """Could not be delivered and nobody has dealt with it yet: this is what the home screen warns about."""
+        """Could not be delivered (or was never sent) and nobody has dealt with it yet: this is what the home screen warns about."""
         return bool(self.problem and not self.delivered_on and not self.handled_on)
+
+    @classmethod
+    def red_box(cls):
+        """What the red "Certified mail problems" box and the menu count show: a certified letter that could not be delivered, and ANY letter the
+        print service never took (NOT sent), until the Board or manager marks it handled."""
+        return cls.objects.filter(problem=True, delivered_on__isnull=True, handled_on__isnull=True).filter(
+            models.Q(service="certified") | models.Q(status=cls.NOT_SENT, by_hand=False))
 
     @property
     def service_label(self):

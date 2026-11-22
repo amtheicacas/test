@@ -655,7 +655,9 @@ def test_when_lob_refuses_a_letter_the_reason_is_recorded_on_the_case_and_nothin
     n.refresh_from_db()
     assert "HTTP 422" in n.provider_note and "use_type is required" in n.provider_note
     assert Event.objects.filter(violation=n.violation, text__contains="use_type is required").exists()
-    assert not n.pieces.exists() and n.mailed_on is None                             # it shows as not mailed, so it cannot be forgotten
+    assert n.mailed_on is None                                                       # it shows as not mailed, so it cannot be forgotten
+    listed = list(n.pieces.all())                                                    # nothing is recorded as mailed, but every letter that did not go
+    assert listed and all(p.not_sent and p.needs_attention and not p.is_mailed for p in listed)       # is listed (red box) until someone handles it (decision 3)
 
 
 @pytest.mark.parametrize("event,flagged", [("Pickup Available", True), ("Issue", True), ("Returned to Sender", True), ("Re-Routed", True),
