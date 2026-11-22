@@ -27,13 +27,13 @@ def test_every_page_carries_the_name_in_the_title_and_header(client, settings):
 
 def test_the_sign_in_page_welcomes_owners_to_it(client):
     html = client.get("/accounts/login/").content.decode()
-    assert f"Welcome to the {NAME}" in html and "Email me a sign-in link" in html
+    assert f"Welcome to {NAME}" in html and f"Welcome to the {NAME}" not in html and "Email me a sign-in link" in html      # "the My ..." read badly (review decision 9)
 
 
 def test_changing_the_setting_changes_the_pages(client, settings):
     settings.APP_NAME = "Heron Landing Hub"
     html = client.get("/accounts/login/").content.decode()
-    assert "Welcome to the Heron Landing Hub" in html and NAME not in html
+    assert "Welcome to Heron Landing Hub" in html and NAME not in html
 
 
 def test_the_sign_in_email_and_confirmation_page_use_the_name(client):

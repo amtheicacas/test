@@ -26,7 +26,8 @@ def _day(d):
 def _safe_cell(value):
     """Spreadsheet programs treat a cell that STARTS with = + - or @ as a formula (Excel ignores blanks before it, and after a minus), so a
     message an owner typed could run when staff open the CSV. A leading apostrophe makes the spreadsheet show it as plain text. Text that
-    starts with a tab, carriage return or line break is treated the same way. Everything else, and every non-text value, is left as it is."""
+    starts with a tab, carriage return or line break is treated the same way. Everything else, and every non-text value, is left as it is.
+    (Text starting with "- " gets the apostrophe too: the owner decided on 2026-11-22 to KEEP it that way, because it closes a real spreadsheet hole.)"""
     if isinstance(value, str) and value and (value.lstrip(" ")[:1] in ("=", "+", "-", "@") or value[0] in "\t\r\n"):
         return "'" + value
     return value
