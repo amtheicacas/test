@@ -531,6 +531,7 @@ def _mail_flags(v):
 @staff_only
 def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
+    v.own_household = services.own_household(request.user, v)       # your own household's case: the decisions that could let it off are hidden
     v.responses.filter(from_resident=True, read_at__isnull=True).update(read_at=timezone.now())   # opening the case marks owner messages as read
     ctx = {
         "v": v, "S": S, "mail": services.correspondence(v, staff=True),
@@ -855,6 +856,7 @@ def board_queue(request):
     for v in vs:  # the Board may adopt a schedule of fines: start from this violation type's usual fine
         v.bform = forms.BoardForm(initial={"proposed_fine": v.suggested_fine})
         v.history = services.owner_history(v, pool=pool)
+        v.own_household = services.own_household(request.user, v)
         v.peek = next((p for p in v.photos.all() if not p.from_resident), None)
         v.pending_ext = next((r for r in v.responses.all() if r.extension_requested and not r.handled), None)     # the oldest unanswered request (same as pending_extension)
         v.unread = any(r.from_resident and r.read_at is None for r in v.responses.all())
@@ -1280,6 +1282,8 @@ def results_detail(request, pk):
     recommendation and the Board's final decision. Where results are waiting, the Board reviews each item here."""
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     summary = _meeting_summary(m)
+    for v in summary["cases"]:
+        v.own_household = services.own_household(request.user, v)
     return render(request, "violations/committee_results.html", {"m": m, "sum": summary, "S": S,
                                                                   "review": m.results_status == CommitteeMeeting.Results.SUBMITTED,
                                                                   "impose_form": forms.ImposeForm()})

@@ -55,6 +55,21 @@ def _fresh(obj, *fields):
         setattr(obj, k, value)
 
 
+def own_household(user, v):
+    """True when `user` signs in as the owner of this case's home: it is their OWN household's case. (The link is the login's owner record, so it
+    follows the home, not the job title: a Board member or a manager who owns a home here is covered, a manager who owns none never is.)"""
+    profile = getattr(user, "profile", None) if user is not None else None
+    return bool(profile is not None and profile.owner_id and profile.owner_id == v.owner_id)
+
+
+def _not_your_own(v, user, what):
+    """Nobody decides their own household's case in their own favour. A decision that could end the case, shorten it, reduce it or put it off
+    (dismiss, mark corrected, more time, hold, the committee's decision, lowering or waiving a fine) must be made by someone else. Moving the case
+    to its next stage (send the notice, refer it, send it to a meeting, approve a fine the committee confirmed) is not a decision and stays open."""
+    if own_household(user, v):
+        raise WorkflowError(f"This is your own household's case, so you can't {what} yourself. Ask another Board member or the manager to do it.")
+
+
 def _save_locked(v, *allowed):
     """Save the case's changes (including the new status already set on `v`) only if the case is STILL in one of the `allowed`
     statuses, checked under a row lock. Used where two people (or a double click) could otherwise write over each other."""
@@ -512,6 +527,7 @@ def _close_if_done(v, user=None):
 
 @transaction.atomic
 def mark_cured(v, user=None, note="", today=None):
+    _not_your_own(v, user, "mark it corrected")
     _require(v, *Violation.OPEN)
     v.cured_on = today or date.today()
     cancel_held_mailings(v)
@@ -671,6 +687,7 @@ def send_legal_email(v, to, subject, body, keys, user=None, cc=""):
 
 @transaction.atomic
 def put_on_hold(v, reason, until, user=None):
+    _not_your_own(v, user, "put it on hold")
     _require(v, *[st for st in Violation.OPEN if st not in (S.DRAFT, S.ON_HOLD, S.REFERRED_LEGAL)])
     if not reason.strip():
         raise WorkflowError("Give a reason for the hold.")
@@ -783,6 +800,7 @@ def mark_reinspect(v, user=None, note="", notify=True):
 @transaction.atomic
 def reinspect_result(v, corrected, user=None, note=""):
     """Record the result of the re-inspection: verified corrected (closes the case) or still not corrected (the case carries on)."""
+    _not_your_own(v, user, "record the result of the re-inspection")
     _fresh(v, "reinspect_on")
     if not v.reinspect_on:
         raise WorkflowError("This case is not marked for re-inspection.")
@@ -800,6 +818,7 @@ def reinspect_result(v, corrected, user=None, note=""):
 
 @transaction.atomic
 def dismiss(v, user=None, note=""):
+    _not_your_own(v, user, "dismiss it")
     _require(v, *Violation.OPEN)
     v.status = S.DISMISSED
     cancel_held_mailings(v, "case dismissed")
@@ -827,6 +846,7 @@ def _email_owner(v, subject, body):
 def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, second_notice=False, days=None, response=None):
     """Give more time. Either `days` (added to the CURRENT deadline, so the case ages as if the cure period had always
     been that long) or an exact `new_deadline`. As a 'second notice' it re-sends the full Notice of Violation."""
+    _not_your_own(v, user, "give it more time")
     _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
     old = v.cure_deadline
     if days is not None:
@@ -863,6 +883,7 @@ def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, sec
 @transaction.atomic
 def decline_extension(v, response, reason="", user=None):
     """Say no to a request for more time. The owner gets the reason in the portal and by email."""
+    _not_your_own(v, user, "answer a request for more time")
     _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
     Response.objects.filter(pk=response.pk).update(handled=True, decision="declined")
     msg = (f"Your request for more time on the violation at {v.owner.property_address} was not approved. "
@@ -994,7 +1015,10 @@ def board_decide(v, decision, meeting_date, user=None, note="", fine=None, suspe
                  suspension_days=None, by_majority=False):
     """Board decision at a meeting. 'proceed' issues the fine, which is only proposed until the Compliance Committee approves it at
     its hearing (FS 720.305(2)). It takes a majority of the Board: either confirm 'by_majority' (the Board approved this at its meeting)
-    or give the votes. (Suspensions are still supported here but the app no longer offers them: the Association has no amenities.)"""
+    or give the votes. (Suspensions are still supported here but the app no longer offers them: the Association has no amenities.)
+    A vote to go ahead moves the case on; a vote to dismiss it is a decision in the owner's favour, so not on your own household's case."""
+    if decision == "dismiss":
+        _not_your_own(v, user, "record a Board vote to dismiss it")
     _require(v, S.PENDING_BOARD)
     v.board_meeting_date = meeting_date
     if not settings.SUSPENSION_ENABLED:     # suspension is switched off: anything sent for it is ignored, never saved
@@ -1211,6 +1235,7 @@ def assign_all_to_meeting(meeting, user=None, today=None, cases=None):
 def committee_decide(v, votes_for, votes_against, user=None, note="", today=None, findings="", cure_by=None):
     """Committee (3+ owners, none board/officer/employee/relative) confirms or rejects the Board's proposal.
     Majority approval makes it final; the Board does not vote again."""
+    _not_your_own(v, user, "record the committee's decision on it")
     _require(v, S.HEARING_SCHEDULED)
     if v.hearing_date and v.hearing_date > timezone.now():
         raise WorkflowError("The hearing date has not occurred yet.")
@@ -1251,6 +1276,7 @@ def conflicted_members(v):
 def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings="", owner_present=False, abstain_ids=()):
     """The committee's decision on one case at its meeting (saved; the case does not move until the meeting's results are submitted).
     A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes."""
+    _not_your_own(v, user, "record the committee's decision on it")
     _require(v, S.HEARING_SCHEDULED)
     m = v.committee_meeting
     if m is None or m.results_status != CommitteeMeeting.Results.OPEN:
@@ -1324,8 +1350,13 @@ def submit_meeting_results(m, user=None):
 
 def board_review_item(v, user, action, final_outcome="", amount=None, note="", method="manual", reference=""):
     """Board / manager reviews one committee result. action: 'approve' (as recommended), 'modify' (lower the fine, or waive it instead)
-    or 'return' (send it back to the committee). Approving a fine posts it to the ledger and sends the decision letter (Letter 3)."""
+    or 'return' (send it back to the committee). Approving a fine posts it to the ledger and sends the decision letter (Letter 3).
+    On your own household's case only 'approve' of a FINE is open to you (it carries the committee's decision on to the next stage); lowering,
+    waiving, sending back, or approving a waiver / rejection is for someone else."""
     _require(v, S.LEDGER_PENDING)
+    if not (action == "approve" and v.committee_outcome in ("confirm", "amend")):         # a fine approved as decided is only moving the case on
+        _not_your_own(v, user, "approve the committee's decision to waive or reject it" if action == "approve"
+                      else "lower, waive or send back the committee's result")
     m = v.committee_meeting
     if m is None or m.results_status != CommitteeMeeting.Results.SUBMITTED or not v.committee_outcome:
         raise WorkflowError("This case is not waiting on a committee result.")

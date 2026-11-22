@@ -24,7 +24,7 @@
 {% for v in violations %}<tr class="row-link{% if v.is_point_in_time %} pit{% endif %}" data-href="{{ v.get_absolute_url }}"><td><input type="checkbox" name="pick" value="{{ v.pk }}" class="pick">
 <td class="v"><a href="{{ v.get_absolute_url }}" target="_blank" rel="noopener"><b>#{{ v.pk }}</b> {{ v.vtype.name }}</a>{% if v.unread %} <span title="Unread message from the owner" aria-label="Unread message from the owner" style="font-size:1.05rem">&#9993;</span>{% endif %}{% include "violations/_pit_badge.html" %}{% if v.pending_ext %} <span class="pill flag" title="{{ v.pending_ext.message|truncatechars:120 }}">asked for more time</span>{% endif %}
 {% if v.peek %}<div class="peek"><img src="{% url 'photo' v.peek.pk %}" alt=""></div>{% endif %}
-<td>{{ v.owner.property_address }}<div class="mut">{{ v.owner.display_name }}</div>
+<td>{{ v.owner.property_address }}<div class="mut">{{ v.owner.display_name }}</div>{% if v.own_household %}<div class="mut"><span class="pill flag">your own household</span> you can move it along, but another Board member or the manager has to dismiss it or give more time</div>{% endif %}
 <td>{{ v.cure_deadline|date:"M j, Y" }}
 <td><b>{{ v.history.occurrence }}{{ v.history.occurrence|ordinal_suffix }}</b> time<div class="mut">{{ v.history.open_others|length }} other open &middot; ${{ v.history.fines_total|floatformat:"0g" }} prior fines</div>{% if v.is_point_in_time or v.history.pit_count %}<div class="mut" style="color:#6f5fc4"><b>{{ v.history.pit_count }}</b> prior point-in-time</div>{% endif %}
 <td><input type="number" step="0.01" min="0" name="fine_{{ v.pk }}" value="{{ v.suggested_fine|floatformat:2 }}" class="f-fine">
