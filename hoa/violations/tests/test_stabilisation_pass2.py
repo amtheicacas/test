@@ -141,8 +141,9 @@ def test_LB2_a_stale_second_mail_now_click_does_not_send_the_letters_again(rente
 
 
 @pytest.mark.django_db(transaction=True)
-def test_LB2_two_page_loads_at_the_same_moment_release_a_held_notice_only_once(rented):
-    """advance_expired runs on every dashboard / Board-queue page load; two loads at once used to BOTH release the same held notice."""
+def test_LB2_two_runs_at_the_same_moment_release_a_held_notice_only_once(rented):
+    """Two page loads used to BOTH release the same held notice (advance_expired ran on every dashboard load). Since review decision 4 only the daily
+    job hands mail over, but two runs at once (or a run and a late retry) must still never send the same notice twice."""
     if connection.vendor != "postgresql":
         pytest.skip("row locks need PostgreSQL; run with DATABASE_URL set")
     n = Notice.objects.create(violation=rented, kind=Notice.Kind.VIOLATION, mail_hold_until=date.today() - timedelta(days=1))
@@ -153,13 +154,13 @@ def test_LB2_two_page_loads_at_the_same_moment_release_a_held_notice_only_once(r
         time.sleep(0.4)
         return {"id": f"ltr_{len(sent)}"}
 
-    def load_the_page():
+    def run_the_job_step():
         try:
-            services.advance_expired(date.today())
+            services.send_due_mailings(date.today())
         finally:
             connections.close_all()
     with mock.patch.object(mailing, "lob_send", side_effect=slow):
-        ts = [threading.Thread(target=load_the_page) for _ in range(3)]
+        ts = [threading.Thread(target=run_the_job_step) for _ in range(3)]
         [t.start() for t in ts]
         [t.join() for t in ts]
     assert len(sent) == 2, sent                                           # the mailing address and the property, once each: never doubled

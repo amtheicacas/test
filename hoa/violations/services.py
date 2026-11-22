@@ -984,12 +984,13 @@ def add_response(v, message, *, from_resident, user=None, extension_requested=Fa
 
 
 def advance_expired(today=None):
-    """Daily job (and run when the dashboard or Board queue opens): cure periods that ended without cure move to the board queue.
-    Not one big transaction: each held notice is mailed, each hold lifted and each case moved on its own, and a case is moved only if
-    it is STILL in its cure period under a row lock, so an extension granted a moment ago is never overwritten."""
+    """Daily job (and run when the dashboard or Board queue opens): holds that have ended are lifted, and cure periods that ended without cure move
+    to the board queue. It does NOT hand held mail to the print service: only the daily job does that (send_due_mailings, its own step), never a page
+    load, so a slow print service can never hold a page up or be called twice by two people opening the dashboard.
+    Not one big transaction: each hold is lifted and each case moved on its own, and a case is moved only if it is STILL in its cure period under
+    a row lock, so an extension granted a moment ago is never overwritten."""
     today = today or date.today()
     n = 0
-    send_due_mailings(today)
     lift_expired_holds(today)
     for pk in list(Violation.objects.filter(status=S.NOTICE_SENT, cure_deadline__lt=today).values_list("pk", flat=True)):
         with transaction.atomic():

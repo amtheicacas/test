@@ -554,3 +554,77 @@ def test_LB4_a_not_sent_letter_is_handled_through_the_page_and_the_alert_goes_aw
         assert r.status_code == 200
     page = web(ppl.ann).get("/workspace/").content.decode()
     assert "Certified mail problems" not in page
+
+
+# ======================================================================================================================================
+# 4. Held mail is handed to the print service by the daily job only: never inside a page load
+# ======================================================================================================================================
+from django.core.management import call_command                                          # noqa: E402
+
+
+def _held_and_due(rented, days_ago=1):
+    return Notice.objects.create(violation=rented, kind=Notice.Kind.VIOLATION, mail_hold_until=date.today() - timedelta(days=days_ago))
+
+
+def _working_lob(sent):
+    return lambda to, pdf, d, extra=None: sent.append(to["line1"]) or {"id": f"ltr_{len(sent)}", "tracking_number": f"9407100000000000{len(sent):06d}"}
+
+
+def test_JOB1_opening_the_dashboard_the_board_queue_or_the_home_page_no_longer_hands_mail_to_the_print_service(rented, ppl):
+    n, sent = _held_and_due(rented), []
+    with mock.patch.object(mailing, "lob_send", side_effect=_working_lob(sent)):
+        for url in ("/workspace/", "/board/", "/"):
+            assert web(ppl.ann).get(url).status_code == 200
+            assert web(ppl.mia).get(url).status_code == 200
+    assert sent == []
+    n.refresh_from_db()
+    assert n.mailed_on is None and n.mail_tried_on is None and n.mail_held and not MailPiece.objects.filter(notice=n).exists()
+
+
+def test_JOB1_the_page_load_still_moves_a_case_whose_cure_period_ended_to_the_Board_queue(rented, ppl):
+    Violation.objects.filter(pk=rented.pk).update(status=S.NOTICE_SENT, cure_deadline=TODAY - timedelta(days=1))
+    web(ppl.ann).get("/board/")
+    rented.refresh_from_db()
+    assert rented.status == S.PENDING_BOARD                                                    # (that has no outside effect, so it stays on page loads)
+
+
+def test_JOB1_the_daily_job_does_hand_the_due_notice_over_and_only_once(rented):
+    n, sent = _held_and_due(rented), []
+    with mock.patch.object(mailing, "lob_send", side_effect=_working_lob(sent)):
+        call_command("daily_jobs")
+        call_command("daily_jobs")                                                              # a second run the same day sends nothing more
+    n.refresh_from_db()
+    assert len(sent) == 2 and n.mailed_on == date.today() and not n.mail_held and MailPiece.objects.filter(notice=n).count() == 2
+
+
+def test_JOB1_a_notice_still_inside_its_wait_is_left_alone_by_the_job(rented):
+    n = Notice.objects.create(violation=rented, kind=Notice.Kind.VIOLATION, mail_hold_until=date.today() + timedelta(days=2))
+    sent = []
+    with mock.patch.object(mailing, "lob_send", side_effect=_working_lob(sent)):
+        call_command("daily_jobs")
+    n.refresh_from_db()
+    assert sent == [] and n.mail_held
+
+
+def test_JOB1_mail_now_on_the_case_page_still_sends_at_once(rented, ppl):
+    n, sent = _held_and_due(rented), []
+    with mock.patch.object(mailing, "lob_send", side_effect=_working_lob(sent)):
+        web(ppl.ann).post(f"/violations/{rented.pk}/mail_now/", {"notice": n.pk}, follow=True)
+    n.refresh_from_db()
+    assert len(sent) == 2 and n.mailed_on == date.today()
+
+
+def test_JOB1_the_dashboard_says_which_mail_is_waiting_for_the_daily_job(rented, ppl):
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    assert "past the wait" not in page
+    inside = Notice.objects.create(violation=rented, kind=Notice.Kind.VIOLATION, mail_hold_until=date.today() + timedelta(days=2))
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    assert "1 mailed copy on hold" in page and "past the wait" not in page
+    inside.mail_hold_until = date.today() - timedelta(days=1)
+    inside.save()
+    page = web(ppl.ann).get("/workspace/").content.decode()
+    assert "1 mailed copy is past the wait and has not gone out yet" in page and "The daily job sends it" in page and "Mail now" in page
+    with mock.patch.object(mailing, "lob_send", side_effect=_working_lob([])):
+        call_command("daily_jobs")
+    assert "past the wait" not in web(ppl.ann).get("/workspace/").content.decode()
+

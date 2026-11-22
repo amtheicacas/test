@@ -203,6 +203,7 @@ def _dashboard(request):
         "unmailed": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False).filter(
             Q(mail_hold_until__isnull=True) | Q(mail_hold_until__lte=date.today())).count(),
         "held_mail": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__gt=date.today()).count(),
+        "mail_due": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__lte=date.today()).count(),   # waiting for the daily job
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
