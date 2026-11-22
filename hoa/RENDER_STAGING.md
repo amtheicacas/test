@@ -102,3 +102,5 @@ Do this only when you are ready; no Lob account is needed before that. Lob has n
 5. In the Shell run `python manage.py check_lob --ping`. Expected: "a TEST key ... NOTHING IS MAILED", "Lob answered HTTP 200: it accepts the key", "All checks passed". It sends no letter; the ping is a free read-only question.
 6. Run the trial again (send a fake case's hearing notice to a meeting). On the case page, **Mailing log** should now list a certified and a first-class letter per address, each handed to Lob, or show Lob's own reason if Lob refused it. The test letters appear in Lob's dashboard and are not mailed.
 7. Test mode has NO USPS tracking events, so "returned" and "not delivered" cannot be proven here; they need a few real certified letters later, each about $8, and only with the owner's explicit approval.
+
+**Note 2026-11-22:** held mailed copies now go out only from `daily_jobs` (or the Mail now button on the case), never by opening a page, so scheduling `daily_jobs` matters more than it did. Until it is scheduled the dashboard shows "N mailed copies are past the wait and have not gone out yet" (nothing is mailed on staging in any case).

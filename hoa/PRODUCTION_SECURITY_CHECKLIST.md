@@ -127,6 +127,7 @@ share a database, bucket, secret key or API key.
 - [ ] Nightly file copy (copy, never sync) to the second vendor.
 - [ ] Failure alerts and a heartbeat monitor are active and have been tested by deliberately breaking one backup.
 - [ ] `daily_jobs` scheduled as a Render cron job with its own heartbeat.
+  - (Since 2026-11-22 this job is also the ONLY thing that sends held mailed copies automatically; confirm the dashboard never shows "past the wait and have not gone out yet" after a day.)
 - [ ] Recovery sheet written and stored with a second Board officer.
 
 ---

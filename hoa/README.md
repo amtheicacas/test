@@ -130,7 +130,7 @@ Owners are matched on Vantaca's account ID, then property address, so hand-enter
 
 ## Violation Issuance Timing
 When a violation is entered you choose how it goes out:
-- **Standard (default):** emailed to the owner (and tenant) at once; the printed US Mail copy is held `MAIL_DELAY_BUSINESS_DAYS` (default 2) business days (Mon-Fri, holidays not skipped). If the violation is marked corrected or dismissed in that time, the mailing is cancelled and the postage is saved. Held mailings are released by `python manage.py daily_jobs` (schedule it daily) and also when a manager opens the dashboard; a **Mail now** button on the case releases one early.
+- **Standard (default):** emailed to the owner (and tenant) at once; the printed US Mail copy is held `MAIL_DELAY_BUSINESS_DAYS` (default 2) business days (Mon-Fri, holidays not skipped). If the violation is marked corrected or dismissed in that time, the mailing is cancelled and the postage is saved. Held mailings are released by `python manage.py daily_jobs` (schedule it daily) and also when a manager opens the dashboard; a **Mail now** button on the case releases one early. **Updated 2026-11-22: held mailings are now released ONLY by the daily job and the Mail now button; opening the dashboard no longer sends them (the dashboard shows how many are past their wait).**
 - **Immediate - urgent:** email and US Mail go out right away.
 - **Draft:** saved without sending; issue it later from the case page with either timing.
 The cure period runs from the day the email goes out. A cure period of 0 makes the letter say "immediately (no later than 12 hours after the date of this correspondence)".

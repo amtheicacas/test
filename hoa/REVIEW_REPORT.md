@@ -222,3 +222,41 @@ Not acted on, for the record: **NOTE-1** the $1,000 aggregate counts only fines 
 4. Provide the virtual-mailbox return address, then the Lob account and TEST key, then do the first Lob test-key run (decision 5).
 5. When the attorney's final Word letters arrive: Part B (letters), including decision 6.
 6. Schedule the daily job with a heartbeat monitor, so a failed run is noticed.
+
+## Answers recorded 2026-11-22 (the owner's replies to section 7 above)
+The owner answered decisions 1, 2, 3, 4, 7 and 9. Each change was built with tests that failed first (78 new tests, `test_decisions_pass3.py`). No migration was added (**`migrate` is not needed**), `violations/pdf.py` and every existing migration are untouched, nothing real was sent and no live service was called. Sections 1 to 8 above are left as they were; where they say a decision is open, this section supersedes them for the decisions listed here.
+
+| # | Decision | The owner's answer | What was built (commit) |
+|---|---|---|---|
+| 1 | **DEC-2** own-household actions | "Not relevant for a manager. A Board member can't waive their own, unless it is only moving it from one stage to another." | `e303b8f`. See "How decision 1 works" below. |
+| 2 | **DEC-1** closing after a fine was posted | "warn" | `a3f5c1c`. When a case whose fine is already posted to the owner's Vantaca ledger is dismissed, or marked corrected so that it closes with no fine: the case page shows a "Check the ledger first" warning and asks for confirmation; **a note saying why is required** (the service refuses without one); a WARNING line goes into the case history; and a message after closing says again that the charge is still on the ledger. A case with no posted fine, and a case whose imposed fine keeps it open (corrected but unpaid), behave as before. Not changed: a payment still cannot be recorded once the case is with the attorney, and the app cannot reverse a ledger charge (that is done in Vantaca). Attorney question 21 stays open. |
+| 3 | **LB-4** a failed address in the red box | "add it" | `698abad`. Every letter the print service did not take (refused, would not build, or an incomplete address) is listed as **"Letter NOT sent"** (a status on the existing letter record: no schema change). It shows in the red "Certified mail problems" box ("N letters were NOT sent: the print service did not take them", with certified / first class and the reason), in the menu tooltip, the "to do" count and the case page, until someone uses "Mark handled" with a note. A second try updates the same entry (no duplicates) and a later success closes it. Owners never see it and it never counts as mailed. Three older tests asserted the old behaviour (a refused letter leaves no record) and were changed on purpose. Attorney question 23 stays open. |
+| 4 | **Where sending happens** | "job only" | `e611d67`. `advance_expired` (run on every dashboard and Board-queue load) no longer calls `send_due_mailings`. Held mail is handed to the print service **only** by the daily job (its own `send_due_mailings` step, unchanged) and by the **Mail now** button. The dashboard shows "N mailed copies are past the wait and have not gone out yet. The daily job sends them." so a job that is not running cannot go unnoticed. The old two-page-loads concurrency test now runs two job steps at once (still passes on PostgreSQL). |
+| 7 | **F-07 reversed** | "keep" | No code change; the reason is written into `casefile._safe_cell`. |
+| 9 | **Login heading** | "proper rewording" (read as: use the recommended wording) | `86f5b46`. The heading now reads "Welcome to My Heron Landing Application". Two branding tests were updated. |
+
+### How decision 1 works (and how I read the answer)
+The rule follows **the home**, not the job title: it applies when the signed-in person's login is linked to the owner record of the case (`services.own_household`). So a Board member, or a manager, who owns a home here is covered, and a manager who owns none is never affected (the owner said it is not relevant for a manager; Board and manager stay identical in access). I read "waive" for the typed "wait", and "unless it is moving it from one stage to another" as "a step that only carries the case forward is fine".
+- **Blocked on your own household's case** (someone else must do it): dismiss; mark corrected; verify a re-inspection (either result); give more time, or answer (approve or decline) a request for more time; put on hold; a Board vote to dismiss; the committee's decision (the case-page form now has the abstention rule that the other two forms already had); and in the Board's review of committee results: lower the fine, waive it, send it back, or approve a waiver or rejection of the fine.
+- **Still allowed (stage moves and records):** issue the notice, refer to the Board early or to the attorney, record the Board's vote to go ahead with a fine, send to a committee meeting, submit a meeting's results, approve a fine the committee confirmed (review page or case page), mark for re-inspection, lift a hold, record a mailing or a payment, replies, photos.
+- The case page, the Board queue and the review page show a banner / note and hide the blocked buttons; the service layer refuses the same actions even if a page is forged.
+- **If the line is drawn in the wrong place** (for example the Board's vote to go ahead should also be blocked, or approving a fine should be): each is a one-line change in `services.py` (`_not_your_own`). Recording a payment was left open on purpose (it is bookkeeping, and a case cannot close without being corrected, which is blocked).
+
+### Left as it was, on purpose
+- The plain email "Hold ended" to the owner is still sent when a hold's date arrives (on the first page load or by the daily job): it is quick and does not go through Lob. Say if it should also move to the daily job only.
+- The standalone `advance_violations` command no longer sends held mail (it only moves cases); `daily_jobs` is the one that does.
+- **Consequence of decision 4:** until `daily_jobs` is scheduled (on staging it is not yet), held mailed copies stay held. Nothing mails on staging anyway; on the live site scheduling the daily job with a heartbeat is now required, not optional.
+- Other sentences still say "the My Heron Landing Application" (for example in notice emails and a few messages); only the login heading was reworded. The same change can be made there if wanted.
+
+### Still open (no answer needed yet)
+5 (Lob idempotency key: after the first Lob TEST-key run), 6 (the decision and extension letters' tenant-copy sentence: with the attorney's Word letters), 8 (raise HSTS to a year after a week of stable running), 10 to 14 (optional, later). Attorney questions 20 to 23 are still to be sent.
+
+### Checks after this round
+SQLite 1,353 passed + 4 PostgreSQL-only skipped; PostgreSQL 16 1,357 passed (was 1,275 / 1,279). `check`, `makemigrations --check` (no changes), `check --deploy` (the 3 known warnings), the security scanner (10 medium, unchanged) and the secret scan (none) are as before. The changed screens were looked at in real Chromium at desktop and phone width (no sideways scrolling).
+
+### Suggested next steps (replaces section 8)
+1. On Render: Manual Deploy > Deploy latest commit, then run the new checks in TESTING.md section 7.
+2. Send attorney questions 20 to 23 with the earlier list.
+3. Schedule `daily_jobs` (now also what sends held mail) with a heartbeat monitor.
+4. Provide the virtual-mailbox return address, then the Lob account and TEST key, then the first Lob test-key run (decision 5).
+5. When the attorney's final Word letters arrive: Part B (letters), including decision 6.

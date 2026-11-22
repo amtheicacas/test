@@ -628,3 +628,16 @@ def test_JOB1_the_dashboard_says_which_mail_is_waiting_for_the_daily_job(rented,
         call_command("daily_jobs")
     assert "past the wait" not in web(ppl.ann).get("/workspace/").content.decode()
 
+
+
+def test_LB4_the_red_box_says_whether_each_unsent_letter_was_certified_or_first_class(ppl, rented):
+    _hearing_with_a_refused_property_address(rented)
+    box = web(ppl.ann).get("/workspace/").content.decode().split("Certified mail problems", 1)[1].split("</table>", 1)[0]
+    assert "(certified, return receipt)" in box and "(first class)" in box
+
+
+def test_DEC2_web_the_review_form_for_your_own_household_has_no_change_the_fine_box(ppl):
+    _submitted(ppl)
+    mine, theirs = web(ppl.bob).get(f"/results/{ppl.past.pk}/").content.decode(), web(ppl.ann).get(f"/results/{ppl.past.pk}/").content.decode()
+    assert "Change the fine to" not in mine and "Note (optional)" in mine and "required to return it" not in mine
+    assert "Change the fine to" in theirs and "Note (required to return it)" in theirs

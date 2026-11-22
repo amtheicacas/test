@@ -322,3 +322,12 @@ Full write-up, finding by finding with tests: `REVIEW_REPORT.md`, section "Secon
 - **New attorney questions:** 20 (own-household actions), 21 (fine already posted, then corrected or dismissed), 22 (the tenant-copy sentence), 23 (one letter of a hearing notice fails at the print service). The Claude Doc copy is updated to match.
 - **Still open from before (not this pass):** the virtual-mailbox return address, the Lob account and TEST key, the domain / Postmark / payment source, the attorney's final Word letters (Part B), and the A/B letter-layout confirmation ("build now" with the Word files).
 - **How to re-run the checks:** tests `python -m pytest -q` (add `DATABASE_URL=postgres://...` for PostgreSQL); browser checks in `tools/browser_checks/` (see TESTING.md, "Browser checks"); a scratch PostgreSQL is needed for the real-thread tests.
+
+## 36. Answers to the second review (2026-11-22)
+Full write-up: `REVIEW_REPORT.md`, section "Answers recorded 2026-11-22". **No `migrate` needed**; letters (`pdf.py`) and migrations untouched; nothing real sent. Tests: SQLite 1,353 passed + 4 skipped, PostgreSQL 16 1,357 passed.
+- **Own household's case:** a login linked to the case's owner record cannot dismiss, mark corrected, verify a re-inspection, give or answer more time, hold, record the committee's decision, or lower / waive / send back a result; moving the case to its next stage is still allowed. `services.own_household` / `_not_your_own`. Screens show a banner and hide the blocked buttons.
+- **Closing after a posted fine:** warning plus a required note (`services.posted_fine_warning`); a WARNING line in the history.
+- **Letters not sent:** a letter the print service did not take is listed as "Letter NOT sent" (`MailPiece.NOT_SENT`, `MailPiece.red_box()`), in the red box on the home screen until handled.
+- **Held mail is handed over only by `daily_jobs` and the Mail now button**, never by opening a page. This SUPERSEDES line 31 above ("`advance_expired` also runs when the dashboard/queue loads": it still runs, but no longer sends) and the README sentence about the dashboard releasing held mailings. Scheduling `daily_jobs` is now required on the live site.
+- **Login heading:** "Welcome to My Heron Landing Application". **Spreadsheet apostrophe on "- " cells: kept.**
+- **Still open:** decisions 5, 6, 8, 10 to 14 (REVIEW_REPORT.md section 7), attorney questions 20 to 23, and the user-side items listed in section 35.
