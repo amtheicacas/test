@@ -701,7 +701,7 @@ def violation_action(request, pk, action):
         if f.is_valid():
             d = f.cleaned_data
             _run(request, services.grant_extension, v, None if d["days"] else d["new_deadline"], u, d["reason"],
-                 second_notice=d["second_notice"], days=d["days"], ok="More time granted and the owner notified.")
+                 second_notice=d["second_notice"], days=d["days"], deadline_was=P.get("deadline_was"), ok="More time granted and the owner notified.")
         else:
             messages.error(request, "Enter the days to add, or an exact new deadline.")
     elif action in ("ext_approve", "ext_decline"):
@@ -730,7 +730,7 @@ def violation_action(request, pk, action):
                     messages.error(request, "Enter the days to add, or an exact new deadline.")
                 else:
                     _run(request, services.grant_extension, v, None if d["extension_days"] else d["new_deadline"], u,
-                         f"board {d['meeting_date']}", days=d["extension_days"], ok="Board granted more time.")
+                         f"board {d['meeting_date']}", days=d["extension_days"], from_status=(S.PENDING_BOARD,), ok="Board granted more time.")
             else:
                 _run(request, services.board_decide, v, d["decision"], d["meeting_date"], u, d["note"],
                      fine=d["proposed_fine"], by_majority=d["by_majority"],
@@ -852,7 +852,7 @@ def board_bulk(request):
                 days = _int(P.get("days"))
                 if days <= 0:
                     raise services.WorkflowError("Enter the days to add.")
-                services.grant_extension(v, None, request.user, f"board {when}", days=days)
+                services.grant_extension(v, None, request.user, f"board {when}", days=days, from_status=(S.PENDING_BOARD,))
             else:
                 fine = P.get(f"fine_{v.pk}") or None
                 services.board_decide(v, decision, when, request.user, P.get("note", ""), fine=fine, by_majority=by_majority)

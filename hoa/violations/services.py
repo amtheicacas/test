@@ -1010,11 +1010,23 @@ def _email_owner(v, subject, body):
 
 
 @transaction.atomic
-def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, second_notice=False, days=None, response=None):
+def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, second_notice=False, days=None, response=None,
+                    deadline_was=None, from_status=None):
     """Give more time. Either `days` (added to the CURRENT deadline, so the case ages as if the cure period had always
-    been that long) or an exact `new_deadline`. As a 'second notice' it re-sends the full Notice of Violation."""
+    been that long) or an exact `new_deadline`. As a 'second notice' it re-sends the full Notice of Violation.
+    A second press of the same button must not add the days (or send the letter) again, so the case is checked under its lock: `deadline_was` is the
+    deadline the page showed when it was opened ('YYYY-MM-DD', or '' for none; None = the caller does not know) and must still be the deadline;
+    `from_status` limits the stages it may be used from (the Board's vote uses only 'awaiting the Board'); and a request for more time that is
+    being answered must still be unanswered."""
     _not_your_own(v, user, "give it more time")
-    _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
+    _require(v, *(from_status or (S.NOTICE_SENT, S.PENDING_BOARD)))
+    _fresh(v, "cure_deadline", "extended_days")          # the deadline as it is NOW, not as this request loaded it
+    if deadline_was is not None and (v.cure_deadline.isoformat() if v.cure_deadline else "") != str(deadline_was).strip():
+        raise WorkflowError(f"The deadline was changed a moment ago (it is now {short_date(v.cure_deadline) if v.cure_deadline else 'not set'}, "
+                            "not what the page you opened showed), so nothing more was added. Open the case again and check it; "
+                            "if you still want to give more time, do it from there.")
+    if response is not None and not Response.objects.select_for_update().filter(pk=response.pk, handled=False).exists():
+        raise WorkflowError("That request for more time has already been answered.")
     old = v.cure_deadline
     if days is not None:
         if days < 1:
@@ -1052,6 +1064,8 @@ def decline_extension(v, response, reason="", user=None):
     """Say no to a request for more time. The owner gets the reason in the portal and by email."""
     _not_your_own(v, user, "answer a request for more time")
     _require(v, S.NOTICE_SENT, S.PENDING_BOARD)
+    if not Response.objects.select_for_update().filter(pk=response.pk, handled=False).exists():       # (two people answering at once: the second is refused)
+        raise WorkflowError("That request for more time has already been answered.")
     Response.objects.filter(pk=response.pk).update(handled=True, decision="declined")
     msg = (f"Your request for more time on the violation at {v.owner.property_address} was not approved. "
            + (f"Reason: {reason.strip()} " if reason.strip() else "")
