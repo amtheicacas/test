@@ -30,9 +30,10 @@ def test_R4_18_a_decision_saved_while_the_results_are_being_submitted_cannot_und
     v = make_case(S.HEARING_SCHEDULED, committee_meeting=m, hearing_date=m.starts_at, proposed_fine=100, committee_outcome="confirm",
                   committee_votes_for=3, committee_votes_against=0, committee_findings="first findings")
     real = services._check_votes
-    errors = []
+    errors, passed_the_stage_check = [], threading.Event()
 
     def slow_check(*a, **k):          # the member's save is slow right after its stage check: the other member's "Submit" runs in that gap
+        passed_the_stage_check.set()
         time.sleep(1.0)
         return real(*a, **k)
 
@@ -46,7 +47,7 @@ def test_R4_18_a_decision_saved_while_the_results_are_being_submitted_cannot_und
 
     def submit():
         try:
-            time.sleep(0.4)
+            assert passed_the_stage_check.wait(timeout=20)                  # (start only once the other save is inside the gap: no guessing with sleeps)
             services.submit_meeting_results(CommitteeMeeting.objects.get(pk=m.pk), None)
         except Exception as e:      # noqa: BLE001
             errors.append(("submit", repr(e)))
