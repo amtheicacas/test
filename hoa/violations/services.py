@@ -1497,9 +1497,12 @@ def conflicted_members(v):
     return out
 
 
+@transaction.atomic
 def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_against=None, findings="", owner_present=False, abstain_ids=()):
     """The committee's decision on one case at its meeting (saved; the case does not move until the meeting's results are submitted).
-    A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes."""
+    A case that is already resolved can be waived any time before the hearing; a fine needs the hearing to have happened and 3+ votes.
+    All in one transaction with the case locked: the decision and the list of members who did not vote are saved together, and "Submit results" at the same moment
+    waits for this to finish (or finds the case already submitted and refuses)."""
     _not_your_own(v, user, "record the committee's decision on it")
     _require(v, S.HEARING_SCHEDULED)
     m = v.committee_meeting
@@ -1592,10 +1595,11 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
             raise WorkflowError("Say what the committee should look at again.")
         v.status, v.committee_outcome, v.board_review_note = S.HEARING_SCHEDULED, "", note.strip()
         v.committee_findings = (v.committee_findings + f"\n[Returned by the Board: {note.strip()}]").strip()
-        _save_locked(v, S.LEDGER_PENDING)
-        m.results_status, m.submitted_at, m.processed_at = CommitteeMeeting.Results.OPEN, None, None
-        m.save()
-        log(v, f"Board returned the committee result for another look: {note.strip()}", user)
+        with transaction.atomic():          # the case goes back and the meeting is opened for the committee again, together or not at all
+            _save_locked(v, S.LEDGER_PENDING)
+            m.results_status, m.submitted_at, m.processed_at = CommitteeMeeting.Results.OPEN, None, None
+            m.save()
+            log(v, f"Board returned the committee result for another look: {note.strip()}", user)
         return None
     if action == "approve":
         final = committee
