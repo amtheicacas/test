@@ -1317,8 +1317,11 @@ def reschedule_meeting(m, new_start, user=None, notify=True):
     cases = list(m.violations.select_related("owner", "vtype"))
     if cases and timezone.localtime(new_start).date() < date.today() + timedelta(days=settings.HEARING_NOTICE_DAYS):
         raise WorkflowError(f"Owners with cases on this meeting must get at least {settings.HEARING_NOTICE_DAYS} days' notice of the new date.")
-    old = timezone.localtime(m.starts_at)
     with transaction.atomic():
+        _fresh(m, "starts_at")                   # the time it has NOW (a double click, or someone else, may have just moved it)
+        if new_start == m.starts_at:
+            raise WorkflowError("The meeting is already at that date and time, so nothing was changed and no new notices were sent.")
+        old = timezone.localtime(m.starts_at)
         m.starts_at = new_start
         m.save()
         for v in cases:
