@@ -1377,6 +1377,10 @@ def assign_to_meeting(v, meeting, user=None, today=None):
     """Send a board-approved case to a Compliance Committee meeting: stage changes and the Notice of Hearing
     (with the Zoom link, proposed amount and the original notice) goes out by email and certified + regular mail."""
     _require(v, S.HEARING_NEEDED, S.HEARING_SCHEDULED)
+    _fresh(v, "committee_meeting_id")            # the meeting it is on NOW: a double click (or another person) may have just put it there
+    if v.status == S.HEARING_SCHEDULED and v.committee_meeting_id == meeting.pk:
+        raise WorkflowError("This case is already on that meeting and its Notice of Hearing was already sent, so nothing was sent again. "
+                            "(To move it to a different meeting, pick that one.)")
     today = today or date.today()
     min_day = today + timedelta(days=settings.HEARING_NOTICE_DAYS)
     if timezone.localtime(meeting.starts_at).date() < min_day:
