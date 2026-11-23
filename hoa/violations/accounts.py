@@ -253,14 +253,20 @@ def sync_account(owner):
             u.username = u.email = new  # the owner's login follows the Vantaca email; the old address stops working
             u.save()
             result = "updated"
+            from django.db import transaction
             from . import audit            # the access change is audited, unused links are cancelled, sessions end, the old address is told
             signed_out = end_sessions(u)
             audit.record("signin_email.changed", f"{owner.property_address} (owner, {u.get_full_name() or old})",
                          f"{old} -> {new} (changed by the Vantaca sync). Unused links cancelled: {revoke_links(u)}; sessions ended: {signed_out}.")
-            try:
-                _notify_old_address(owner.property_address, old, new, "")
-            except Exception as e:      # noqa: BLE001
-                audit.record("signin_email.mail_failed", owner.property_address, f"notice: {type(e).__name__}")
+
+            def tell_the_old_address(address=owner.property_address):
+                try:
+                    _notify_old_address(address, old, new, "")
+                except Exception as e:      # noqa: BLE001
+                    audit.record("signin_email.mail_failed", address, f"notice: {type(e).__name__}")
+            # Only once the change is really saved: the import PREVIEW runs this same code inside a transaction it then undoes, and a row that fails
+            # later is undone too; neither must have emailed anyone that their sign-in email was changed.
+            transaction.on_commit(tell_the_old_address)
     return result
 
 

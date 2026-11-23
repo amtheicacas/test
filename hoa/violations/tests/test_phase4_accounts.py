@@ -131,12 +131,13 @@ def test_the_login_is_a_login_for_that_household_only_and_the_sessions_of_others
     assert other_client.get("/me/").status_code == 200
 
 
-def test_the_vantaca_sync_changing_a_login_email_now_cancels_links_ends_sessions_audits_and_notifies(w):
+def test_the_vantaca_sync_changing_a_login_email_now_cancels_links_ends_sessions_audits_and_notifies(w, django_capture_on_commit_callbacks):
     c = sign_in_session(w.home)
     accounts.send_signin_link(w.home)
     mail.outbox.clear()
     w.oa.email = "vantaca-new@example.com"; w.oa.save()
-    assert accounts.sync_account(w.oa) == "updated"
+    with django_capture_on_commit_callbacks(execute=True):          # the old address is told once the change is really saved (review pass 4, R4-10)
+        assert accounts.sync_account(w.oa) == "updated"
     w.home.refresh_from_db()
     assert w.home.email == "vantaca-new@example.com"
     assert not LoginLink.objects.filter(user=w.home, used_at__isnull=True).exists()
