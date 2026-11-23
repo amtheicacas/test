@@ -196,7 +196,7 @@ def apply_tracking(piece, r, mark_checked=True):
         if piece.delivered_on and not n.return_receipt_on:
             n.return_receipt_on, changed = piece.delivered_on, True
         if changed:
-            n.save()
+            n.save(update_fields=["tracking_number", "return_receipt_on"])      # only these two: this copy of the notice can be older than the database's
     return before != (piece.tracking_number, piece.status, piece.delivered_on, piece.problem, len(piece.events or []))
 
 

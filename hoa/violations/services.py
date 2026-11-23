@@ -453,7 +453,7 @@ def delete_photo(v, photo, user=None):
 def mark_mailed(notice, mailed_on, tracking="", user=None, method="", return_receipt_on=None):
     notice.mailed_on, notice.tracking_number = mailed_on, tracking
     notice.method, notice.return_receipt_on = method, return_receipt_on
-    notice.save()
+    notice.save(update_fields=["mailed_on", "tracking_number", "method", "return_receipt_on"])      # only what this records: never a stale copy of the rest
     log(notice.violation, f"{notice.get_kind_display()} {notice.get_method_display().lower() or 'mailed'} "
         f"{mailed_on:%b %d, %Y}" + (f" (tracking {tracking})" if tracking else "")
         + (f"; return receipt {return_receipt_on:%b %d}" if return_receipt_on else ""), user)
@@ -502,7 +502,7 @@ def _sync_notice_from_pieces(n):
             n.mailed_on = min(days)
         n.method = "certified" if cert else "first_class"
     if before != (n.mailed_on, n.method, n.tracking_number, n.return_receipt_on):
-        n.save()
+        n.save(update_fields=["mailed_on", "method", "tracking_number", "return_receipt_on"])
 
 
 def _check_day(day, label, today, not_before=None):
