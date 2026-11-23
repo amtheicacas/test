@@ -1055,18 +1055,24 @@ def owner_archive(request):
                                                               "years": settings.ARCHIVE_RETENTION_YEARS})
 
 
+def _roster_year(value, default):
+    """A roster year typed or put in a link: a real year (2000 to 2100), else `default` (a hand-made form with a huge or negative number used to raise a server error)."""
+    y = _int(value, default)
+    return y if 2000 <= y <= 2100 else default
+
+
 @staff_or_committee
 def committee_members(request):
     """The committee roster by year. Managers and board members load it once a year; committee members can read it."""
     from django.utils import timezone
     year = timezone.localdate().year
-    year = _int(request.GET.get("year"), year)
+    year = _roster_year(request.GET.get("year"), year)
     staff = accounts.role_of(request.user) in STAFF
     if request.method == "POST":
         if not staff:
             raise PermissionDenied
         P, act = request.POST, request.POST.get("action")
-        y = _int(P.get("year"), year)
+        y = _roster_year(P.get("year"), year)
         login = lambda: get_user_model().objects.filter(username__iexact=(P.get("login") or "").strip()).first() if (P.get("login") or "").strip() else None
         pick = (P.get("owner_pick") or "").strip()
         if act == "add" and pick:                                 # picked from the owner list
@@ -1088,6 +1094,8 @@ def committee_members(request):
                     messages.success(request, f"{name} added." + ("" if user else " They have no email on file, so they have no login yet: fix it in Vantaca."))
         elif (P.get("login") or "").strip() and login() is None:
             messages.error(request, f'There is no login named "{P["login"].strip()}". Create it first (Admin, Users) or leave this blank.')
+        elif act == "add" and (P.get("name") or "").strip() and CommitteeMember.objects.filter(year=y, name__iexact=P["name"].strip()[:120]).exists():
+            messages.error(request, f"{P['name'].strip()[:120]} is already on the {y} roster.")
         elif act == "add" and (P.get("name") or "").strip():
             CommitteeMember.objects.create(name=P["name"].strip()[:120], role=P.get("role") if P.get("role") in ("chair", "secretary", "member") else "member",
                                            year=y, user=login())
