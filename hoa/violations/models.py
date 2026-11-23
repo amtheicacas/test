@@ -647,7 +647,7 @@ class Notice(models.Model):
                 if p.handled_on and p.is_mailed:
                     out.append(f"Delivery problem with the {p.service_label.lower()} copy to {p.label} handled {short_date(p.handled_on)}: {p.handled_note}")
         if staff and self.provider:
-            out.append(f"Print/mail provider: {self.provider} {self.provider_ids}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))
+            out.append(f"Print/mail provider: {self.provider} {self.provider_ids.replace(',', ', ')}".strip() + (f" ({self.provider_note})" if self.provider_note else ""))      # (a space after each comma: a line of ids with none cannot wrap, and made the page wider than a phone)
         return out
 
 
