@@ -1668,7 +1668,7 @@ def import_owners(request):
         else:
             mapping = {h: request.POST.get(f"map_{i}", "") for i, h in enumerate(headers)}
             probs = vantaca.mapping_problems(mapping)
-            if action == "map" and probs:
+            if probs:          # whatever button was pressed: a matching with problems is shown again, never saved or imported
                 ctx.update(step="map", mapping=mapping, map_problems=probs)
             else:
                 ImportMapping.objects.update_or_create(signature=vantaca.header_signature(headers), defaults={"mapping": mapping})

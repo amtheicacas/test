@@ -538,12 +538,15 @@ def auto_mapping(headers):
 def apply_mapping(rows, mapping):
     """Rename each row's columns to the names the importer understands; unmatched columns are dropped."""
     canon = {f: FIELD_ALIASES[f][0] for f, _ in MAPPABLE}
-    return [{canon[mapping[h]]: v for h, v in row.items() if mapping.get(h)} for row in rows]
+    return [{canon[mapping[h]]: v for h, v in row.items() if mapping.get(h) in canon} for row in rows]       # (a name we do not know is dropped, never a crash)
 
 
 def mapping_problems(mapping):
     fields = [f for f in mapping.values() if f]
     probs = []
+    known = {f for f, _ in MAPPABLE}
+    if any(f not in known for f in fields):       # (the page only offers our own field names: anything else was typed into a hand-made form)
+        return ["One of the columns was matched to something this page does not offer. Choose each column from the lists below."]
     if not ("name" in fields or "first" in fields or "last" in fields):
         probs.append("Match a column to Owner name (or First name and Last name).")
     if "property_address" not in fields:
