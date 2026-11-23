@@ -239,6 +239,8 @@ def issue_first_notice(v, user=None, today=None, timing=None):
     The cure period runs from the day the email goes out."""
     _require(v, S.DRAFT)
     timing = timing or v.issuance_timing or Violation.Timing.STANDARD
+    if timing not in Violation.Timing.values:            # (it comes straight from the posted form: anything else would be saved as it is)
+        raise WorkflowError("That is not a notice timing. Choose standard (email now, mail the printed copy later) or urgent (email and mail now).")
     if not v.photos.filter(from_resident=False).exists():
         raise WorkflowError("Add at least one photo of the violation before sending.")
     today = today or date.today()
@@ -1506,7 +1508,8 @@ def committee_record(v, outcome, user=None, amount=None, votes_for=None, votes_a
     conflicts = {m.pk for m in conflicted_members(v)}
     roster = {m.pk: m for m in v.committee_meeting.roster()}
     v.abstentions.all().delete()
-    for pk in conflicts | {int(i) for i in abstain_ids if str(i).isdigit() and int(i) in roster}:
+    chosen = {int(t) for t in (str(i).strip() for i in abstain_ids) if t.isascii() and t.isdigit() and len(t) <= 9 and int(t) in roster}      # (odd digits are simply ignored)
+    for pk in conflicts | chosen:
         CaseAbstention.objects.create(violation=v, member=roster[pk], reason="Own violation" if pk in conflicts else "Abstained")
     log(v, f"Committee recorded: {dict(Violation.OUTCOMES)[outcome]}" + (f" (${v.committee_amended_fine})" if outcome == "amend" else ""), user)
 
