@@ -32,6 +32,10 @@ class WorkflowError(Exception):
     pass
 
 
+class DecisionLetterFailed(WorkflowError):
+    """The Committee's decision was saved (the fine imposed and posted, or rejected) but its letter could not be created. The decision stands; the person is told."""
+
+
 def log(v, text, user=None):
     Event.objects.create(violation=v, text=text, user=user)
 
@@ -1614,11 +1618,14 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
         raise WorkflowError("Choose approve, modify or return.")
     v.board_outcome, v.board_final_fine, v.board_review_note = final, fine, (note or "").strip()
     v.board_reviewed_on, v.board_modified = today, (action == "modify")
-    result = None
+    result, letter_problem = None, None
     if final in ("confirm", "amend"):
         v.fine_amount = fine
         _save_locked(v, S.LEDGER_PENDING)      # refused if another Board member already processed this case
-        result = finalize_imposition(v, user, method, reference)
+        try:
+            result = finalize_imposition(v, user, method, reference)
+        except DecisionLetterFailed as e:      # the fine stands: finish the meeting's review below, then tell the person
+            letter_problem = e
     elif final == "waive":
         v.status, v.fine_amount, v.suspension = S.WAIVED, None, ""
         _save_locked(v, S.LEDGER_PENDING)
@@ -1632,10 +1639,18 @@ def board_review_item(v, user, action, final_outcome="", amount=None, note="", m
         v.status, v.fine_amount, v.suspension = S.FINE_REJECTED, None, ""
         _save_locked(v, S.LEDGER_PENDING)
         log(v, "Board processed: committee rejected the fine; nothing imposed. Notice of committee decision sent.", user)
-        result = send_notice(v, Notice.Kind.FINE, user)
+        try:
+            result = send_notice(v, Notice.Kind.FINE, user)
+        except Exception as e:      # noqa: BLE001
+            try:
+                _decision_letter_failed(v, user, e, "The committee's rejection was recorded and nothing is imposed.")
+            except DecisionLetterFailed as problem:
+                letter_problem = problem
     if not m.violations.filter(status=S.LEDGER_PENDING).exists():
         m.results_status, m.processed_at = CommitteeMeeting.Results.PROCESSED, timezone.now()
         m.save()
+    if letter_problem is not None:
+        raise letter_problem
     return result
 
 
@@ -1674,10 +1689,22 @@ def finalize_imposition(v, user=None, method="manual", reference="", today=None)
             v.suspension_effective_on = today if v.suspension else None
             v.save()
         log(v, "Imposition approved" + (f"; fine due {v.fine_due_on:%b %d, %Y}" if v.fine_due_on else "") + ". Notice of committee decision (written findings) sent.", user)
-    notice = send_notice(v, Notice.Kind.FINE, user)       # outside the transaction: a letter problem can never undo the posting
+    try:
+        notice = send_notice(v, Notice.Kind.FINE, user)       # outside the transaction: a letter problem can never undo the posting
+    except Exception as e:      # noqa: BLE001  (the fine IS imposed and posted: say so plainly and leave a warning, never a bare server error)
+        _decision_letter_failed(v, user, e, "The fine was imposed and posted to the ledger.")
     _close_if_done(v, user)
     v.save()
     return notice
+
+
+def _decision_letter_failed(v, user, error, what_stands):
+    """Record, and raise, that the Notice of committee decision could not be created after the decision was saved."""
+    logger.exception("the notice of committee decision for case %s could not be created", v.pk)
+    log(v, f"WARNING: the Notice of committee decision could NOT be created or sent ({type(error).__name__}). {what_stands} The owner has NOT been sent this "
+           "letter: it has to be sent by hand.", user)
+    raise DecisionLetterFailed(f"{what_stands} But the Notice of committee decision could not be created or sent ({type(error).__name__}), so the owner has "
+                               "NOT been sent it. This is recorded in the case history: the letter has to be sent by hand.") from None
 
 
 def owner_history(v, today=None, pool=None):
