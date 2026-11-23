@@ -1076,7 +1076,7 @@ def committee_members(request):
                 messages.error(request, "Pick an owner from the list.")
             else:
                 second = which == "2" and o.second_owner_name
-                name = o.second_owner_name if second else o.name
+                name = services.cut_to(o.second_owner_name if second else o.name, CommitteeMember._meta.get_field("name").max_length)      # (an owner's name can be longer than the roster's column)
                 email = (o.co_owner_email if second else o.email) or o.email
                 user = accounts.ensure_login(o, email, name, "co_owner" if second else "owner")
                 if CommitteeMember.objects.filter(year=y, owner=o, name=name).exists():

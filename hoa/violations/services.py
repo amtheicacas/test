@@ -121,6 +121,29 @@ def one_line(text, limit=200):
     return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(text))).strip()[:limit]
 
 
+def cut_to(text, limit):
+    """`text` shortened with an ellipsis to fit a database column of `limit` characters. PostgreSQL (the live database) refuses text longer than its column; SQLite
+    (your own PC and the tests) accepts it, which used to hide every case of this."""
+    text = str(text or "")
+    return text if len(text) <= limit else text[:max(limit - 1, 0)] + "\u2026"
+
+
+def fit_addresses(addresses, limit):
+    """The email addresses as one line, `a@x.com, b@y.org`, that fits a column of `limit` characters: whole addresses, then " (+N more)" for the rest.
+    (Every address was still emailed; this is only the note kept on the notice and in the email log.)"""
+    addresses = list(addresses)
+    full = ", ".join(addresses)
+    if len(full) <= limit:
+        return full
+    shown = []
+    for i, address in enumerate(addresses):
+        tail = f" (+{len(addresses) - i - 1} more)" if i < len(addresses) - 1 else ""
+        if len(", ".join(shown + [address])) + len(tail) > limit:
+            break
+        shown.append(address)
+    return cut_to(", ".join(shown) + f" (+{len(addresses) - len(shown)} more)", limit)
+
+
 def _signature():
     contact = ", ".join(x for x in (settings.HOA_CONTACT_EMAIL, settings.HOA_PHONE) if x)
     return (f"\n\nQuestions? {contact}" if contact else "") + f"\n\nOn behalf of the Board of Directors\n{settings.HOA_NAME}"
@@ -215,13 +238,14 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
             msg.send()
             _keep_copy(notice, pdf, who, "email", ", ".join(emails), name, user, errors)
             sent_to += emails
-            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), to=", ".join(emails), recipient=who)
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), recipient=who,
+                                    to=fit_addresses(emails, EmailLog._meta.get_field("to").max_length))
         except Exception as e:  # SMTP down, bad address...
             errors.append(f"{who}: {e}"[:150])
-            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), to=", ".join(emails), recipient=who,
-                                    ok=False, error=str(e)[:300])
+            EmailLog.objects.create(violation=v, notice=notice, subject=subject, body=stored_copy(body), recipient=who,
+                                    to=fit_addresses(emails, EmailLog._meta.get_field("to").max_length), ok=False, error=str(e)[:300])
     if sent_to:
-        notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(sent_to)
+        notice.emailed_at, notice.emailed_to = timezone.now(), fit_addresses(sent_to, Notice._meta.get_field("emailed_to").max_length)
     notice.email_error = "; ".join(errors)[:300]
     notice.save(update_fields=["emailed_at", "emailed_to", "email_error"])      # only what the email part owns: the hand-over of the letters may be running
     if sent_to:
@@ -1004,10 +1028,12 @@ def _email_owner(v, subject, body):
         try:
             EmailMessage(subject, full, settings.DEFAULT_FROM_EMAIL, emails).send()
             to += emails
-            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), to=", ".join(emails), recipient=who)
+            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), recipient=who,
+                                    to=fit_addresses(emails, EmailLog._meta.get_field("to").max_length))
         except Exception as e:
             log(v, f"Email '{subject[:40]}' failed for {who}: {e}"[:300])
-            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), to=", ".join(emails), recipient=who, ok=False, error=str(e)[:300])
+            EmailLog.objects.create(violation=v, subject=subject, body=stored_copy(full), recipient=who, ok=False, error=str(e)[:300],
+                                    to=fit_addresses(emails, EmailLog._meta.get_field("to").max_length))
     return to
 
 
@@ -1405,7 +1431,8 @@ def assign_to_meeting(v, meeting, user=None, today=None):
     if timezone.localtime(meeting.starts_at).date() < min_day:
         raise WorkflowError(f"Hearing must be at least {settings.HEARING_NOTICE_DAYS} days after notice "
                             f"(earliest {min_day:%b %d, %Y}).")
-    v.committee_meeting, v.hearing_date, v.hearing_location = meeting, meeting.starts_at, meeting.place
+    v.committee_meeting, v.hearing_date = meeting, meeting.starts_at
+    v.hearing_location = cut_to(meeting.place, Violation._meta.get_field("hearing_location").max_length)      # (a long Zoom link plus a long place can be longer than the column)
     v.status = S.HEARING_SCHEDULED
     v.save()
     log(v, f"Sent to Compliance Committee meeting {timezone.localtime(meeting.starts_at):%b %d, %Y %I:%M %p}", user)
