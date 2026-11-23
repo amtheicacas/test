@@ -1,4 +1,5 @@
 import hashlib
+import tempfile
 from datetime import date, timedelta
 from functools import wraps
 
@@ -8,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Exists, OuterRef, Q, Sum
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -506,16 +507,16 @@ def legal_email(request, pk):
             a["checked"] = a["key"] in keys
         draft.update(to=to, subject=subject, body=body)
         if P.get("do") == "download":
-            import io, zipfile
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            import zipfile
+            tmp = tempfile.TemporaryFile()       # (on disk, not in memory: the package can hold every photo of the case)
+            with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
                 z.writestr("email-draft.txt", f"To: {to}\nCc: {cc}\nSubject: {subject}\n\n{body}\n")
                 for k in keys:
                     att = services.legal_attachment_bytes(v, k)
                     if att:
                         z.writestr(att[0], att[1])
-            return HttpResponse(buf.getvalue(), content_type="application/zip",
-                                headers={"Content-Disposition": f'attachment; filename="legal-package-case-{v.pk}.zip"'})
+            tmp.seek(0)
+            return FileResponse(tmp, as_attachment=True, filename=f"legal-package-case-{v.pk}.zip", content_type="application/zip")
         if P.get("do") == "send":
             if _run(request, services.send_legal_email, v, to, subject, body, keys, request.user, cc, ok=f"Sent to {to}.") is not None or v.legal_sent_on:
                 v.refresh_from_db()
@@ -635,10 +636,12 @@ def case_file(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     services.log(v, "Case file downloaded", request.user)
     with_site_visits = sitevisits.allowed(request.user, v)       # not for someone whose own violation it is
-    data, name = casefile.build_case_file(v, request.user, site_visits=with_site_visits)
+    tmp = tempfile.TemporaryFile()           # written to disk and sent from there: a case with dozens of large photos must not be held in memory
+    name = casefile.build_case_file_to(tmp, v, request.user, site_visits=with_site_visits)
+    tmp.seek(0)
     sitevisits.log_access(request.user, v, sitevisits.A.EXPORTED, request,
                           detail="site-visit observations included" if with_site_visits else "site-visit observations NOT included (own violation)")
-    return HttpResponse(data, content_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+    return FileResponse(tmp, as_attachment=True, filename=name, content_type="application/zip", headers={"Cache-Control": "no-store"})
 
 
 @staff_only

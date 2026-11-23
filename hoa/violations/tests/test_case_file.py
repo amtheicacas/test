@@ -15,6 +15,7 @@ from PIL import Image
 
 from violations import mailing, services
 from violations.models import CommitteeMeeting, CommitteeMember, Event, MeetingAttendance, Notice, Owner, Photo, Profile, Response, Violation, ViolationType
+from violations.tests.review4_support import body
 
 S = Violation.Status
 K = Notice.Kind
@@ -64,7 +65,7 @@ def download(client, user, v):
     client.force_login(user)
     r = client.get(f"/violations/{v.pk}/case-file.zip")
     assert r.status_code == 200 and r["Content-Type"] == "application/zip"
-    return r, zipfile.ZipFile(io.BytesIO(r.content))
+    return r, zipfile.ZipFile(io.BytesIO(body(r)))
 
 
 def names(z):

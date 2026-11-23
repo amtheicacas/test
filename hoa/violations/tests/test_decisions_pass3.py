@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from violations import services
 from violations.models import CommitteeMeeting, Event, Owner, Profile, Response, Violation, ViolationType
+from violations.tests.review4_support import body
 
 S = Violation.Status
 TODAY = date.today()
@@ -542,7 +543,7 @@ def test_LB4_a_letter_that_was_not_sent_is_not_a_letter_to_mail_by_hand(rented, 
 
 def test_LB4_the_case_file_csv_lists_the_letter_with_its_problem(rented, ppl):
     _hearing_with_a_refused_property_address(rented)
-    z = zipfile.ZipFile(io.BytesIO(web(ppl.ann).get(f"/violations/{rented.pk}/case-file.zip").content))
+    z = zipfile.ZipFile(io.BytesIO(body(web(ppl.ann).get(f"/violations/{rented.pk}/case-file.zip"))))
     text = " ".join(z.read(n).decode("utf-8", "replace") for n in z.namelist() if n.endswith(".csv"))
     assert "Letter NOT sent" in text
 

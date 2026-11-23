@@ -46,14 +46,28 @@ def _who(user):
 
 
 def build_case_file(v, user, site_visits=True):
-    """Returns (zip bytes, file name). Everything about case `v`: the saved exact copy of every letter, the emails, the mailing and certified
-    tracking history, the photos, the hearing and decision records, the change history, the owner messages, and an index of it all."""
+    """Returns (zip bytes, file name): the whole case file in memory. (The download page uses build_case_file_to, which keeps only one file in memory at a time.)"""
+    buf = io.BytesIO()
+    name = build_case_file_to(buf, v, user, site_visits)
+    return buf.getvalue(), name
+
+
+def build_case_file_to(out, v, user, site_visits=True):
+    """Writes the case-file zip to the open binary file `out` (a temporary file, for a download) and returns the file name. Everything about case `v`: the saved
+    exact copy of every letter, the emails, the mailing and certified tracking history, the photos, the hearing and decision records, the change history, the owner
+    messages, and an index of it all. Each file goes into the zip as soon as it is read, so a case with dozens of large photos needs the memory of ONE photo, not of
+    all of them several times over (it used to need 700+ MB for 40 photos of 9 MB, which would stop a small host)."""
     root = f"case-{v.pk}-{_slug(v.owner.property_address)}"
-    files = {}              # path inside the zip -> bytes
+    z = zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED)
+    written = []            # (path inside the folder, size, SHA-256) of every file written: manifest.csv lists them
     index = []              # (section, path, date, what)
 
+    def put(path, data):
+        z.writestr(f"{root}/{path}", data)
+        written.append((path, len(data), hashlib.sha256(data).hexdigest()))
+
     def add(section, path, data, when, what):
-        files[f"{root}/{path}"] = data
+        put(path, data)
         index.append((section, path, when, what))
 
     # ---- case summary -------------------------------------------------------------------------------------------------------------
@@ -84,9 +98,9 @@ def build_case_file(v, user, site_visits=True):
             + (f", tracking {s.tracking_number}" if s.tracking_number else "") + f" - fingerprint {'matches' if ok else 'DOES NOT MATCH'}")
         manifest.append([_when(s.sent_at), s.get_kind_display(), s.recipient, s.recipient_name, s.sent_to, s.get_channel_display(),
                          s.tracking_number, _who(s.sent_by), s.get_origin_display(), s.sha256, "yes" if ok else "NO", name])
-    files[f"{root}/letters/letters-manifest.csv"] = _csv(
+    put("letters/letters-manifest.csv", _csv(
         ["Sent", "Letter", "Version", "Addressed to", "Sent to", "How", "Tracking number", "Sent by", "Origin", "SHA-256 fingerprint",
-         "File matches fingerprint", "File"], manifest)
+         "File matches fingerprint", "File"], manifest))
     index.append(("Letters (exact copies as sent)", "letters/letters-manifest.csv", "", "List of the saved letters with their fingerprints"))
     for n in v.notices.all():
         if not n.sent_copies.exists():
@@ -94,9 +108,9 @@ def build_case_file(v, user, site_visits=True):
 
     # ---- emails ---------------------------------------------------------------------------------------------------------------------
     emails = list(v.emails.all())
-    files[f"{root}/emails/emails.csv"] = _csv(["Sent", "To", "Version", "Subject", "Delivered", "Error", "Letter"],
+    put("emails/emails.csv", _csv(["Sent", "To", "Version", "Subject", "Delivered", "Error", "Letter"],
         [[_when(e.sent_at), e.to, e.recipient, e.subject, "yes" if e.ok else "no", e.error,
-          e.notice.get_kind_display() if e.notice else ""] for e in emails])
+          e.notice.get_kind_display() if e.notice else ""] for e in emails]))
     index.append(("Emails", "emails/emails.csv", "", f"{len(emails)} email(s) sent about this case"))
     for e in emails:
         add("Emails", f"emails/{e.sent_at:%Y-%m-%d}-{e.pk}.txt",
@@ -116,10 +130,10 @@ def build_case_file(v, user, site_visits=True):
                          " | ".join(x for x in (p.problem_note, p.handled_note) if x)])
             events += [[n.get_kind_display(), p.tracking_number, e.get("time", ""), e.get("name", ""), e.get("location", "")] for e in p.events or []]
     add("Mailing", "mailing/delivery-summary.txt", "\n".join(summary).encode("utf-8"), "", "How each letter was delivered")
-    files[f"{root}/mailing/pieces-and-tracking.csv"] = _csv(
+    put("mailing/pieces-and-tracking.csv", _csv(
         ["Letter", "Addressed to", "Service", "Provider id", "Tracking number", "Latest status", "Expected", "Delivered", "Problem", "Last checked",
-         "Mailed on", "Mailed by hand", "Problem noted on", "Handled on", "Staff notes"], rows)
-    files[f"{root}/mailing/tracking-events.csv"] = _csv(["Letter", "Tracking number", "Time", "Event", "Location"], events)
+         "Mailed on", "Mailed by hand", "Problem noted on", "Handled on", "Staff notes"], rows))
+    put("mailing/tracking-events.csv", _csv(["Letter", "Tracking number", "Time", "Event", "Location"], events))
     index += [("Mailing", "mailing/pieces-and-tracking.csv", "", f"{len(rows)} mailed piece(s)"),
               ("Mailing", "mailing/tracking-events.csv", "", f"{len(events)} tracking event(s)")]
 
@@ -135,7 +149,7 @@ def build_case_file(v, user, site_visits=True):
             prow.append([path, _when(p.uploaded_at), _when(p.taken_at), "owner" if p.from_resident else "staff", p.caption])
         except Exception as e:      # noqa: BLE001
             index.append(("Photos", "(could not be read)", _when(p.uploaded_at), str(e)))
-    files[f"{root}/photos/photos.csv"] = _csv(["File", "Added", "Taken (from the picture)", "From", "Caption"], prow)
+    put("photos/photos.csv", _csv(["File", "Added", "Taken (from the picture)", "From", "Caption"], prow))
     index.append(("Photos", "photos/photos.csv", "", f"{len(prow)} photo(s)"))
 
     # ---- hearing and decision -------------------------------------------------------------------------------------------------------
@@ -171,14 +185,14 @@ def build_case_file(v, user, site_visits=True):
         "Board vote, hearing, Committee decision, findings, imposition")
 
     # ---- messages with the owner and change history ---------------------------------------------------------------------------------
-    files[f"{root}/messages/messages-with-the-owner.csv"] = _csv(
+    put("messages/messages-with-the-owner.csv", _csv(
         ["When", "From", "Name", "Message", "Asked for more time", "Days asked", "Says it is fixed", "Decision"],
         [[_when(r.created_at), "owner" if r.from_resident else "association", _who(r.author) if r.author else "", r.message,
           "yes" if r.extension_requested else "", r.extension_days or "", "yes" if r.cure_reported else "", r.decision]
-         for r in v.responses.select_related("author")])
+         for r in v.responses.select_related("author")]))
     index.append(("Messages", "messages/messages-with-the-owner.csv", "", f"{v.responses.count()} message(s) between the owner and the Association"))
     evs = list(v.events.select_related("user"))
-    files[f"{root}/history/case-history.csv"] = _csv(["When", "Who", "What happened"], [[_when(e.created_at), _who(e.user) if e.user else "", e.text] for e in evs])
+    put("history/case-history.csv", _csv(["When", "Who", "What happened"], [[_when(e.created_at), _who(e.user) if e.user else "", e.text] for e in evs]))
     index.append(("Change history", "history/case-history.csv", "", f"{len(evs)} recorded step(s), including this download"))
 
     # ---- site-visit observations (internal: committee, Board and manager only) ---------------------------------------------------------
@@ -226,12 +240,7 @@ def build_case_file(v, user, site_visits=True):
                      + "".join(f"<li>{escape(x)}</li>" for x in missing_copy) + "</ul>")
     parts.append("<p>The fingerprint (SHA-256) of each letter is in letters/letters-manifest.csv: it proves the file has not changed since it was sent.</p>")
     parts.append("<p>manifest.csv lists every file in this download with its size and SHA-256 fingerprint.</p>")
-    files[f"{root}/00-INDEX.html"] = "".join(parts).encode("utf-8")
-    files[f"{root}/manifest.csv"] = _csv(["File", "Bytes", "SHA-256 fingerprint"],
-                                         [[p.split("/", 1)[1], len(d), hashlib.sha256(d).hexdigest()] for p, d in sorted(files.items())])
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for path, data in files.items():
-            z.writestr(path, data)
-    return buf.getvalue(), f"{root}.zip"
+    put("00-INDEX.html", "".join(parts).encode("utf-8"))
+    put("manifest.csv", _csv(["File", "Bytes", "SHA-256 fingerprint"], [[path, size, sha] for path, size, sha in sorted(written)]))
+    z.close()
+    return f"{root}.zip"

@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from violations import mailing, services
 from violations.models import CommitteeMeeting, EmailLog, Notice, Owner, Violation, ViolationType
+from violations.tests.review4_support import body
 
 pytestmark = pytest.mark.django_db
 AWKWARD = ["O'Brien & Sons, LLC", "José Ñuñez-Peña", "Наталья Иванова", "李小龍", "محمد علي", "😀 Smiley Family", "<b>bold</b> <i>x", "<script>alert(1)</script>",
@@ -71,5 +72,5 @@ def test_the_case_file_download_builds_whatever_the_text(txt, client, django_use
     client.force_login(u)
     r = client.post(reverse("case_file", args=[v.pk]))
     assert r.status_code == 200
-    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    names = zipfile.ZipFile(io.BytesIO(body(r))).namelist()
     assert names and all("\x00" not in n and not n.startswith("/") and ".." not in n for n in names)

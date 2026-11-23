@@ -4,6 +4,7 @@ from django.test import Client
 from django.urls import reverse
 
 from violations.tests.test_access_matrix import world  # noqa: F401  (the shared fixture: owners, a case, a meeting, every kind of login)
+from violations.tests.review4_support import body
 
 pytestmark = pytest.mark.django_db
 
@@ -349,7 +350,7 @@ def test_RM2_real_attachment_keys_still_work(world):
     r = board_client(world).post(reverse("legal_email", args=[vid]), {"do": "download", "to": "l@example.com", "subject": "s", "body": "b", "att": keys})
     assert r.status_code == 200 and r["Content-Type"] == "application/zip"
     import io, zipfile
-    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    names = zipfile.ZipFile(io.BytesIO(body(r))).namelist()
     assert "email-draft.txt" in names and len(names) == 1 + len(keys)
 
 

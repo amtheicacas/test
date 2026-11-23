@@ -18,6 +18,7 @@ from violations import minutes, services, sitevisits, uploads
 from violations.models import (CommitteeMeeting, CommitteeMember, Event, Notice, Owner, Profile, SiteVisitAccess, SiteVisitObservation, SiteVisitPhoto,
                                Violation, ViolationType)
 from violations.pdf import render_notice_pdf
+from violations.tests.review4_support import body
 
 S = Violation.Status
 A = SiteVisitAccess.Action
@@ -231,7 +232,7 @@ def test_files_use_private_storage_with_no_public_address_and_no_disk_path(clien
         p = obs.photos.get()
         client.force_login(w.board)
         assert client.get(f"/site-visit-photos/{p.pk}/").status_code == 200
-        assert zipfile.ZipFile(io.BytesIO(client.get(f"/violations/{w.v.pk}/case-file.zip").content))
+        assert zipfile.ZipFile(io.BytesIO(body(client.get(f"/violations/{w.v.pk}/case-file.zip"))))
     assert client.get(f"/media/{p.file.name}").status_code == 404          # there is no public address for any stored file
 
 
@@ -328,7 +329,7 @@ def download(client, user, v):
     client.force_login(user)
     r = client.get(f"/violations/{v.pk}/case-file.zip")
     assert r.status_code == 200
-    return zipfile.ZipFile(io.BytesIO(r.content))
+    return zipfile.ZipFile(io.BytesIO(body(r)))
 
 
 def rows(z, suffix):

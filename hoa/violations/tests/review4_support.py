@@ -83,3 +83,8 @@ def browser_form(client, page_url, action_suffix, **overrides):
     p.data.pop("csrfmiddlewaretoken", None)
     p.data.update(overrides)
     return action_suffix, p.data
+
+
+def body(response):
+    """The bytes of a response, whether it was sent in one piece or streamed (the case-file and attorney-package downloads are streamed from a temporary file)."""
+    return b"".join(response.streaming_content) if getattr(response, "streaming", False) else response.content
