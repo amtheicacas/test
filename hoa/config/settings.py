@@ -282,6 +282,11 @@ MAIL_DELAY_BUSINESS_DAYS = int(env("MAIL_DELAY_BUSINESS_DAYS", "2"))
 EMAIL_TIMEOUT = int(env("EMAIL_TIMEOUT", "10"))        # seconds: a stalled mail server must not tie up the website
 # Sign-in link emails are sent in the background on a live site, so the sign-in page answers at the same speed for every address.
 EMAIL_BACKGROUND = env("EMAIL_BACKGROUND", "0" if DEBUG else "1") == "1"
+# Letters for the print service (Lob) are queued and handed over just after the page has answered, so a slow print service never holds a page up
+# or leaves a case half done. In development and in the tests they are handed over at once (simpler); MAIL_LEASE_MINUTES is how long a hand-over
+# in progress is respected before another one may take over (see services._claim_notice).
+MAIL_BACKGROUND = env("MAIL_BACKGROUND", "0" if DEBUG else "1") == "1"
+MAIL_LEASE_MINUTES = int(env("MAIL_LEASE_MINUTES", "15"))
 # The stored copy of each owner email (Email log) has its private /r/<token>/ link replaced, so a database leak or backup is not a set of keys.
 EMAILLOG_REDACT_LINKS = env("EMAILLOG_REDACT_LINKS", "1") == "1"
 AI_DAILY_LIMIT = int(env("AI_DAILY_LIMIT", "50"))      # "Ask AI" questions per day for the whole team (each one costs money)

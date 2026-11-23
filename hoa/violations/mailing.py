@@ -260,57 +260,89 @@ def _clear_earlier_failure(notice, label, svc):
         handled_on=date.today(), handled_note="Sent on a later try (see the letter listed with it).")
 
 
+def _targets(notice):
+    """Where the paper letters of this notice go: [(version of the letter, structured address, label)]. The owner's letter goes to the mailing address
+    (if there is one) AND the property address; the tenant's only while the lease is active AND MAIL_TO_TENANT is on (off by default: one mailed
+    letter to the owner covers the house)."""
+    o = notice.violation.owner
+    targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
+    if o.tenant_is_mailed:
+        targets.append(("tenant", o.postal("tenant"), "tenant"))
+    return targets
+
+
+def _dealt_with(notice):
+    """{(address label, service)} of the letters of this notice that need no more work from the app: handed to the print service already (a real
+    piece, whatever happened to it since), or listed as NOT sent but marked handled by a person (they dealt with it another way: never send it again)."""
+    return {(p.label, p.service) for p in MailPiece.objects.filter(notice=notice, by_hand=False) if not p.not_sent or p.handled_on}
+
+
+def letters_outstanding(notice):
+    """[(address label, service)] still to be handed to the print service: not sent yet and not marked handled by a person. Empty when there is no
+    print service (letters are then listed for hand mailing instead)."""
+    if settings.MAIL_PROVIDER != "lob":
+        return []
+    done = _dealt_with(notice)
+    return [(label, svc) for _variant, _addr, label in _targets(notice) for _extra, svc in _services_for(notice.kind) if (label, svc) not in done]
+
+
 def dispatch(notice, render, user=None):
-    """Print and mail a notice. The owner's letter goes to the mailing address (if there is one) AND the property address;
-    while the lease is active AND MAIL_TO_TENANT is on the tenant's goes to the property. `render(variant)` returns PDF bytes for 'owner' (mailing address),
-    'owner_property' or 'tenant'. Returns True if anything was handed to a provider."""
-    from .services import log  # avoid circular import
+    """Print and mail a notice: hand each letter to the print service. `render(variant)` returns PDF bytes for 'owner' (mailing address),
+    'owner_property' or 'tenant'. Returns True if anything was handed to the print service in THIS call.
+    It can be run again on the same notice: a letter already handed over (or one a person marked handled) is skipped, so a hand-over that stopped half
+    way is simply resumed and no letter goes twice. Every letter is recorded the moment the print service accepts it, before the next one is tried."""
+    from .services import _keep_copy, log  # avoid circular import
     v = notice.violation
     if settings.MAIL_PROVIDER != "lob":
         plan_manual_pieces(notice)
         return False
-    o = v.owner
-    targets = [("owner" if k == "mailing" else "owner_property", o.postal(k), f"owner {k}") for k in o.owner_mail_kinds()]
-    if o.tenant_is_mailed:       # off by default: one mailed letter to the owner covers the house (MAIL_TO_TENANT)
-        targets.append(("tenant", o.postal("tenant"), "tenant"))
-    ids, tracking, errors, failed = [], "", [], []
+    done = _dealt_with(notice)
+    errors, failed, sent_now = [], [], 0
     plan = _services_for(notice.kind)
-    for variant, addr, label in targets:
+    for variant, addr, label in _targets(notice):
+        wanted = [(extra, svc) for extra, svc in plan if (label, svc) not in done]
+        if not wanted:
+            continue
         if not all(addr.get(k) for k in ("name", "line1", "city", "state", "zip")):  # skip this address, keep mailing the others
             errors.append(f"{label}: incomplete mailing address (need street, city, state, ZIP)")
-            failed += [(label, svc, "incomplete mailing address (need street, city, state, ZIP)") for _extra, svc in plan]
+            failed += [(label, svc, "incomplete mailing address (need street, city, state, ZIP)") for _extra, svc in wanted]
             continue
         try:
             pdf = render(variant)
         except Exception as e:  # noqa: BLE001  (one letter that will not build must not stop the others, nor lose the record of those already handed over)
             errors.append(f"{label}: the letter could not be built ({type(e).__name__})")
-            failed += [(label, svc, f"the letter could not be built ({type(e).__name__})") for _extra, svc in plan]
+            failed += [(label, svc, f"the letter could not be built ({type(e).__name__})") for _extra, svc in wanted]
             continue
-        for extra, svc in plan:
+        for extra, svc in wanted:
             try:
                 r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
-                ids.append(r.get("id", "?"))
-                if svc == "certified":
-                    tracking = tracking or r.get("tracking_number") or ""
                 piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
-                                                 tracking_number=r.get("tracking_number") or "", mailed_on=date.today())
-                _clear_earlier_failure(notice, label, svc)      # an earlier try of this same letter failed: it is no longer outstanding
-                apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
-                from .services import _keep_copy
-                _keep_copy(notice, pdf, variant, "certified" if svc == "certified" else "first_class",
-                           f"{addr['name']}, {addr['line1']}, {addr['city']}, {addr['state']} {addr['zip']}", addr["name"], user, errors,
-                           tracking=piece.tracking_number, piece=piece)
+                                                 tracking_number=r.get("tracking_number") or "", mailed_on=date.today())      # on record at once
             except Exception as e:  # never block the workflow on the provider
                 errors.append(f"{label}/{svc}: {e}")
                 failed.append((label, svc, _clean(str(e))))
+                continue
+            sent_now += 1
+            try:
+                _clear_earlier_failure(notice, label, svc)      # an earlier try of this same letter failed: it is no longer outstanding
+                apply_tracking(piece, r, mark_checked=False)   # the send response is not a tracking check
+                _keep_copy(notice, pdf, variant, "certified" if svc == "certified" else "first_class",
+                           f"{addr['name']}, {addr['line1']}, {addr['city']}, {addr['state']} {addr['zip']}", addr["name"], user, errors,
+                           tracking=piece.tracking_number, piece=piece)
+            except Exception as e:  # noqa: BLE001  (the letter HAS gone and is on record: a problem saving its extras must not make it look unsent)
+                logger.warning("letter %s of notice %s went out, but saving its tracking details failed (%s)", piece.pk, notice.pk, type(e).__name__)
+                errors.append(f"{label}/{svc}: the letter went out, but its tracking details could not be saved ({type(e).__name__})")
     _record_not_sent(notice, failed)
-    notice.provider, notice.provider_ids = "lob", ",".join(ids)[:500]
+    real = [p for p in MailPiece.objects.filter(notice=notice, by_hand=False).order_by("pk") if not p.not_sent]       # this call's letters AND earlier ones
+    notice.provider, notice.provider_ids = "lob", ",".join(p.provider_id for p in real if p.provider_id)[:500]
     notice.provider_note = "; ".join(errors)[:300]
-    if ids:
-        notice.mailed_on = date.today()
-        notice.tracking_number = tracking
+    fields = ["provider", "provider_ids", "provider_note"]
+    if real:
+        notice.mailed_on = min([p.mailed_on for p in real if p.mailed_on] or [date.today()])
+        notice.tracking_number = next((p.tracking_number for p in real if p.is_certified and p.tracking_number), "")
         notice.method = "certified" if notice.kind in (K.HEARING, K.FINE) else "first_class"
-    notice.save()
-    log(v, f"{notice.get_kind_display()} sent to print/mail provider ({len(ids)} piece(s))"
+        fields += ["mailed_on", "tracking_number", "method"]
+    notice.save(update_fields=fields)           # only what the hand-over owns: never a stale copy of anything else on the notice
+    log(v, f"{notice.get_kind_display()} sent to print/mail provider ({sent_now} piece(s))"
         + (f" - ERRORS: {notice.provider_note}" if errors else ""))
-    return bool(ids)
+    return sent_now > 0

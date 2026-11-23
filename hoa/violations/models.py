@@ -580,10 +580,30 @@ class Notice(models.Model):
     mail_hold_until = models.DateField(null=True, blank=True, help_text="Email went out; the printed copy waits until this date.")
     mail_cancelled = models.BooleanField(default=False, help_text="The held mailing was dropped (corrected before the mail date).")
     mail_tried_on = models.DateField(null=True, blank=True, help_text="Last day the app tried to hand this to the mail provider.")
+    mail_queued_on = models.DateTimeField(null=True, blank=True, help_text="The letters are waiting to be handed to the print service right away (not a held copy). "
+                                                                           "Cleared once they have gone.")
+    mail_queued_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+                                       help_text="Who asked for the letters to be sent (so the saved copies still show who sent them).")
+    mail_claimed_at = models.DateTimeField(null=True, blank=True, help_text="When the app last started handing the letters over. While this is recent nobody "
+                                                                            "else hands them over (a claim that lapses if the app stopped half way).")
 
     @property
     def mail_held(self):
         return bool(self.mail_hold_until and not self.mailed_on and not self.mail_cancelled)
+
+    @property
+    def mail_queued(self):
+        """Waiting to be handed to the print service right now (as opposed to held until a date)."""
+        return bool(self.mail_queued_on and not self.mailed_on and not self.mail_cancelled)
+
+    @property
+    def mail_waiting(self):
+        return self.mail_held or self.mail_queued
+
+    @property
+    def has_unsent_letters(self):
+        """Some letter of this notice was refused by the print service (listed as NOT sent) and nobody has dealt with it yet."""
+        return any(p.not_sent and p.needs_attention for p in self.pieces.all())
 
     class Meta:
         ordering = ["created_at"]
@@ -598,6 +618,8 @@ class Notice(models.Model):
             out.append("Email could not be delivered")
         if self.mail_held:
             out.append(f"US Mail copy scheduled for {short_date(self.mail_hold_until)}")
+        elif self.mail_queued:
+            out.append("US Mail copy waiting to be handed to the print service" if staff else "US Mail copy is being sent")
         elif self.mail_cancelled:
             out.append("US Mail copy not sent (the violation was corrected first)")
         pieces = list(self.pieces.all())

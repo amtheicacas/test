@@ -23,7 +23,7 @@ class Command(BaseCommand):
         step("refresh_mail_tracking", lambda: services.refresh_mail_tracking(errors=tracking_errors),
              lambda n: f"{n} certified letter(s) had tracking updates."
              + (f" {len(tracking_errors)} tracking check(s) could NOT be completed (first: {tracking_errors[0]}); see the server log." if tracking_errors else ""))
-        step("send_due_mailings", lambda: services.send_due_mailings(), lambda n: f"{n} held mailing(s) sent to the mail provider.")
+        step("send_due_mailings", lambda: services.send_due_mailings(), lambda n: f"{n} mailing(s) handed to the print service (held copies whose wait ended, and any letters still queued).")
         step("send_hold_reminders", lambda: services.send_hold_reminders(), lambda n: f"{n} hold-ending reminder(s) sent.")
         step("send_cure_reminders", lambda: services.send_cure_reminders(), lambda n: f"{n} reminder(s) sent.")
         step("advance_expired", lambda: services.advance_expired(), lambda n: f"{n} violation(s) referred to the board.")

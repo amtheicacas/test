@@ -141,6 +141,12 @@ def _report_rejected(request, rejected):
         messages.warning(request, f"{len(rejected)} file(s) were not added: {shown}{more}.")
 
 
+def _letters_hint(request):
+    """On the live site the letters go to the print service just after the page answers: say so, so nobody wonders why a letter is not listed yet."""
+    if settings.MAIL_BACKGROUND and settings.MAIL_PROVIDER == "lob":
+        messages.info(request, "The letters are being handed to the print service now. Each case's Mailing log shows them (with tracking numbers) in a moment.")
+
+
 def _run(request, fn, *a, ok=None, **kw):
     try:
         res = fn(*a, **kw)
@@ -204,6 +210,9 @@ def _dashboard(request):
             Q(mail_hold_until__isnull=True) | Q(mail_hold_until__lte=date.today())).count(),
         "held_mail": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__gt=date.today()).count(),
         "mail_due": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False, mail_hold_until__lte=date.today()).count(),   # waiting for the daily job
+        "mail_stuck": Notice.objects.filter(mailed_on__isnull=True, mail_cancelled=False,
+                                            mail_queued_on__lt=timezone.now() - timedelta(minutes=settings.MAIL_LEASE_MINUTES)).count(),    # queued, and not sent in time
+        "mail_lease": settings.MAIL_LEASE_MINUTES,
         "reinspect": Response.objects.filter(cure_reported=True, handled=False,
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
@@ -528,7 +537,7 @@ def _mail_flags(v):
     pieces = list(MailPiece.objects.filter(notice__violation=v))
     return {"to_mail": sum(1 for p in pieces if p.to_mail), "problems": sum(1 for p in pieces if p.needs_attention and not p.not_sent),
             "unsent": sum(1 for p in pieces if p.needs_attention and p.not_sent),
-            "held": sum(1 for n in v.notices.all() if n.mail_held)}
+            "held": sum(1 for n in v.notices.all() if n.mail_held), "queued": sum(1 for n in v.notices.all() if n.mail_queued)}
 
 
 @staff_only
@@ -731,10 +740,11 @@ def violation_action(request, pk, action):
         f = forms.AssignForm(P)
         if f.is_valid():
             m = f.cleaned_data["meeting"]
-            if _run(request, services.assign_to_meeting, v, m, u,
-                    ok="Sent to the Compliance Committee; hearing notice emailed and sent for certified mailing.") and services.short_notice(m):
-                messages.warning(request, f"This is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
-                                          f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
+            if _run(request, services.assign_to_meeting, v, m, u, ok="Sent to the Compliance Committee; hearing notice emailed and sent for certified mailing."):
+                _letters_hint(request)
+                if services.short_notice(m):
+                    messages.warning(request, f"This is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
+                                              f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
         else:
             messages.error(request, "Choose an upcoming committee meeting (create one under Meetings).")
     elif action == "committee":
@@ -744,6 +754,7 @@ def violation_action(request, pk, action):
         if f.is_valid():
             n = _run(request, services.finalize_imposition, v, u, f.cleaned_data["method"], f.cleaned_data["reference"])
             if n is not None:
+                _letters_hint(request)
                 messages.success(request, "Approved. " + ("Fine posted to the ledger. " if v.fine_amount else "")
                                  + "The Notice of Imposition was sent to the owner" + (" and tenant" if (v.owner.tenant_is_emailed or v.owner.tenant_is_mailed) else "") + ".")
     elif action == "urgent":
@@ -957,6 +968,7 @@ def meeting_assign_selected(request):
     if done:
         messages.success(request, f"{len(done)} violation{'s' if len(done) != 1 else ''} assigned to the {timezone.localtime(m.starts_at):%B} "
                                   f"{timezone.localtime(m.starts_at).day} meeting; hearing notices emailed and sent for certified mailing.")
+        _letters_hint(request)
         if services.short_notice(m):
             messages.warning(request, f"This meeting is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
                                       f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")
@@ -971,6 +983,8 @@ def meeting_assign_all(request, pk):
     m = get_object_or_404(CommitteeMeeting, pk=pk)
     done, skipped = services.assign_all_to_meeting(m, request.user)
     messages.success(request, f"{len(done)} case(s) sent to the committee; hearing notices emailed and sent for certified mailing.")
+    if done:
+        _letters_hint(request)
     if done and services.short_notice(m):
         messages.warning(request, f"This meeting is under the recommended {settings.HEARING_NOTICE_RECOMMENDED_DAYS} days' notice "
                                   f"(the legal minimum is {settings.HEARING_NOTICE_DAYS}). Mail delays can eat into it.")

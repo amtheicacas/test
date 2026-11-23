@@ -175,6 +175,8 @@ def substeps(v):
             mail, mail_note = "skipped", "cancelled: corrected first"
         elif n.mail_held:
             mail, mail_note = "current", f"held until {_d(n.mail_hold_until)}"
+        elif n.mail_queued:
+            mail, mail_note = "current", "being sent"
     out["notice"] = [
         _sub("Notice issued", "done" if v.status != S.DRAFT else "todo", first.created_at if first else None),
         _sub("Emailed", "done" if n is not None and n.emailed_at else ("current" if n is not None else "todo"),

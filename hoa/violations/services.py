@@ -7,13 +7,16 @@ Follows the Heron Landing "Violation and Fining Procedure" (rev. Oct 2026) and f
   -> 6 Compliance Committee hearing -> 7 majority approves (imposed, due in 5 days) or rejects
   -> 8 closed when cured and paid, else referred to the attorney.
 """
+import logging
 import re
+import threading
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.db import connection, transaction
+from django.db import connection, connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation, short_date
@@ -22,6 +25,7 @@ from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
 
 S = Violation.Status
+logger = logging.getLogger(__name__)
 
 
 class WorkflowError(Exception):
@@ -197,7 +201,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
         log(v, f"{notice.get_kind_display()}: mailed copy held until {notice.mail_hold_until:%b %d, %Y} "
             f"({hold_mail_days} business days) in case it is corrected first")
     else:
-        mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
+        _queue_for_mail(notice, user)
     sent_to, errors = [], []
     for who, emails, name in recipient_groups(v):
         subject = one_line(f"{notice.get_kind_display()} - {v.owner.property_address} (Case #{v.pk})")       # built BEFORE the try: a failure below is
@@ -219,7 +223,7 @@ def send_notice(v, kind, user=None, hold_mail_days=0):
     if sent_to:
         notice.emailed_at, notice.emailed_to = timezone.now(), ", ".join(sent_to)
     notice.email_error = "; ".join(errors)[:300]
-    notice.save()
+    notice.save(update_fields=["emailed_at", "emailed_to", "email_error"])      # only what the email part owns: the hand-over of the letters may be running
     if sent_to:
         log(v, f"{notice.get_kind_display()} emailed to {notice.emailed_to}", user)
     if errors:
@@ -253,58 +257,183 @@ def issue_first_notice(v, user=None, today=None, timing=None):
     return notice
 
 
-def _mail_due(notice, user=None):
-    """Hand a held notice to the mail provider now (it stays on the print list when no provider is on). Callers hold the notice's row lock
-    (see _lock_notice) so that two people or two page loads can never both hand the same notice over."""
-    notice.mail_tried_on = date.today()
-    notice.save()
-    _warn_if_photo_unreadable(notice.violation, notice.kind, user)
-    mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
+# ---- handing letters to the print service (Lob) ----
+# A notice that must go by mail is either HELD (the first notice: printed copy waits a couple of business days in case it is corrected; the daily job
+# releases it) or QUEUED (hearing notice, decision letter, extension, urgent notice: it goes right away). On the live site (MAIL_BACKGROUND) queuing is all
+# the page does; a background thread hands the letters over just after the page has answered, the daily job picks up anything still queued, and the
+# dashboard flags anything that has waited too long. There is NO transaction around the calls to the print service: each letter is recorded the moment
+# it is accepted, and a CLAIM (Notice.mail_claimed_at, a lease) keeps two people, or a page and the daily job, from handing over the same notice at once.
+# A hand-over that stopped half way (a restart, a crash) is resumed after the lease lapses, and no letter goes twice (mailing.dispatch skips letters on record).
+def _claim_notice(pk, today=None, held_due=False, any_hold=False, retry_failed=False):
+    """Take the claim on one notice: True only if it is still waiting and nobody (alive) has it. One UPDATE decides it, so two callers at the same
+    moment can never both win. `held_due`: also a held copy whose wait is over (the daily job). `any_hold`: any held copy (Mail now).
+    `retry_failed`: a notice with letters listed as NOT sent that nobody has handled (Mail now, to try them again)."""
+    now, today = timezone.now(), today or date.today()
+    waiting = Q(mailed_on__isnull=True) & Q(mail_queued_on__isnull=False)
+    if any_hold:
+        waiting |= Q(mailed_on__isnull=True) & Q(mail_hold_until__isnull=False)
+    elif held_due:
+        waiting |= Q(mailed_on__isnull=True) & Q(mail_hold_until__lte=today)
+    if retry_failed:
+        waiting |= Q(pk__in=MailPiece.objects.filter(by_hand=False, status=MailPiece.NOT_SENT, handled_on__isnull=True).values("notice_id"))
+    lease_over = Q(mail_claimed_at__isnull=True) | Q(mail_claimed_at__lt=now - timedelta(minutes=settings.MAIL_LEASE_MINUTES))
+    return bool(Notice.objects.filter(pk=pk, mail_cancelled=False).filter(waiting).filter(lease_over).update(mail_claimed_at=now, mail_tried_on=today))
 
 
-def _lock_notice(pk, skip_locked=False):
-    """The notice, freshly read under a row lock (PostgreSQL; other databases ignore the lock), together with its case and owner. Only the notice's
-    own row is locked, not the case. With skip_locked a notice that someone else is working on right now comes back as None instead of waiting."""
-    return (Notice.objects.select_for_update(skip_locked=skip_locked, of=("self",)).select_related("violation__owner").filter(pk=pk).first())
+def _do_hand_over(pk, user=None):
+    """Hand over a notice whose claim this caller holds. A notice is DONE (taken off the queue, claim released) once any letter has gone or nothing
+    is left to send; one where every letter failed stays queued, with the claim as its "last tried" time, and is tried again after the lease lapses
+    (the next daily job). Letters that failed while others went are listed as NOT sent for a person (the red box); they are not retried by themselves."""
+    notice = Notice.objects.select_related("violation__owner").get(pk=pk)
+    who = user if getattr(user, "pk", None) else notice.mail_queued_by
+    if notice.mail_hold_until and not notice.mail_queued_on:
+        _warn_if_photo_unreadable(notice.violation, notice.kind, who)         # a held copy is built later than the notice was: look again
+    mailing.dispatch(notice, lambda variant: render_notice_pdf(notice, variant), who)
+    if notice.mailed_on or not mailing.letters_outstanding(notice):
+        Notice.objects.filter(pk=pk).update(mail_queued_on=None, mail_claimed_at=None)
+
+
+def _hand_over(pk, user=None, **claim):
+    """Claim a notice and hand its letters over. False (and nothing done) if it is not waiting or someone else has it."""
+    if not _claim_notice(pk, **claim):
+        return False
+    _do_hand_over(pk, user)
+    return True
+
+
+def hand_over_queued():
+    """Hand over every QUEUED notice (held copies wait for the daily job). Each notice is claimed on its own; one that cannot be handed over is logged
+    and stays queued, and never stops the others. Returns how many notices this call handled."""
+    handled = 0
+    for pk in list(Notice.objects.filter(mail_queued_on__isnull=False, mailed_on__isnull=True, mail_cancelled=False).values_list("pk", flat=True)):
+        try:
+            handled += bool(_hand_over(pk))
+        except Exception:      # noqa: BLE001  (it stays queued and is tried again later)
+            logger.exception("could not hand notice %s to the print service", pk)
+    return handled
+
+
+_kick_state = {"running": False, "again": False}
+_kick_guard = threading.Lock()
+
+
+def _start_thread(target):
+    threading.Thread(target=target, name="hand-over-to-print-service", daemon=True).start()
+
+
+def _background_hand_over():
+    """The background thread: hand over what is queued, once more if more was queued while it worked, then stop. Never raises."""
+    try:
+        while True:
+            try:
+                hand_over_queued()
+            except Exception:      # noqa: BLE001
+                logger.exception("handing queued letters to the print service failed")
+            with _kick_guard:
+                if _kick_state["again"]:
+                    _kick_state["again"] = False
+                    continue
+                _kick_state["running"] = False
+                return
+    finally:
+        with _kick_guard:
+            _kick_state["running"] = False
+        if threading.current_thread() is not threading.main_thread():
+            connections.close_all()         # a thread has its own database connections: close them when it ends
+
+
+def _kick():
+    """Ask for the queued letters to be handed over in the background (called once the page's own work has been saved). One thread per process
+    however many times it is asked; if it is asked while it is working it makes one more pass. Anything it misses is picked up by the daily job."""
+    try:
+        with _kick_guard:
+            if _kick_state["running"]:
+                _kick_state["again"] = True
+                return
+            _kick_state["running"] = True
+        _start_thread(_background_hand_over)
+    except Exception:      # noqa: BLE001  (never let this break the page that asked)
+        with _kick_guard:
+            _kick_state["running"] = False
+        logger.exception("could not start the hand-over to the print service")
+
+
+def _queue_for_mail(notice, user=None):
+    """Get the printed copies of a notice to the print service: queue them and, on the live site, ask for a background hand-over once the page's own
+    work has been saved (the page does not wait for the print service); in development and in the tests hand them over at once. A newer notice of
+    the same kind replaces one that is still waiting. With no print service the letters are listed for hand mailing at once, as before."""
+    if settings.MAIL_PROVIDER != "lob":
+        mailing.dispatch(notice, lambda who: render_notice_pdf(notice, who), user)
+        return
+    cancel_queued_mailings(notice.violation, "a newer notice of the same kind replaced it", kinds=(notice.kind,), exclude_pk=notice.pk)
+    notice.mail_queued_on, notice.mail_queued_by = timezone.now(), (user if getattr(user, "pk", None) else None)
+    notice.save(update_fields=["mail_queued_on", "mail_queued_by"])
+    if settings.MAIL_BACKGROUND:
+        transaction.on_commit(_kick)
+    else:
+        _hand_over(notice.pk, user)
+        notice.refresh_from_db()
 
 
 def cancel_held_mailings(v, reason="corrected before the mail date; postage saved"):
     n = 0
     for notice in v.notices.filter(mail_hold_until__isnull=False, mailed_on__isnull=True, mail_cancelled=False):
-        notice.mail_cancelled = True
-        notice.save()
-        log(v, f"{notice.get_kind_display()}: mailing cancelled ({reason})")
-        n += 1
+        if Notice.objects.filter(pk=notice.pk, mailed_on__isnull=True, mail_cancelled=False).update(mail_cancelled=True):      # only that one field
+            log(v, f"{notice.get_kind_display()}: mailing cancelled ({reason})")
+            n += 1
     return n
 
 
-@transaction.atomic
+def cancel_queued_mailings(v, reason, kinds=None, exclude_pk=None):
+    """Drop letters that are still waiting in the queue because they are no longer right (the hearing was moved or cancelled, or a newer notice of the
+    same kind replaces them). A notice being handed over this very moment is left alone. Returns how many."""
+    waiting = Notice.objects.filter(violation=v, mail_queued_on__isnull=False, mailed_on__isnull=True, mail_cancelled=False)
+    if kinds:
+        waiting = waiting.filter(kind__in=kinds)
+    if exclude_pk:
+        waiting = waiting.exclude(pk=exclude_pk)
+    idle = Q(mail_claimed_at__isnull=True) | Q(mail_claimed_at__lt=timezone.now() - timedelta(minutes=settings.MAIL_LEASE_MINUTES))
+    n = 0
+    for notice in list(waiting):
+        if Notice.objects.filter(pk=notice.pk, mailed_on__isnull=True, mail_cancelled=False).filter(idle).update(mail_cancelled=True, mail_queued_on=None):
+            log(v, f"{notice.get_kind_display()}: mailing cancelled ({reason})")
+            n += 1
+    return n
+
+
 def mail_now(notice, user=None):
-    """Override the delay: send this held notice to the mail provider immediately. A second click (or a second person) waits for the first
-    to finish and is then told the notice is no longer waiting, instead of mailing everything again."""
-    fresh = _lock_notice(notice.pk)
-    if fresh is None or not fresh.mail_held:
+    """Hand a waiting notice to the print service right now: a held copy before its date, letters still queued, or (to try again after the cause was
+    fixed) the letters of a notice that were listed as NOT sent. A second click (or a second person) is refused: the notice is either being sent
+    already or has nothing left to send."""
+    n = Notice.objects.select_related("violation").filter(pk=notice.pk).first()
+    retry = n is not None and MailPiece.objects.filter(notice=n, by_hand=False, status=MailPiece.NOT_SENT, handled_on__isnull=True).exists()
+    if n is None or n.mail_cancelled or not (n.mail_waiting or retry):
         raise WorkflowError("This notice is not waiting to be mailed.")
-    log(fresh.violation, f"{fresh.get_kind_display()}: mailed copy released early", user)
-    _mail_due(fresh, user)
+    if not _claim_notice(n.pk, any_hold=True, retry_failed=True):
+        raise WorkflowError("This notice is being sent right now (or was a moment ago). Give it a minute, then look at its mailing log.")
+    log(n.violation, f"{n.get_kind_display()}: " + ("mailed copy released early" if n.mail_held else "letters sent again"), user)
+    _do_hand_over(n.pk, user)
 
 
 def send_due_mailings(today=None):
-    """Daily job: hand over held notices whose wait is over, unless the case was corrected or closed meanwhile."""
+    """Daily job: hand over everything still waiting: held copies whose wait is over (unless the case was corrected or closed meanwhile: then the
+    mailing is cancelled and the postage saved) and any letters still queued (a background hand-over that never ran or stopped half way).
+    Each notice is claimed on its own; one that fails is logged and the others still go, then the job is told so it can say so."""
     today = today or date.today()
-    sent = 0
-    due = Notice.objects.filter(mail_hold_until__lte=today, mailed_on__isnull=True, mail_cancelled=False).exclude(mail_tried_on=today)
-    for pk in list(due.values_list("pk", flat=True)):
-        with transaction.atomic():      # one notice at a time, each in its own short transaction (never one big one around every letter)
-            notice = _lock_notice(pk, skip_locked=True)         # a notice another page load or job is sending right now is skipped, not sent twice
-            if notice is None or notice.mailed_on or notice.mail_cancelled or notice.mail_tried_on == today:
-                continue                                        # it was sent, cancelled or tried by someone else since the list was read
-            v = notice.violation
-            if v.cured_on or v.status in (S.CURED, S.CLOSED, S.DISMISSED):
-                cancel_held_mailings(v)
-                continue
-            _mail_due(notice)
-            sent += 1
+    sent, problems = 0, []
+    due = Notice.objects.filter(Q(mail_queued_on__isnull=False) | Q(mail_hold_until__lte=today), mailed_on__isnull=True, mail_cancelled=False)
+    for notice in list(due.select_related("violation")):
+        v = notice.violation
+        if not notice.mail_queued_on and (v.cured_on or v.status in (S.CURED, S.CLOSED, S.DISMISSED)):
+            cancel_held_mailings(v)             # (a queued letter such as a decision letter still goes whatever has happened to the case since)
+            continue
+        try:
+            sent += bool(_hand_over(notice.pk, today=today, held_due=True))
+        except Exception as e:      # noqa: BLE001
+            logger.exception("could not hand notice %s to the print service", notice.pk)
+            problems.append(f"notice {notice.pk}: {type(e).__name__}")
+    if problems:
+        raise RuntimeError("These notices could not be handed to the print service (the others were): " + "; ".join(problems))
     return sent
 
 
@@ -1196,6 +1325,7 @@ def reschedule_meeting(m, new_start, user=None, notify=True):
             v.hearing_date = new_start
             v.save(update_fields=["hearing_date"])
             log(v, f"Hearing moved from {old:%b} {old.day} to {timezone.localtime(new_start):%b} {timezone.localtime(new_start).day}", user)
+            cancel_queued_mailings(v, "the hearing was moved", kinds=(Notice.Kind.HEARING,))      # a hearing letter not yet handed over is out of date
         audit.record("meeting.rescheduled", _when(m), f"from {old:%b} {old.day}, {old.year} to {_when(m)[8:]}; {len(cases)} case(s); owners notified: {'yes' if notify and cases else 'no'}", actor=user)
     warnings = []
     try:
@@ -1227,6 +1357,7 @@ def cancel_meeting(m, user=None, notify=True):
         v.save()
         log(v, f"Hearing on {when:%b} {when.day} cancelled; waiting to be put on another meeting", user)
         close_unmailed_pieces(v, f"The hearing on {when:%b} {when.day} was cancelled.", user, kinds=(Notice.Kind.HEARING,))
+        cancel_queued_mailings(v, f"the hearing on {when:%b} {when.day} was cancelled", kinds=(Notice.Kind.HEARING,))
         if notify:
             _email_owner(v, f"Hearing cancelled: {v.owner.property_address}",
                          f"The Compliance Committee hearing scheduled for {when:%A, %B} {when.day} at {when:%I:%M %p}".replace(" 0", " ") +
