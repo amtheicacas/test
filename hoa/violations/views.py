@@ -1320,11 +1320,15 @@ def results_review(request, pk):
         messages.error(request, "This case is not on a committee meeting, so there is nothing to review.")
         return redirect("results_list")
     P = request.POST
-    _run(request, services.board_review_item, v, request.user, P.get("action", ""), P.get("final", ""), P.get("amount") or None,
-         P.get("note", ""), P.get("method", "manual"), P.get("reference", ""))
-    v.refresh_from_db()
-    if v.status != S.LEDGER_PENDING:   # it moved on (approved, waived, rejected or returned); otherwise an error message was already shown
-        messages.success(request, f"{v.owner.property_address}: {v.get_status_display()}.")
+    try:
+        services.board_review_item(v, request.user, P.get("action", ""), P.get("final", ""), P.get("amount") or None,
+                                   P.get("note", ""), P.get("method", "manual"), P.get("reference", ""))
+    except services.WorkflowError as e:
+        messages.error(request, str(e))          # refused (for example someone else approved it a moment ago): only the reason is shown, no "done" line
+    else:
+        v.refresh_from_db()
+        if v.status != S.LEDGER_PENDING:   # it moved on: approved, waived, rejected or returned
+            messages.success(request, f"{v.owner.property_address}: {v.get_status_display()}.")
     return redirect("results_detail", pk=v.committee_meeting_id)
 
 
