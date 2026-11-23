@@ -13,8 +13,20 @@ from django.utils import timezone
 PLACEHOLDER_FROM = "violations@example.org"          # the default in settings.py: not a real address
 
 
+def _scrub(text):
+    """Never print the mail login, even when the mail server's own error text repeats what it was given (with some mail services the "user name" IS the secret key)."""
+    for secret in (getattr(settings, "EMAIL_HOST_USER", ""), getattr(settings, "EMAIL_HOST_PASSWORD", "")):
+        if secret and len(secret) >= 3:
+            text = text.replace(secret, "***")
+    return text
+
+
 def explain(exc):
-    """A failure to talk to the mail server, in plain words (with the server's own text where it has one: it never holds a secret)."""
+    """A failure to talk to the mail server, in plain words, with the server's own text where it has one (the mail login is always blanked out of it)."""
+    return _scrub(_explain(exc))
+
+
+def _explain(exc):
     host, port = getattr(settings, "EMAIL_HOST", ""), getattr(settings, "EMAIL_PORT", "")
     where = f"{host}:{port}" if host else "the mail server"
     server_text = ""
