@@ -185,3 +185,5 @@ Committee and Board members live in the community, so they use their **owner log
 
 ### Dashboard
 "Most common violations" shows the last 12 months by default (30 days / 12 months / all time). "How long cases take" shows the median and average days from the notice being issued to the Committee's decision, where the time goes (cure period, waiting for the Board vote, waiting for the hearing) and the average by month.
+
+**Added 2026-11-23 (commands):** `check_email` checks how this site sends email without showing any password (add `--to you@example.com` to send ONE test message); `check_lob [--ping]` checks the print-service settings without sending a letter. On the live site, letters for the print service are queued and handed over just after the page has answered, and `daily_jobs` also hands over anything still waiting.

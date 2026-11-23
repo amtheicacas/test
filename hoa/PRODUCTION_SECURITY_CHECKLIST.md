@@ -222,3 +222,11 @@ Full detail, impact, fix and complexity for each are in `SECURITY_REVIEW.md`.
 - [ ] `RENDER_STAGING.md` followed: staging uses its own database, its own SECRET_KEY, the TEST bucket/key, `STAGING=1`, `EMAIL_TO_LOG=1`, no integration keys, no real owner data.
 - [ ] `/healthz` shows `ok`; the Render health check path is `/healthz`.
 - [ ] Production must NOT set `STAGING` or `EMAIL_TO_LOG` (the site refuses `EMAIL_TO_LOG` without `STAGING`, and a live site without `EMAIL_HOST` refuses to start).
+
+---
+
+## Addendum (2026-11-23): handing letters to the print service, and the email test
+- [ ] `MAIL_BACKGROUND` is left at its live default (on). After the first Lob TEST-key run: send a fake case to a meeting and confirm the page answers at once, the letters then appear in the case's Mailing log, and the dashboard never shows "waiting more than 15 minutes".
+- [ ] `daily_jobs` is scheduled (it is the safety net that sends any letter still queued, and the only thing that sends held first-notice copies).
+- [ ] Before any real notice: `python manage.py check_email --to <your own address>` passes AND the message really arrives (inbox or spam). Look at the mail service's activity page once to see how a bounce appears there (the app does not read bounces yet; see PROJECT_STATUS.md section 37).
+- [ ] The Lob idempotency key (REVIEW_REPORT.md decision 5) is decided after the first TEST-key run: until then, a crash at the exact moment Lob accepts a letter can duplicate that one letter.

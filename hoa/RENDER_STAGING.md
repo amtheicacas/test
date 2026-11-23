@@ -104,3 +104,10 @@ Do this only when you are ready; no Lob account is needed before that. Lob has n
 7. Test mode has NO USPS tracking events, so "returned" and "not delivered" cannot be proven here; they need a few real certified letters later, each about $8, and only with the owner's explicit approval.
 
 **Note 2026-11-22:** held mailed copies now go out only from `daily_jobs` (or the Mail now button on the case), never by opening a page, so scheduling `daily_jobs` matters more than it did. Until it is scheduled the dashboard shows "N mailed copies are past the wait and have not gone out yet" (nothing is mailed on staging in any case).
+
+**Note 2026-11-23:** the letters for the print service are now queued and handed over just after the page answers (so "Send to committee" is quick even when Lob is slow). A letter still waiting after 15 minutes shows on the dashboard ("waiting more than 15 minutes to go to the print service"); the **Mail now** button on the case, or the next daily job, sends it. This update needs `migrate` (the pre-deploy command above does it for you).
+
+## 11. Check that email works (added 2026-11-23; nothing is sent unless you give an address)
+1. In the Render Shell run `python manage.py check_email`. It shows how emails are sent (never a password or user name, only whether they are set), connects to the mail server and logs in, and says "Nothing was sent". On staging you will normally see "Emails are only PRINTED, not sent (this is a staging site)": that is correct and safe.
+2. When a real mail service (Postmark) is set up, run `python manage.py check_email --to you@example.com` with your own address. It sends ONE test message. "The mail server ACCEPTED the message" means the service took it; it does not prove it reached your inbox, so look in the inbox and the spam folder, and if it never arrives look at the mail service's own activity page.
+3. If it fails, the message says why in plain words (wrong login, From address not verified with the service, address refused, server not reachable, wrong port or secure-connection setting). Fix the setting named and run it again.

@@ -260,3 +260,7 @@ SQLite 1,353 passed + 4 PostgreSQL-only skipped; PostgreSQL 16 1,357 passed (was
 3. Schedule `daily_jobs` (now also what sends held mail) with a heartbeat monitor.
 4. Provide the virtual-mailbox return address, then the Lob account and TEST key, then the first Lob test-key run (decision 5).
 5. When the attorney's final Word letters arrive: Part B (letters), including decision 6.
+
+
+### Update 2026-11-23: follow-up to decision 4 (where sending happens)
+Decision 4 stopped PAGE LOADS from sending held mail. The same review noted that the explicit actions (send to a meeting, approve a decision letter, grant more time, an urgent notice, move a meeting) still called Lob during the page, inside the database transaction. That is now fixed (PROJECT_STATUS.md section 38): those actions only QUEUE the letters; a background thread hands them over just after the page answers; the daily job and the dashboard are the safety net; each letter is recorded the moment Lob accepts it; a hand-over that stops half way resumes without sending a letter twice (proven on a real server with a kill -9). **Migration 0045, so `migrate` is needed.** Decision 5 (Lob's idempotency key) stays open: it would also protect the single letter in flight at the instant of a crash. Also added: `manage.py check_email`.
