@@ -122,3 +122,14 @@ Result on 2026-11-21: no sideways scrolling after the table / link / map fixes, 
 - [ ] While they wait, the case shows "Being handed to the print service". If a letter is still waiting after 15 minutes the dashboard says so; the **Mail now** button on the case sends it.
 - [ ] Hard case (optional): in Lob's dashboard the test letters appear once each, never twice.
 - [ ] In the Render Shell run `python manage.py check_email`: it shows the email settings without any password and ends with "Nothing was sent". With a real mail service later, `check_email --to your@address` sends one test message.
+
+
+## 9. After review pass 4 (2026-11-23)
+**Automatic:** `python -m pytest -q` (SQLite) should show 1,522 passed, 12 skipped; with `DATABASE_URL=postgres://...` (PostgreSQL 16) 1,534 passed. The 12 skipped ones are real-thread tests (two people at once, the hand-over stress test) that only run on PostgreSQL. `HOA_STRESS_SEED=7 python -m pytest -q violations/tests/test_review4_s_hand_over_stress.py` tries another random seed.
+**By hand (staging, a few minutes):**
+- [ ] On a case waiting to be sent to a committee meeting, press **Send to committee** twice quickly: one hearing notice only, and a message "already on that meeting".
+- [ ] On a case in its cure period, press **Set new deadline & notify** (10 days) twice quickly: the deadline moves 10 days, not 20, and one extension letter is listed.
+- [ ] Open a case that has many photos and press **Download case file**: it arrives as a zip and the site stays quick.
+- [ ] On a phone (or a narrow browser window) open a case whose letters went to the print service: the page does not scroll sideways.
+- [ ] Owner import: upload a list, go to the preview, then cancel: no owner receives an email ("your sign-in email was changed").
+**Real-browser checks** (scratch copy only): `tools/browser_checks/script_injection_check.js` and `phone_layout_check.js` (see their first lines). Both were clean on 2026-11-23.
