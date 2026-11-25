@@ -245,6 +245,7 @@ class CommitteeMeeting(models.Model):
         PROCESSED = "processed", "Reviewed and processed"
 
     results_status = models.CharField(max_length=10, choices=Results.choices, default=Results.OPEN)
+    committee_reminded_on = models.DateField(null=True, blank=True, help_text="The day the committee members were emailed their reminder for this meeting (once only).")
     submitted_at = models.DateTimeField(null=True, blank=True)
     submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     processed_at = models.DateTimeField(null=True, blank=True)

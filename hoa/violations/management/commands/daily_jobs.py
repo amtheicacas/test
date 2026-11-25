@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
@@ -25,6 +26,8 @@ class Command(BaseCommand):
              + (f" {len(tracking_errors)} tracking check(s) could NOT be completed (first: {tracking_errors[0]}); see the server log." if tracking_errors else ""))
         step("send_due_mailings", lambda: services.send_due_mailings(), lambda n: f"{n} mailing(s) handed to the print service (held copies whose wait ended, and any letters still queued).")
         step("send_hold_reminders", lambda: services.send_hold_reminders(), lambda n: f"{n} hold-ending reminder(s) sent.")
+        step("send_committee_reminders", lambda: services.send_committee_reminders(),
+             lambda n: f"{n} committee reminder(s) sent (meetings within {settings.COMMITTEE_REMINDER_DAYS} days that have cases on the agenda).")
         step("send_cure_reminders", lambda: services.send_cure_reminders(), lambda n: f"{n} reminder(s) sent.")
         step("advance_expired", lambda: services.advance_expired(), lambda n: f"{n} violation(s) referred to the board.")
         step("purge_old_links", accounts.purge_old_links, lambda n: f"{n} old sign-in link(s) cleared.")

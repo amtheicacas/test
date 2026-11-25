@@ -20,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import CaseAbstention, EmailLog, Event, MailPiece, Notice, Reminder, Response, Violation, short_date
-from . import audit, ledger, mailing
+from . import audit, committee_mail, ledger, mailing
 from .models import CommitteeMeeting
 from .pdf import render_notice_pdf
 
@@ -1321,15 +1321,19 @@ def create_meeting_series(first_start, months, user=None, zoom_link="", location
     that date's link). Stops at the first problem. Returns (meetings_created, error_message_or_empty)."""
     label, dates = series_dates(first_start, months)
     made = []
-    for d in dates:
-        try:
-            made.append(create_meeting(d, zoom_link, location, user, create_zoom=create_zoom, series=label, **kw))
-        except WorkflowError as e:
-            return made, f"{timezone.localtime(d):%B} {timezone.localtime(d).day}: {e}"
-    return made, ""
+    try:
+        for d in dates:
+            try:
+                made.append(create_meeting(d, zoom_link, location, user, create_zoom=create_zoom, series=label, notify_committee=False, **kw))
+            except WorkflowError as e:
+                return made, f"{timezone.localtime(d):%B} {timezone.localtime(d).day}: {e}"
+        return made, ""
+    finally:
+        committee_mail.meeting_set(made, user)           # ONE email for the whole series (or for those made before a problem)
 
 
-def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in="", create_zoom=False, series=""):
+def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting_id="", zoom_passcode="", zoom_dial_in="", create_zoom=False, series="",
+                   notify_committee=True):
     """Create a committee meeting. With create_zoom (and Zoom connected) the Zoom meeting is scheduled for you and its link, ID,
     passcode and dial-in numbers are filled in; they then appear on the hearing notices automatically."""
     from . import zoom
@@ -1350,6 +1354,8 @@ def create_meeting(starts_at, zoom_link="", location="", user=None, zoom_meeting
     m = CommitteeMeeting.objects.create(starts_at=starts_at, zoom_link=zoom_link, location=location, zoom_api_id=api_id, series=series,
                                         zoom_meeting_id=zoom_meeting_id, zoom_passcode=zoom_passcode, zoom_dial_in=zoom_dial_in)
     audit.record("meeting.created", _when(m), (f"series: {series}. " if series else "") + (f"Location: {location}. " if location else "") + ("Zoom link added." if zoom_link else ""), actor=user)
+    if notify_committee:
+        committee_mail.meeting_set([m], user)
     return m
 
 
@@ -1391,6 +1397,7 @@ def reschedule_meeting(m, new_start, user=None, notify=True):
             log(v, f"Hearing moved from {old:%b} {old.day} to {timezone.localtime(new_start):%b} {timezone.localtime(new_start).day}", user)
             cancel_queued_mailings(v, "the hearing was moved", kinds=(Notice.Kind.HEARING,))      # a hearing letter not yet handed over is out of date
         audit.record("meeting.rescheduled", _when(m), f"from {old:%b} {old.day}, {old.year} to {_when(m)[8:]}; {len(cases)} case(s); owners notified: {'yes' if notify and cases else 'no'}", actor=user)
+    committee_mail.meeting_moved(m, old, user)       # the committee members are told whether or not the owners are
     warnings = []
     try:
         zoom.update_meeting_time(m.zoom_api_id, new_start)
@@ -1432,8 +1439,19 @@ def cancel_meeting(m, user=None, notify=True):
     except zoom.ZoomError as e:
         warnings.append(f"{e} Delete it in Zoom by hand.")
     audit.record("meeting.cancelled", _when(m), f"Cancelled; owners notified: {'yes' if notify else 'no'}", actor=user)
+    committee_mail.meeting_cancelled(m, user)        # (before the meeting is deleted: the roster is found from its date)
     m.delete()
     return warnings
+
+
+def send_committee_reminders(today=None):
+    """Daily job: the one reminder to the committee before a meeting that has cases on its agenda (see committee_mail). Returns how many meetings."""
+    return committee_mail.send_reminders(today)
+
+
+def send_committee_reminders(today=None):
+    """Daily job: the one reminder to the committee before a meeting that has cases on its agenda (see committee_mail). Returns how many meetings."""
+    return committee_mail.send_reminders(today)
 
 
 @transaction.atomic
