@@ -1,0 +1,46 @@
+{% extends "violations/base.html" %}{% block title %}My violations{% endblock %}{% block content %}
+<style>
+.welcome{margin:4px 0 18px}.welcome h1{font-size:1.7rem;margin:0}.welcome p{margin:2px 0 0;color:var(--mut)}
+.updates ul{list-style:none;margin:0;padding:0}.updates li{display:flex;gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line)}.updates li:last-child{border:0}
+.updates .dot{flex:0 0 9px;height:9px;border-radius:50%;background:var(--line);transform:translateY(-1px)}.updates .fresh .dot{background:var(--warn)}
+.updates a{text-decoration:none;font-weight:600}.updates .when{margin-left:auto;color:var(--mut);font-size:.85rem;white-space:nowrap}
+.vgrid{display:grid;gap:14px}
+.vcard{display:flex;gap:0;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;box-shadow:0 1px 2px rgba(0,0,0,.04);transition:box-shadow .15s,transform .15s}
+.vcard:hover{box-shadow:0 8px 22px rgba(0,0,0,.12);transform:translateY(-1px)}
+.vcard .ph{flex:0 0 220px;min-height:170px;background:var(--bg) center/cover no-repeat;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:.85rem}
+.vcard .bd{padding:16px 18px;display:flex;flex-direction:column;gap:8px;flex:1;min-width:0}
+.vcard h3{margin:0;font-size:1.1rem}.vcard .desc{color:var(--mut);margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.facts{display:flex;gap:22px;flex-wrap:wrap;margin-top:auto}.facts div span{display:block;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}.facts div b{font-size:1.02rem}
+.chip{display:inline-block;padding:1px 9px;border-radius:99px;font-size:.78rem;font-weight:600;background:var(--bg);border:1px solid var(--line)}.chip.soon{color:var(--warn);border-color:var(--warn)}.chip.late{color:var(--bad);border-color:var(--bad)}
+.vcard .go{font-weight:600}
+@media(max-width:620px){.vcard{flex-direction:column}.vcard .ph{flex-basis:auto;height:190px}}
+.switch{display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;margin:0}.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch .track{width:44px;height:24px;border-radius:99px;background:var(--line);position:relative;transition:background .15s}
+.switch .knob{position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+.switch input:checked+.track{background:var(--ok)}.switch input:checked+.track .knob{left:23px}.switch input:focus-visible+.track{outline:2px solid var(--acc);outline-offset:2px}
+.vcard.muted{opacity:.72;box-shadow:none}.vcard.muted .ph{min-height:110px;flex-basis:150px;filter:grayscale(1)}.vcard.muted h3{font-size:1rem;color:var(--mut)}.vcard.muted:hover{opacity:1}
+</style>
+<div class="welcome" style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap"><div style="flex:1 1 240px"><h1>Violations</h1>{% if owner %}<p>{{ owner.property_address }}</p>{% endif %}</div>
+{% if past_cards %}<label class="switch" title="Show or hide violations that have run their course"><input type="checkbox" id="show-closed" checked><span class="track"><span class="knob"></span></span><span>Show closed violations</span></label>{% endif %}</div>
+{% if open_cards %}<h2 style="margin:18px 0 8px">Open violations <span class="mut" style="font-weight:400;font-size:.9rem">&middot; nearest cure date first</span></h2>
+<div class="vgrid">{% for c in open_cards %}<a class="vcard" href="{% url 'my_violation' c.v.pk %}">
+<div class="ph"{% if c.photo %} style="background-image:url('{% url 'photo' c.photo.pk %}')"{% endif %}>{% if not c.photo %}No photo{% endif %}</div>
+<div class="bd"><div><h3>{{ c.v.vtype.name }}</h3><span class="pill {{ c.v.portal_status.1 }}">{{ c.v.portal_status.0 }}</span></div>
+<p class="desc">{{ c.v.description }}</p>
+<div class="facts"><div><span>Issued</span><b>{{ c.issued|date:"M j, Y" }}</b></div>
+<div><span>{% if c.v.status == "notice_sent" %}Cure by{% else %}Cure period ended{% endif %}</span><b>{% if c.v.status == "notice_sent" and c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% elif c.v.status == "notice_sent" %}Immediately{% elif c.v.cure_deadline %}{{ c.v.cure_deadline|date:"M j, Y" }}{% else %}&ndash;{% endif %}</b>
+{% if c.left is not None %}<span class="chip {% if c.left < 0 %}late{% elif c.left <= 3 %}soon{% endif %}" style="margin-top:2px;text-transform:none;letter-spacing:0">{% if c.left < 0 %}{{ c.left|cut:"-" }} day{{ c.left|cut:"-"|pluralize }} past due{% elif c.left == 0 %}due today{% else %}{{ c.left }} day{{ c.left|pluralize }} left{% endif %}</span>{% endif %}</div></div>
+<span class="go">View details &amp; respond &rarr;</span></div></a>{% endfor %}</div>
+{% else %}<div class="card" style="text-align:center;padding:30px"><h2 style="font-size:1.2rem">You have no open violations</h2><p class="mut" style="margin:0">Nothing needs your attention right now. Thank you for helping keep Heron Landing beautiful.</p></div>{% endif %}
+
+{% if past_cards %}<div id="closed-section"><h2 style="margin:22px 0 8px;color:var(--mut)">Closed violations <span class="mut" style="font-weight:400;font-size:.9rem">&middot; {{ past_cards|length }}</span></h2>
+<div class="vgrid">{% for c in past_cards %}<a class="vcard muted" href="{% url 'my_violation' c.v.pk %}">
+<div class="ph"{% if c.photo %} style="background-image:url('{% url 'photo' c.photo.pk %}')"{% endif %}>{% if not c.photo %}No photo{% endif %}</div>
+<div class="bd"><div><h3>{{ c.v.vtype.name }}</h3><span class="pill {{ c.v.portal_status.1 }}">{{ c.v.portal_status.0 }}</span></div>
+<div class="facts"><div><span>Issued</span><b>{{ c.issued|date:"M j, Y" }}</b></div>{% if c.v.fine_amount and c.v.status == "fine_approved" %}<div><span>Fine</span><b>${{ c.v.fine_amount }}{% if c.v.fine_due_on %} due {{ c.v.fine_due_on|date:"M j" }}{% endif %}</b></div>{% endif %}</div>
+<span class="go">View details &rarr;</span></div></a>{% endfor %}</div></div>{% endif %}
+<script>(function(){var box=document.getElementById("show-closed"),sec=document.getElementById("closed-section");if(!box||!sec)return;
+var KEY="hoa-show-closed";function apply(){sec.style.display=box.checked?"block":"none";try{localStorage.setItem(KEY,box.checked?"1":"0");}catch(e){}}
+try{var v=localStorage.getItem(KEY);if(v!==null)box.checked=(v==="1");}catch(e){}
+box.addEventListener("change",apply);apply();})();</script>
+{% endblock %}

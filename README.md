@@ -1,3 +1,5 @@
+> **Removed.** The ICAC Membership Manager described below was an unrelated earlier project. Its code (`icac/` and `tests/`) was removed from this repository on the owner's decision after the stabilisation review. It stays available in git history (commit c1e1345). This repository's project is **`hoa/`** (My Heron Landing Application); see `hoa/README.md`.
+
 # ICAC Membership Manager
 
 Flask + SQLite membership system: lead tracking, public applications, member records, dues, events and a members-only portal.

@@ -1,0 +1,140 @@
+{% extends "violations/base.html" %}{% block title %}Dashboard{% endblock %}{% block content %}
+<style>
+.spd{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}.spd div{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.spd b{display:block;font-size:1.5rem;line-height:1.1}.spd span{color:var(--mut);font-size:.8rem}
+.hero{display:flex;gap:18px;align-items:center;border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:16px;background:linear-gradient(135deg,var(--card) 0%,var(--bg) 100%)}
+.hero img{height:64px;width:auto;flex:0 0 auto}
+.hero h1{margin:0 0 4px;font-size:1.5rem}
+.hero p{margin:0;color:var(--mut);max-width:62ch;line-height:1.5}
+.hero .go{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px;margin-bottom:16px}
+.tile{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:14px 16px;text-decoration:none;color:inherit;display:block}
+.tile b{display:block;font-size:2rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--mut);font-size:.85rem}
+.tile.hot{border-color:var(--warn)}
+.tabs[hidden],#attn>[hidden]{display:none!important}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.tabs button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:99px;padding:6px 13px;white-space:nowrap;font-size:.9rem}
+.tabs button[aria-selected=true]{background:var(--btn);color:#fff;border-color:var(--btn)}
+.tabs button .n{margin-left:7px;font-variant-numeric:tabular-nums;font-size:.8rem;opacity:.85}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:16px}
+.bars{display:grid;gap:8px;margin-top:8px}
+.bar{display:grid;grid-template-columns:200px 1fr 34px;gap:10px;align-items:center;font-size:.9rem;text-decoration:none;color:inherit}
+.bar .t{height:12px;background:var(--bg);border-radius:6px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--btn);border-radius:0 4px 4px 0;min-width:2px}
+.bar.zero .t i{min-width:0}.bar.zero{opacity:.55}
+.bar em{font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
+.cols{display:flex;gap:10px;align-items:flex-end;height:120px;margin-top:10px}
+.cols div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;font-size:.8rem;color:var(--mut)}
+.cols i{display:block;width:100%;max-width:44px;background:var(--btn);border-radius:4px 4px 0 0;margin-bottom:4px;min-height:2px}
+.cols b{color:var(--ink);font-weight:600}
+@media(max-width:640px){.hero{flex-direction:column;align-items:flex-start}.hero .go{margin-left:0}.bar{grid-template-columns:110px 1fr 28px}}
+</style>
+{% if missing_letters %}<div class="card" id="missing-letters" role="alert" style="border:2px solid var(--bad)">
+<h2 style="margin-top:0;color:var(--bad)">&#9888; Decision letters not sent <span class="pill late">{{ missing_letters|length }}</span></h2>
+<p class="mut">The decision was saved, but the owner was NOT sent the Notice of committee decision. Open the case and press "Send the decision letter again".</p>
+<table>{% for m in missing_letters %}<tr><td><a href="{{ m.get_absolute_url }}"><b>#{{ m.pk }}</b> {{ m.owner.property_address }}</a><td>{{ m.get_status_display }}</tr>{% endfor %}</table></div>{% endif %}
+{% if mail_problems %}<div class="card" id="mail-problems" role="alert" style="border:2px solid var(--bad)">
+<h2 style="margin-top:0;color:var(--bad)">&#9888; Certified mail problems <span class="pill late">{{ mail_problems|length }}</span></h2>
+<p class="mut" style="margin-top:0">{% if mail_undelivered %}{{ mail_undelivered }} certified letter{{ mail_undelivered|pluralize }} could not be delivered. {% endif %}{% if mail_unsent %}{{ mail_unsent }} letter{{ mail_unsent|pluralize }} {{ mail_unsent|pluralize:"was,were" }} NOT sent: the print service did not take {{ mail_unsent|pluralize:"it,them" }}. {% endif %}Open the case to see the details and to record what was done about it; once it is marked handled it clears from this screen.</p>
+<table>{% for p in mail_problems %}<tr><td><a href="{{ p.notice.violation.get_absolute_url }}#mailing"><b>#{{ p.notice.violation.pk }}</b> {{ p.notice.violation.owner.property_address }}</a><td>{{ p.notice.get_kind_display }} to {{ p.label }}{% if p.not_sent %} <span class="mut">({{ p.service_label|lower }})</span>{% endif %}<td class="late">{{ p.status|default:"Not delivered" }}{% if p.problem_on %} <span class="mut">(since {{ p.problem_on|date:"M j" }})</span>{% endif %}<td>{% if p.tracking_number %}<code>{{ p.tracking_number }}</code>{% elif p.not_sent %}<span class="mut">{{ p.problem_note|truncatechars:90 }}</span>{% endif %}<td style="white-space:nowrap"><a class="btn" href="{{ p.notice.violation.get_absolute_url }}#mailing">Open case</a></tr>{% endfor %}</table></div>{% endif %}
+<div class="hero">
+  <img src="{% load static %}{% static 'violations/heron-landing-logo.png' %}" alt="">
+  <div>
+    <h1>Violation Manager</h1>
+    <p>Everything the Board and management need to keep Heron Landing fair and consistent: courtesy notices, cure periods, owner replies, Board votes, Compliance Committee hearings and fines, each step following Florida Statute 720.305 and our Fining Resolution. The cards below show where every open case stands and what is waiting on you.</p>
+  </div>
+  <div class="go"><a class="btn" href="{% url 'violation_create' %}">+ New violation</a><a class="btn sec" href="{% url 'map' %}">Open map</a></div>
+</div>
+
+<div class="tiles">
+  <a class="tile" href="{% url 'violation_list' %}?status=open"><b>{{ kpi_open }}</b><span>Open cases</span></a>
+  <a class="tile" href="{% url 'map' %}"><b>{{ kpi_homes }}</b><span>Homes with an open case</span></a>
+  <a class="tile{% if board_queue %} hot{% endif %}" href="{% url 'board_queue' %}"><b>{{ board_queue }}</b><span>Awaiting Board vote</span></a>
+  <a class="tile"><b>{{ kpi_cured30 }}</b><span>Cured in last 30 days</span></a>
+  <a class="tile"><b>{% if kpi_rate is None %}&ndash;{% else %}{{ kpi_rate }}%{% endif %}</b><span>Of all cases ended in compliance</span></a>
+  <a class="tile"><b>${{ kpi_fines|floatformat:0 }}</b><span>Fines imposed to date</span></a>
+</div>
+
+<div class="two">
+  <div class="card"><h2>Where cases are right now</h2>
+    <div class="bars">{% for p in pipeline %}<a class="bar{% if not p.n %} zero{% endif %}" href="{% url 'violation_list' %}?{% if p.key == 'reinspect' %}reinspect=1{% else %}status={{ p.key }}{% endif %}"><span>{{ p.label }}</span><span class="t"><i style="width:{{ p.pct }}%"></i></span><em>{{ p.n }}</em></a>{% endfor %}</div>
+    <h3 style="margin:16px 0 4px;font-size:1rem">Overdue {% if overdue_total %}<span class="pill late">{{ overdue_total }}</span>{% else %}<span class="pill">none</span>{% endif %}</h3>
+    <div class="bars">{% for o in overdue %}<a class="bar{% if not o.n %} zero{% endif %}" title="{{ o.label }}: {{ o.hint }}" href="{% if o.key == 'replies' %}#awaiting{% else %}{% url 'violation_list' %}?overdue={{ o.key }}{% endif %}" style="grid-template-columns:200px 1fr 34px"><span>{{ o.label }}</span><span class="t"><i style="width:{% if o.n %}100{% else %}0{% endif %}%;background:var(--bad)"></i></span><em{% if o.n %} class="late"{% endif %}>{{ o.n }}</em></a>{% endfor %}</div>
+  </div>
+  <div class="card"><h2>Most common violations <span style="font-weight:400;font-size:.82rem;margin-left:6px">{% for k,l in ranges %}<a href="?range={{ k }}" style="{% if k == range %}font-weight:700;text-decoration:none;color:var(--btn){% else %}color:var(--mut){% endif %}">{{ l }}</a>{% if not forloop.last %} &middot; {% endif %}{% endfor %}</span></h2>
+    {% if top_types %}<div class="bars">{% for t in top_types %}<div class="bar"><span title="{{ t.vtype__name }}">{{ t.vtype__name|truncatechars:30 }}</span><span class="t"><i style="width:{{ t.pct }}%"></i></span><em>{{ t.n }}</em></div>{% endfor %}</div>
+    {% else %}<p class="mut">Nothing recorded in this period.</p>{% endif %}
+  </div>
+</div>
+<div class="card"><h2>How long cases take <span style="font-weight:400;font-size:.82rem;margin-left:6px" class="mut">notice issued to the Committee's decision &middot; {% for k,l in ranges %}{% if k == range %}{{ l }}{% endif %}{% endfor %}</span></h2>
+{% if speed.n %}<div class="spd"><div><b>{{ speed.median }}</b><span>days, typical (median)</span></div><div><b>{{ speed.avg }}</b><span>days, average</span></div><div><b>{{ speed.fastest }}</b><span>fastest</span></div><div><b>{{ speed.slowest }}</b><span>slowest</span></div><div><b>{{ speed.n }}</b><span>case{{ speed.n|pluralize }} decided</span></div></div>
+<p class="mut" style="margin:12px 0 4px"><b>Where the time goes</b> (average days)</p>
+<div style="display:flex;height:24px;border-radius:8px;overflow:hidden;background:var(--bg)">{% for s in speed.segs %}<div title="{{ s.label }}: {{ s.days }} days" style="width:{{ s.pct }}%;background:{{ s.color }}"></div>{% endfor %}</div>
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:.85rem">{% for s in speed.segs %}<span><i style="display:inline-block;width:10px;height:10px;border-radius:3px;background:{{ s.color }};margin-right:5px"></i>{{ s.label }}: <b>{{ s.days }} days</b></span>{% endfor %}</div>
+<p class="mut" style="margin:14px 0 0"><b>Average days by month of decision</b></p>
+<div class="cols">{% for b in speed.bars %}<div title="{{ b.label }}: {{ b.avg }} days on average, {{ b.n }} case{{ b.n|pluralize }}"><b>{{ b.avg }}</b><i style="height:{{ b.pct }}%"></i>{{ b.label }}</div>{% endfor %}</div>
+{% else %}<p class="mut" style="margin:0">No cases have had a Committee decision {% if range == '30d' %}in the last 30 days{% elif range == '12m' %}in the last 12 months{% endif %} yet. Once they do, this shows how long they take and where the time goes.</p>{% endif %}
+</div>
+
+<h2 style="margin:22px 0 8px">Needs your attention</h2>
+<div id="attn-tabs" class="tabs" role="tablist" aria-label="Cases by status" hidden></div>
+<div id="attn">
+<div class="card" data-tab="todo" data-label="To do" data-count="none"><ul>
+<li><a href="{% url 'board_queue' %}">{{ board_queue }} awaiting board vote</a>, {{ need_hearing }} need a hearing scheduled</li>
+<li>{{ unmailed }} notice(s) not yet logged as mailed</li>{% if held_mail %}<li>{{ held_mail }} mailed cop{{ held_mail|pluralize:"y,ies" }} on hold (emailed already; mailing after the 2-business-day wait unless corrected first)</li>{% endif %}{% if mail_due %}<li class="late"><b>{{ mail_due }} mailed cop{{ mail_due|pluralize:"y is,ies are" }} past the wait and {{ mail_due|pluralize:"has,have" }} not gone out yet.</b> The daily job sends {{ mail_due|pluralize:"it,them" }}. If this is still here after a day, the daily job is not running: open the case and use Mail now.</li>{% endif %}{% if mail_stuck %}<li class="late"><b>{{ mail_stuck }} letter{{ mail_stuck|pluralize }} {{ mail_stuck|pluralize:"has,have" }} been waiting more than {{ mail_lease }} minutes to go to the print service.</b> {{ mail_stuck|pluralize:"It goes,They go" }} out with the next daily job, or open the case and use Mail now.</li>{% endif %}</ul></div>
+{% if ledger_pending %}<div class="card" data-tab="approve" data-label="To approve &amp; send" style="border-color:var(--warn)"><h2>Committee decisions awaiting approval to post &amp; send</h2><table>{% for v in ledger_pending %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a><td>{% if v.fine_amount %}fine ${{ v.fine_amount }}{% endif %} {% if SUSPENSION_ENABLED %}{{ v.suspension }}{% endif %}<td><a class="btn" href="{{ v.get_absolute_url }}">Review</a></tr>{% endfor %}</table></div>{% endif %}
+{% if reinspect %}<div class="card" data-tab="fixed" data-label="Owner says fixed"><h2>Owner says it's fixed — reinspect</h2><table>{% for r in reinspect %}<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a><td>{{ r.message|truncatechars:90 }}<td><form method="post" action="{% url 'violation_action' r.violation.pk 'reinspect' %}">{% csrf_token %}<input type="hidden" name="notify" value="1"><input type="hidden" name="next" value="{% url 'dashboard' %}"><button class="sec">Mark for re-inspection</button></form></tr>{% endfor %}</table></div>{% endif %}
+{% if results_waiting %}<div class="card" data-tab="results" data-label="Committee results" style="border-color:var(--warn)"><h2>Compliance Committee results to review <span class="pill late">{{ results_waiting|length }}</span></h2><table>{% for m in results_waiting %}<tr><td><a href="{% url 'results_detail' m.pk %}">{{ m.starts_at|date:"F j, Y" }} meeting</a><td>{{ m.n }} item{{ m.n|pluralize }} to approve, modify or return<td><a class="btn" href="{% url 'results_detail' m.pk %}">Review</a></tr>{% endfor %}</table></div>{% endif %}
+{% if pieces_to_mail %}<div class="card" data-tab="tomail" data-label="Letters to mail" style="border-color:var(--warn)"><h2>Letters to mail by hand <span class="pill flag">{{ pieces_to_mail|length }}</span></h2>
+<p class="mut" style="margin-top:0">Print each letter from its case, mail it, then record the mailing date and (for certified) the tracking number under Mailing log.</p>
+<table>{% for p in pieces_to_mail %}<tr><td><a href="{{ p.notice.violation.get_absolute_url }}#mailing">#{{ p.notice.violation.pk }} {{ p.notice.violation.owner.property_address }}</a><td>{{ p.notice.get_kind_display }}<td>{{ p.service_label }} to {{ p.label }}<td style="white-space:nowrap"><a class="btn" href="{{ p.notice.violation.get_absolute_url }}#mailing">Record mailing</a></tr>{% endfor %}</table></div>{% endif %}
+{% if certified_to_check %}<div class="card" data-tab="trackcheck" data-label="Check delivery" style="border-color:var(--warn)"><h2>Certified letters: check delivery <span class="pill flag">{{ certified_to_check|length }}</span></h2>
+<p class="mut" style="margin-top:0">Mailed a week or more ago with no delivery result recorded. Look at the USPS tracking, then record the result on the case (delivered, or could not be delivered).</p>
+<table>{% for p in certified_to_check %}<tr><td><a href="{{ p.notice.violation.get_absolute_url }}#mailing">#{{ p.notice.violation.pk }} {{ p.notice.violation.owner.property_address }}</a><td>{{ p.notice.get_kind_display }} to {{ p.label }}<td>mailed {{ p.mailed_on|date:"M j" }}<td><code>{{ p.tracking_number }}</code> <a href="{{ p.usps_url }}" target="_blank" rel="noopener">Track on USPS</a><td style="white-space:nowrap"><a class="btn" href="{{ p.notice.violation.get_absolute_url }}#mailing">Record result</a></tr>{% endfor %}</table></div>{% endif %}
+{% if legal_drafts %}<div class="card" data-tab="attorney" data-label="Attorney" style="border-color:var(--warn)"><h2>&#9878; Referred to the attorney, email not sent yet <span class="pill late">{{ legal_drafts|length }}</span></h2><table>{% for v in legal_drafts %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<td><a class="btn" href="{% url 'legal_email' v.pk %}">Review &amp; send</a></tr>{% endfor %}</table></div>{% endif %}
+{% if verify_list %}<div class="card" data-tab="reinspect" data-label="Re-inspect" style="border-color:var(--warn)"><h2>Re-inspect: verify before the Board meeting <span class="pill late">{{ verify_list|length }}</span></h2><table><tr><th>Case<th>Property<th>Waiting</tr>{% for v in verify_list %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<td class="{% if v.reinspect_age > 7 %}late{% endif %}">{{ v.reinspect_age }} day{{ v.reinspect_age|pluralize }} (marked {{ v.reinspect_on|date:"M j" }})</tr>{% endfor %}</table></div>{% endif %}
+{% if awaiting_reply %}<div class="card" id="awaiting" data-tab="messages" data-label="Messages"><h2>Owner messages awaiting a reply</h2><table>{% for r,late in awaiting_reply %}<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a><td>{{ r.message|truncatechars:80 }}<td class="{% if late %}late{% else %}mut{% endif %}">{{ r.created_at|timesince }} ago</tr>{% endfor %}</table></div>{% endif %}
+{% if unpaid %}<div class="card" data-tab="imposed" data-label="Imposed / unpaid"><h2>Imposed — awaiting payment / correction</h2><table>{% for v in unpaid %}<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.owner.property_address }}</a><td>{% if v.fine_amount %}${{ v.fine_amount }} {% if v.fine_paid_on %}paid{% else %}due {{ v.fine_due_on|date:"M j" }}{% if v.fine_due_on < today %} <span class="late">overdue</span>{% endif %}{% endif %}{% endif %} {% if SUSPENSION_ENABLED %}{{ v.suspension }}{% endif %}<td>{% if v.cured_on %}corrected{% else %}not corrected{% endif %}</tr>{% endfor %}</table></div>{% endif %}
+{% if pending_requests %}<div class="card" data-tab="extensions" data-label="Extension requests"><h2>Owner extension requests</h2><table>{% for r in pending_requests %}
+<tr><td><a href="{{ r.violation.get_absolute_url }}">#{{ r.violation.pk }} {{ r.violation.owner.property_address }}</a></td><td>{{ r.message|truncatechars:90 }}{% if r.extension_days %} ({{ r.extension_days }} days){% endif %}</td></tr>{% endfor %}</table></div>{% endif %}
+<div class="card" data-tab="cure" data-label="Cure periods"><h2>Cure periods running</h2><table><tr><th>Case<th>Property<th>Deadline</tr>{% for v in expiring %}
+<tr><td><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype }}</a><td>{{ v.owner.property_address }}<td>{{ v.cure_deadline|date:"M j, Y" }} <span class="{% if v.days_left < 0 %}late{% else %}mut{% endif %}">({{ v.days_left }} days)</span></tr>{% empty %}<tr><td colspan=3 class="mut">None</tr>{% endfor %}</table></div>
+</div>
+<script>
+(function(){
+  var box=document.getElementById("attn"), bar=document.getElementById("attn-tabs");
+  if(!box||!bar)return;
+  var cards=[].slice.call(box.children).filter(function(c){return c.hasAttribute("data-tab");});
+  if(cards.length<2)return;
+  function count(c){
+    if(c.getAttribute("data-count")==="none")return null;
+    var n=0;[].forEach.call(c.querySelectorAll("tr"),function(r){var td=r.querySelector("td");if(td&&!td.hasAttribute("colspan"))n++;});
+    return n;
+  }
+  var tabs=[{key:"all",label:"All"}].concat(cards.map(function(c){return {key:c.getAttribute("data-tab"),label:c.getAttribute("data-label"),n:count(c),card:c};}));
+  var buttons={};
+  function show(key,push){
+    if(!buttons[key])key="all";
+    cards.forEach(function(c){c.hidden=!(key==="all"||c.getAttribute("data-tab")===key);});
+    tabs.forEach(function(t){buttons[t.key].setAttribute("aria-selected",t.key===key?"true":"false");});
+    if(push&&window.history&&history.replaceState)history.replaceState(null,"",key==="all"?location.pathname+location.search:"#tab="+key);
+  }
+  tabs.forEach(function(t){
+    var b=document.createElement("button");b.type="button";b.className="sec";b.setAttribute("role","tab");b.textContent=t.label;
+    if(t.n!=null){var s=document.createElement("span");s.className="n";s.textContent=t.n;b.appendChild(s);if(!t.n)b.style.opacity=".6";}
+    b.addEventListener("click",function(){show(t.key,true);});
+    buttons[t.key]=b;bar.appendChild(b);
+  });
+  bar.hidden=false;
+  function fromHash(){
+    var h=location.hash||"";
+    if(h.indexOf("#tab=")===0){show(h.slice(5),false);return;}
+    var el=h.length>1?document.getElementById(h.slice(1)):null;       // a link to a card, e.g. #awaiting, opens that card's tab
+    var c=el&&cards.filter(function(x){return x===el||x.contains(el);})[0];
+    if(c){show(c.getAttribute("data-tab"),false);el.scrollIntoView();return;}
+    show("all",false);
+  }
+  window.addEventListener("hashchange",fromHash);fromHash();
+})();
+</script>
+{% endblock %}

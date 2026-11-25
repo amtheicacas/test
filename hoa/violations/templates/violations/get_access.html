@@ -1,0 +1,6 @@
+{% extends "violations/base.html" %}{% block title %}Sign-in link{% endblock %}{% block content %}
+<div class="card" style="max-width:480px;margin:30px auto"><h1>Check your email</h1>
+{% if done %}<p>If that email address is on file with the association, we've sent you a sign-in link. It works once and expires in 15 minutes. Nothing arrived? Check your spam folder, or ask the office to confirm which email address we have for you.</p>
+<p><a href="{% url 'login' %}">Back to sign in</a></p>
+{% else %}<p class="mut">Enter the email address the association (and its management company) has on file for you, and we'll email you a link that signs you in.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button>Email me a sign-in link</button></form>{% endif %}</div>{% endblock %}

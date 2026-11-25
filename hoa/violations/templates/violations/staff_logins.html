@@ -1,0 +1,11 @@
+{% extends "violations/base.html" %}{% block title %}Staff logins{% endblock %}{% block content %}
+<h1>Staff logins</h1>
+<p class="mut">Board, manager and committee logins. <b>Lost phone?</b> A <i>different</i> Board member or the manager confirms who the person is (by phone or in person), then uses <b>Reset two-step</b>. The person is signed out everywhere, emailed, and sets up the authenticator again at their next sign-in. Every reset is recorded in the <a href="{% url 'audit_log' %}">audit log</a>.</p>
+<div class="card" style="padding:0;overflow:auto"><table><tr><th>Login<th>Role<th>Active<th>Two-step<th>Last signed in<th></tr>
+{% for r in rows %}<tr><td><b>{{ r.u.get_full_name|default:r.u.get_username }}</b><div class="mut">{{ r.u.get_username }}</div><td>{{ r.role }}<td>{% if r.u.is_active %}yes{% else %}<span class="pill flag">off</span>{% endif %}
+<td>{% if r.device %}set up{% else %}<span class="pill flag">not set up</span>{% endif %}<td>{% if r.u.last_login %}{{ r.u.last_login|date:"M j, Y g:i a" }}{% else %}never{% endif %}
+<td>{% if r.me %}<span class="mut">(you)</span>{% else %}
+{% if r.device %}<form method="post" style="margin-bottom:6px">{% csrf_token %}<input type="hidden" name="user" value="{{ r.u.pk }}"><input type="hidden" name="action" value="reset_two_step">
+<input name="reason" required maxlength="300" placeholder="How you confirmed who they are" style="min-width:230px"> <button onclick="return confirm('Reset two-step sign-in for {{ r.u.get_username }}?')">Reset two-step</button></form>{% endif %}
+<form method="post">{% csrf_token %}<input type="hidden" name="user" value="{{ r.u.pk }}"><input type="hidden" name="action" value="sign_out"><button class="sec" onclick="return confirm('Sign {{ r.u.get_username }} out of every device?')">Sign out everywhere</button></form>{% endif %}</tr>
+{% empty %}<tr><td colspan="6" class="mut">No staff logins.</tr>{% endfor %}</table></div>{% endblock %}

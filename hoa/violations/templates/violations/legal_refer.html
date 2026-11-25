@@ -1,0 +1,12 @@
+{% extends "violations/base.html" %}{% block title %}Send to legal{% endblock %}{% block content %}
+<p><a href="{{ v.get_absolute_url }}">&larr; Back to case #{{ v.pk }}</a></p>
+<h1>Send to legal</h1>
+<div class="card"><p style="margin-top:0"><b>{{ v.vtype.name }}</b> &middot; {{ v.owner.display_name }}, {{ v.owner.property_address }}<br><span class="mut">Current stage: {{ v.get_status_display }}</span></p>
+{% if after_fine %}<div class="msg" style="border-color:var(--warn)"><b>Normal path.</b> A fine has been imposed but the violation has not been corrected. The email to the attorney will say the matter was issued a fine and that the violation is not complete.</div>
+<form method="post">{% csrf_token %}<label>Note for your records (optional)</label><textarea name="note" rows="2">{{ prefill }}</textarea>
+<button style="margin-top:10px">Mark as referred and draft the email</button></form>
+{% else %}<div class="msg warning"><b>Direct referral.</b> This case has <b>not</b> gone through the full process (Board vote, Compliance Committee hearing and fine). Use this only when the nature of the violation calls for it. The tracker will show the skipped steps as bypassed, and the email will tell the attorney no fine has been imposed.</div>
+<form method="post">{% csrf_token %}<label>Why is this going straight to the attorney?</label><textarea name="note" rows="3" placeholder="e.g. Non-curable violation; safety concern; Board-declared emergency">{{ prefill }}</textarea>
+{% if flags %}<p class="mut" style="margin:4px 0 0">Flagged on this case: {{ flags|join:", " }}.</p>{% endif %}
+<button style="margin-top:10px">Mark as referred and draft the email</button></form>{% endif %}
+<p class="mut" style="margin-bottom:0">Nothing is emailed in this step. You will review and edit the draft first.</p></div>{% endblock %}

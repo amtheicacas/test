@@ -1,0 +1,9 @@
+{% extends "violations/base.html" %}{% load static %}{% block title %}Sign in{% endblock %}{% block content %}
+<div class="card" style="max-width:420px;margin:30px auto"><img src="{% static 'violations/heron-landing-logo.png' %}" alt="Heron Landing" style="width:100%;border-radius:6px;margin-bottom:10px">
+<h1 style="margin-bottom:4px">Welcome to {{ APP_NAME }}</h1><p class="mut" style="margin-top:0"><b>Homeowners: sign in.</b> No password needed. Enter the email address the association has on file and we'll email you a link that signs you in.</p>
+<form method="post" action="{% url 'get_access' %}">{% csrf_token %}<label>Your email address</label><input type="email" name="email" required autocomplete="email" placeholder="you@example.com"><button style="margin-top:10px;width:100%">Email me a sign-in link</button></form>
+<p class="mut" style="margin-bottom:0;font-size:.85rem">You stay signed in on that device for 30 days. To change the email we have for you, contact the management office.</p></div>
+<details class="card" style="max-width:420px;margin:0 auto 30px"{% if form.errors %} open{% endif %}><summary>Sign in with a password instead</summary>
+<p class="mut">For board members, the manager and the committee, or owners who set a password.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<input type="hidden" name="next" value="{{ next }}"><button>Sign in</button></form>
+<p style="margin-bottom:0"><a href="{% url 'password_reset' %}">Forgot your password?</a></p></details>{% endblock %}

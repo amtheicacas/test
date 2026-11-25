@@ -1,0 +1,12 @@
+"""Settings for the automated tests: the normal settings, run as a development (test) site. A live site refuses to start without
+real hosting settings, so the tests say up front that they are not one (see violations/tests/test_deploy_safety.py)."""
+import os
+
+os.environ.setdefault("DJANGO_DEBUG", "1")
+os.environ.setdefault("SUSPENSION_ENABLED", "1")     # the older tests exercise suspension; tests of the default (off) override this
+os.environ.setdefault("HOA_ENV_FILE", "no-local-env-file-while-testing")   # never read the developer's own local.env
+
+from .settings import *  # noqa: E402,F401,F403
+
+# Tests create many logins; the real (deliberately slow) password hasher would make the suite crawl. The live site never uses this file.
+PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

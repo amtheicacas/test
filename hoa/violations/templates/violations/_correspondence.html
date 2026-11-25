@@ -1,0 +1,12 @@
+{% for i in mail %}<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+{% if i.kind == "letter" %}<div style="display:flex;gap:10px;align-items:center"><div style="flex:1 1 auto"><b>{{ i.title }}</b> <span class="mut">{{ i.when|date:"M j, Y" }}</span>
+{% for l in i.lines %}<div class="mut" style="font-size:.88rem">{{ l }}</div>{% endfor %}</div>
+<div style="flex:0 0 auto"><a class="btn sec" href="{% url 'notice_pdf' i.notice.pk %}" target="_blank">View letter</a></div></div>
+{% for p in i.pieces %}<div style="margin-top:6px;font-size:.9rem"><b>{% if p.is_certified %}Certified{% else %}First class{% endif %}</b> to {{ p.label }}{% if p.tracking_number %}: <code>{{ p.tracking_number }}</code> &middot; <a href="{{ p.usps_url }}" target="_blank" rel="noopener">Track on USPS</a>{% endif %}
+{% if p.delivered_on %}<span class="pill" style="color:var(--ok);border-color:var(--ok)">&#10004; Delivered {{ p.delivered_on|date:"M j, Y" }}</span>{% elif p.problem %}<span class="pill late">&#9888; {{ p.status }}</span>{% elif p.status %}<span class="pill">{{ p.status }}</span>{% endif %}
+{% if p.expected_delivery_on and not p.delivered_on %}<span class="mut">expected {{ p.expected_delivery_on|date:"M j" }}</span>{% endif %}
+{% if p.events %}<details><summary class="mut">Tracking history</summary><table style="font-size:.85rem">{% for e in p.events %}<tr><td>{{ e.time|slice:":10" }}<td>{{ e.name }}<td class="mut">{{ e.location }}</tr>{% endfor %}</table></details>{% endif %}</div>{% endfor %}
+{% for e in i.emails %}<details style="margin-top:4px"><summary class="mut">Email copy: {{ e.subject }} (to {{ e.to }}{% if not e.ok %}, FAILED{% endif %})</summary><pre style="white-space:pre-wrap;font:inherit;margin:6px 0 0;padding:8px;background:var(--bg);border-radius:8px">{{ e.body }}</pre></details>{% endfor %}
+{% else %}<b>Email: {{ i.title }}</b> <span class="mut">{{ i.when|date:"M j, Y g:i A" }} to {{ i.email.to }}{% if not i.email.ok %} <span class="late">(not delivered)</span>{% endif %}</span>
+<details style="margin-top:4px"><summary class="mut">Show the email</summary><pre style="white-space:pre-wrap;font:inherit;margin:6px 0 0;padding:8px;background:var(--bg);border-radius:8px">{{ i.email.body }}</pre></details>{% endif %}</div>
+{% empty %}<p class="mut">Nothing has been sent yet.</p>{% endfor %}

@@ -1,0 +1,16 @@
+{% extends "violations/base.html" %}{% load hoa_tags %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
+<p>{% if v.committee_meeting_id %}<a href="{% url 'committee_meeting' v.committee_meeting_id %}">&larr; Meeting list</a>{% else %}<a href="{% url 'committee_home' %}">&larr; Committee meetings</a>{% endif %}</p>
+<h1>{{ v.owner.property_address }} — {{ v.vtype }} {% include "violations/_pit_badge.html" %}</h1>
+<p class="mut" style="margin-top:-6px"><b>{{ history.occurrence }}{{ history.occurrence|ordinal_suffix }}</b> time for this violation type &middot; {{ history.open_others|length }} other open &middot; ${{ history.fines_total|floatformat:"0g" }} in prior fines &middot; <b style="color:#6f5fc4">{{ history.pit_count }} prior point-in-time violation{{ history.pit_count|pluralize }}</b></p>
+<div class="card">{% include "violations/_staff_steps.html" %}
+<p><b>Owner:</b> {{ v.owner.display_name }}{% if v.owner.has_tenant %} · tenant {{ v.owner.tenant_name }}{% endif %}</p>
+<p><b>Observed {{ v.observed_on|date:"M j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
+<p><b>Cure required:</b> {{ v.cure_required }} · deadline {{ v.cure_deadline|date:"M j, Y" }}</p>
+<p><b>Board vote ({{ v.board_meeting_date|date:"M j, Y" }}) proposed:</b> {% if v.proposed_fine %}fine ${{ v.proposed_fine }}{% endif %} {% if SUSPENSION_ENABLED and v.proposed_suspension %}suspension: {{ v.proposed_suspension }}{% endif %}</p>
+<div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">from owner</small>{% endif %}</a>{% endfor %}</div></div>
+<div class="card"><h2>Letters sent</h2><table>{% for n in v.notices.all %}<tr><td>{{ n.get_kind_display }}<td class="mut">{{ n.created_at|date:"M j, Y" }}{% if n.emailed_at %} · emailed{% endif %}{% if n.mailed_on %} · mailed {{ n.get_method_display }}{% if n.return_receipt_on %}, receipt {{ n.return_receipt_on|date:"M j" }}{% endif %}{% endif %}<td><a href="{% url 'notice_pdf' n.pk %}" target="_blank">View</a></tr>{% endfor %}</table></div>
+<div class="card"><h2>Owner correspondence</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}Owner{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j" }}</span>{% if r.attorney_notice %} <span class="pill">bringing attorney</span>{% endif %}<br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None.</p>{% endfor %}</div>
+{% if v.status == "hearing_scheduled" %}<div class="card"><h2>Committee decision</h2>
+<p class="mut">Record decisions for the whole meeting on the meeting page, then submit them for administrative review.</p><p style="margin-bottom:0"><a class="btn" href="{% url 'committee_meeting' v.committee_meeting_id %}#case-{{ v.pk }}">Go to the meeting list</a></p></div>
+{% elif v.committee_votes_for is not None %}<div class="card"><h2>Decision</h2><p>{{ v.committee_votes_for }}–{{ v.committee_votes_against }}: {{ v.get_status_display }}</p></div>{% endif %}
+{% endblock %}

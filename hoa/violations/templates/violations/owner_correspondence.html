@@ -1,0 +1,6 @@
+{% extends "violations/base.html" %}{% block title %}Correspondence{% endblock %}{% block content %}
+<h1>Correspondence · {{ owner.display_name }}</h1>
+<p style="margin:0 0 6px"><a href="{% url 'owner_logins' owner.pk %}">Sign-in logins for this household (change sign-in email, sign out everywhere)</a></p>
+<p class="mut">{{ owner.property_address }}. Every letter and email sent to this owner{% if owner.has_tenant %} and the tenant{% endif %}, with mailing and tracking details.</p>
+{% for c in cases %}<div class="card"><h2><a href="{{ c.v.get_absolute_url }}">#{{ c.v.pk }} {{ c.v.vtype.name }}</a> <span class="pill">{{ c.v.get_status_display }}</span></h2>{% include "violations/_correspondence.html" with mail=c.mail %}</div>
+{% empty %}<div class="card mut">No violations on file for this owner.</div>{% endfor %}{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "violations/base.html" %}{% block title %}Two-step login{% endblock %}{% block content %}
+<div class="card" style="max-width:520px;margin:30px auto"><h1>Set up two-step login</h1>
+<p>1. Install an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password, Authy…).<br>2. Scan this code, or type the key in by hand.<br>3. Enter the 6-digit code it shows.</p>
+<div style="width:220px;background:#fff;padding:8px;border-radius:8px">{{ qr|safe }}</div>
+<p class="mut">Key: <code>{{ secret }}</code></p>
+<form method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">{{ form.as_p }}<button>Turn on</button></form></div>{% endblock %}

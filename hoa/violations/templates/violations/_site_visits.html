@@ -1,0 +1,16 @@
+<div class="sv" id="site-visits{% if sv.back == 'meeting' %}-{{ v.pk }}{% endif %}" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)">
+<h4 style="margin:0 0 4px">Site-visit observations <span class="pill">internal</span>{% if sv.allowed %} <span class="mut" style="font-weight:400">({{ sv.count }})</span>{% endif %}</h4>
+{% if not sv.allowed %}<p class="mut" style="margin:0">{{ sv.why }}</p>{% else %}
+<p class="mut" style="margin:0 0 6px;font-size:.88rem">What was seen on a drive-through or visit. Only the committee, the Board and the manager can see these; owners never can. They are <b>not</b> the committee's findings. They can't be edited or deleted: to fix one, add a correction.</p>
+{% for o in sv.items %}<div id="sv-{{ o.pk }}" style="padding:6px 0;border-top:1px solid var(--line)">
+<div><b>{{ o.author_name }}</b> <span class="mut">{% if o.author_role %}({{ o.author_role }}) {% endif %}&middot; {{ o.created_at|date:"M j, Y g:i A" }} &middot; #{{ o.pk }}</span>{% if o.corrects %} <span class="pill flag">Correction to #{{ o.corrects.pk }}</span>{% endif %}</div>
+{% if o.comment %}<div style="white-space:pre-wrap;margin:2px 0">{{ o.comment }}</div>{% endif %}
+{% if o.photos.all %}<div class="photos">{% for p in o.photos.all %}<span style="display:inline-block;margin:2px 8px 2px 0;vertical-align:top"><a href="{% url 'site_visit_photo' p.pk %}" target="_blank"><img src="{% url 'site_visit_photo' p.pk %}" alt="Site-visit photo" style="max-height:110px;border-radius:4px;display:block"></a><span class="mut" style="font-size:.72rem" title="SHA-256 {{ p.sha256 }}">{% if p.taken_at %}taken {{ p.taken_at|date:"M j g:i A" }} &middot; {% endif %}{{ p.sha256|slice:":10" }}</span></span>{% endfor %}</div>{% endif %}
+<details><summary class="mut" style="font-size:.85rem;cursor:pointer">Add a correction to #{{ o.pk }}</summary>
+<form method="post" action="{% url 'site_visit_add' v.pk %}" enctype="multipart/form-data" style="margin-top:4px">{% csrf_token %}<input type="hidden" name="corrects" value="{{ o.pk }}"><input type="hidden" name="back" value="{{ sv.back }}">
+<textarea name="comment" rows="2" required maxlength="5000" placeholder="What is being corrected or added?"></textarea><input type="file" name="photos" accept="image/*" multiple><button class="sec" style="margin-top:4px">Add correction</button></form></details></div>
+{% empty %}<p class="mut" style="margin:0">None yet.</p>{% endfor %}
+<form method="post" action="{% url 'site_visit_add' v.pk %}" enctype="multipart/form-data" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">{% csrf_token %}<input type="hidden" name="back" value="{{ sv.back }}">
+<label style="margin:0">Add an observation</label><textarea name="comment" rows="2" maxlength="5000" placeholder="What did you see? (optional if you add a photo)"></textarea>
+<input type="file" name="photos" accept="image/*" multiple><button class="sec" style="margin-top:4px">Save observation</button></form>
+{% endif %}</div>

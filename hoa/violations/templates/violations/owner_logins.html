@@ -1,0 +1,17 @@
+{% extends "violations/base.html" %}{% block title %}Sign-in logins{% endblock %}{% block content %}
+<h1>Sign-in logins &middot; {{ owner.display_name }}</h1>
+<p class="mut">{{ owner.property_address }}. Owners sign in with an emailed one-time link, so the sign-in email decides who can see this household's records. Owners can't change it themselves. <a href="{% url 'owner_correspondence' owner.pk %}">Back to correspondence</a></p>
+<div class="msg warning"><b>Vantaca stays the source of truth.</b> A change made here takes effect immediately, but the next Vantaca sync puts Vantaca's address back if Vantaca still has the old one. Update Vantaca as well.</div>
+{% for l in logins %}<div class="card"><h2>{{ l.u.get_username }} <span class="pill">{{ l.p.get_relationship_display }}</span>{% if not l.u.is_active %} <span class="pill flag">switched off</span>{% endif %}</h2>
+<p class="mut" style="margin-top:-4px">Last signed in: {% if l.u.last_login %}{{ l.u.last_login|date:"M j, Y g:i a" }}{% else %}never{% endif %}</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="profile" value="{{ l.p.pk }}"><input type="hidden" name="action" value="change_email">
+<div class="row"><div><label>New sign-in email</label><input type="email" name="new_email" required maxlength="150" autocomplete="off"></div>
+<div><label>Why (kept in the audit log)</label><input name="reason" required maxlength="300" placeholder="e.g. owner called and asked; confirmed by phone"></div></div>
+<p class="mut" style="margin:6px 0">What happens: the old address is emailed a notice, unused links and every session are cancelled, and a first sign-in link goes to the new address (opening it proves the address is right).</p>
+<button onclick="return confirm('Change this sign-in email?')">Change sign-in email</button></form>
+<form method="post" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="profile" value="{{ l.p.pk }}"><input type="hidden" name="action" value="sign_out"><button class="sec" onclick="return confirm('Sign this person out of every device?')">Sign out everywhere</button></form></div>
+{% empty %}<div class="card mut">This household has no logins yet (an owner gets one the first time they ask for a sign-in link, or when invited).</div>{% endfor %}
+<h2>Recent changes about this household</h2>
+<div class="card" style="padding:0;overflow:auto"><table><tr><th>When<th>Who<th>What</tr>
+{% for e in trail %}<tr><td>{{ e.at|date:"M j, Y g:i a" }}<td>{{ e.actor_name }}<td><b>{{ e.action }}</b><div class="mut">{{ e.detail }}</div></tr>
+{% empty %}<tr><td colspan="3" class="mut">Nothing recorded yet.</tr>{% endfor %}</table></div>{% endblock %}

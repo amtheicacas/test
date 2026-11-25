@@ -1,0 +1,11 @@
+Django>=5.1,<5.3
+Pillow
+reportlab
+django-otp
+django-axes
+qrcode
+anthropic
+openpyxl
+pypdf>=5,<7          # joins the saved original notice onto the hearing notice
+pyrage>=1.2,<2        # encrypts the database backups (standard 'age' format, so the 'age' tool can also open them)
+boto3                 # the backup commands talk to the backup bucket (also pulled in by django-storages[s3] on the live site)

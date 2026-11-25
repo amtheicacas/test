@@ -1,0 +1,10 @@
+db.sqlite3
+media/
+__pycache__/
+.pytest_cache/
+local.env
+staticfiles/
+local.*.env
+backup-private-key*
+.coverage
+.hypothesis/

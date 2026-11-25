@@ -1,0 +1,5 @@
+{% extends "violations/base.html" %}{% block title %}Please sign in{% endblock %}{% block content %}
+<div class="card" style="max-width:520px;margin:30px auto"><h1>Please sign in</h1>
+<p>Your case for <b>{{ v.owner.property_address }}</b> has moved to a later stage, so for your privacy it is available only after you sign in.</p>
+<p><a class="btn" href="{% url 'login' %}">Sign in</a> <span class="mut">Owners: you can sign in with just your email, no password needed.</span></p>
+<p class="mut">Questions? Call {{ MANAGER_PHONE }} or email {{ MANAGER_EMAIL }}.</p></div>{% endblock %}

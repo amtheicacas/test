@@ -1,0 +1,16 @@
+{% load hoa_tags %}{% with r=v.pending_extension %}{% if r %}<div class="card" style="border-color:var(--warn)">
+<h2>Owner asked for more time{% if r.extension_days %}: {{ r.extension_days }} days{% endif %}</h2>
+<p>“{{ r.message|linebreaksbr }}”<br><span class="mut">{{ r.created_at|date:"M j, Y g:i A" }}. Current deadline {{ v.cure_deadline|date:"M j, Y" }}{% if r.extension_days %}. Approving {{ r.extension_days }} days makes it <b>{{ v.cure_deadline|add_days:r.extension_days|date:"M j, Y" }}</b>{% endif %}.</span></p>
+{% if v.own_household %}<p><b>This is your own household's request.</b> Another Board member or the manager has to answer it.</p>{% else %}<div class="row">
+<form method="post" action="{% url 'violation_action' v.pk 'ext_approve' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><input type="hidden" name="response_id" value="{{ r.pk }}">
+<h2 style="font-size:.95rem">Approve</h2>
+<label>Days to add (change this to edit the request)</label><input type="number" name="days" min="1" max="365" value="{{ r.extension_days|default_if_none:'' }}">
+<label>or an exact new deadline (optional)</label><input type="date" name="new_deadline">
+<label>Note for the record (optional)</label><input name="note">
+<label><input type="checkbox" name="second_notice"> Send as a full second Notice of Violation</label>
+<button style="margin-top:8px">Approve</button></form>
+<form method="post" action="{% url 'violation_action' v.pk 'ext_decline' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}"><input type="hidden" name="response_id" value="{{ r.pk }}">
+<h2 style="font-size:.95rem">Decline</h2>
+<label>Reason (the owner will see this)</label><input name="reason">
+<button class="bad" style="margin-top:8px">Decline</button></form>
+</div><p class="mut">Approved days are added to the current deadline, so the case ages as if the cure period had been that long. The owner is emailed and sent a letter.</p>{% endif %}</div>{% endif %}{% endwith %}

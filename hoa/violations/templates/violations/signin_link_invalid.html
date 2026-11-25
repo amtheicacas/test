@@ -1,0 +1,4 @@
+{% extends "violations/base.html" %}{% block title %}Link expired{% endblock %}{% block content %}
+<div class="card" style="max-width:460px;margin:40px auto"><h1>This link has expired</h1>
+<p>Sign-in links work once and expire after 15 minutes. Request a new one below.</p>
+<p><a class="btn" href="{% url 'login' %}">Get a new sign-in link</a></p></div>{% endblock %}

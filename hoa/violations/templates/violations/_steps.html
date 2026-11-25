@@ -1,0 +1,3 @@
+<ol class="steps">{% for s in v.progress %}<li class="{{ s.state }}"><span class="ic">{{ s.icon }}</span>{{ s.title }}{% if s.state == "skipped" %}<small>Not needed</small>{% elif s.date %}<small>{{ s.date|date:"M j, Y" }}</small>{% elif s.state == "current" %}<small>In progress</small>{% endif %}</li>{% endfor %}</ol>
+{% for s in v.progress %}{% if s.text %}<p style="margin:8px 0 0"><b>{{ s.title }}.</b> {{ s.text }}</p>{% endif %}{% endfor %}
+{% if v.status == "on_hold" %}<p style="margin:8px 0 0"><span class="pill flag">On hold{% if v.hold_until %} until {{ v.hold_until|date:"M j, Y" }}{% endif %}</span></p>{% endif %}

@@ -1,0 +1,30 @@
+{% extends "violations/base.html" %}{% block title %}{{ v.vtype }}{% endblock %}{% block content %}
+<p><a href="{% url 'my_violations' %}">&larr; Violations</a></p>
+<h1>{{ v.vtype }} <span class="pill {{ v.portal_status.1 }}">{{ v.portal_status.0 }}</span></h1>
+<div class="card tracker">{% include "violations/_steps.html" %}</div>
+<div class="card">
+<p><b>Observed {{ v.observed_on|date:"F j, Y" }}{% if v.vtype.reference %} · {{ v.vtype.reference }}{% endif %}:</b> {{ v.description }}</p>
+<p><b>What is needed to cure:</b> {{ v.cure_required }}</p>
+{% if v.status == "notice_sent" %}<p><b>Cure by: {{ v.cure_deadline|date:"F j, Y" }}</b></p>{% endif %}
+{% if v.hearing_date and v.status == "hearing_scheduled" %}<p><b>Compliance Committee hearing: {{ v.hearing_date|date:"l, F j, Y g:i A" }}</b><br>{{ v.hearing_location }}<br>The Board proposed {% if v.proposed_fine %}a fine of ${{ v.proposed_fine }}{% endif %} {% if SUSPENSION_ENABLED and v.proposed_suspension %}a suspension ({{ v.proposed_suspension }}){% endif %}. Nothing is owed unless a majority of the Committee approves it. You may attend, speak and give evidence.</p>{% endif %}
+{% if v.status == "fine_approved" %}<p>{% if v.fine_amount %}<b>Fine imposed: ${{ v.fine_amount }}, due {{ v.fine_due_on|date:"F j, Y" }}.</b>{% endif %} {% if SUSPENSION_ENABLED and v.suspension %}Suspension: {{ v.suspension }}.{% endif %}</p>{% endif %}
+<div class="photos">{% for p in v.photos.all %}<a href="{% url 'photo' p.pk %}"><img src="{% url 'photo' p.pk %}" alt="">{% if p.from_resident %}<br><small class="mut">your photo</small>{% endif %}</a>{% endfor %}</div></div>
+{% if latest_letter %}<div class="card"><h2>Your notice</h2>
+<p class="mut" style="margin-top:0">This is the letter we {% if latest_letter.emailed_at %}emailed{% endif %}{% if latest_letter.emailed_at and latest_letter.mailed_on or latest_letter.mail_held %} and {% endif %}{% if latest_letter.mailed_on or latest_letter.mail_held %}mailed{% endif %} to you.</p>
+<iframe src="{% url 'notice_pdf' latest_letter.pk %}" title="Your notice" style="width:100%;height:620px;border:1px solid var(--line);border-radius:10px;background:#fff"></iframe>
+<p style="margin-bottom:0"><a class="btn" href="{% url 'notice_pdf' latest_letter.pk %}" target="_blank">Open / print the letter</a></p></div>{% endif %}
+<div class="card"><h2>Letters and emails we sent you</h2>{% include "violations/_correspondence.html" with mail=mail %}</div>
+<div class="card" id="thread"><h2>Messages</h2>{% for r in v.responses.all %}<p><b>{% if r.from_resident %}{% if r.author_id == request.user.id or not r.author %}You{% else %}{{ r.author.first_name|default:r.author.email }}{% endif %}{% else %}Association{% endif %}</b> <span class="mut">{{ r.created_at|date:"M j g:i A" }}</span><br>{{ r.message|linebreaksbr }}</p>{% empty %}<p class="mut">None yet.</p>{% endfor %}</div>
+{% if v.is_open %}<form class="card" method="post" enctype="multipart/form-data"><h2>Send a message</h2>{% csrf_token %}{{ form.non_field_errors }}
+{{ form.message.label_tag }}{{ form.message }}{{ form.message.errors }}
+<label><input type="checkbox" name="cure_reported"> {{ form.cure_reported.label }}</label>
+<label><input type="checkbox" name="request_extension" {% if form.request_extension.value %}checked{% endif %}> {{ form.request_extension.label }}</label>
+<div id="extbox" style="display:none">{{ form.extension_days.label_tag }}{{ form.extension_days }}{{ form.extension_days.errors }}</div><script>(function(){var c=document.querySelector("input[name=request_extension]"),b=document.getElementById("extbox");if(!c||!b)return;function t(){b.style.display=c.checked?"block":"none";}c.addEventListener("change",t);t();})();</script>
+<label>Photos (optional): show us the work or the corrected area</label><input type="file" name="photos" id="rphotos" accept="image/*" multiple>
+<div id="rthumbs" style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0"></div>
+<button style="margin-top:10px">Send</button><p class="mut">We aim to reply within 48–72 hours and reinspect before a case is closed. Phone {{ MANAGER_PHONE }}, email {{ MANAGER_EMAIL }}.</p></form>{% endif %}
+<script>
+(function(){var url="{{ state_url }}",sig=null;function tick(){fetch(url,{credentials:"same-origin"}).then(r=>r.json()).then(function(d){
+ if(sig!==null&&d.sig!==sig){var t=document.querySelector("textarea[name=message]");if(!t||!t.value){location.reload();}}sig=d.sig;}).catch(function(){});}
+tick();setInterval(tick,20000);})();
+</script>{% load static %}<script src="{% static 'violations/photopicker.js' %}"></script><script>(function(){var i=document.getElementById("rphotos");if(i)attachPhotoPicker(i,document.getElementById("rthumbs"));})();</script>{% endblock %}

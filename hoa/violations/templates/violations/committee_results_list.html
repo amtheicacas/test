@@ -1,0 +1,10 @@
+{% extends "violations/base.html" %}{% block title %}Committee results{% endblock %}{% block content %}
+<h1>Compliance Committee results</h1>
+<p class="mut">Every committee meeting and what came of it, newest first. Open a meeting to see each violation's original fine, the committee's recommendation and the Board's decision.</p>
+{% for r in rows %}<a class="card" href="{% url 'results_detail' r.m.pk %}" style="display:block;text-decoration:none;color:inherit"><div class="row" style="align-items:center">
+<div style="flex:2 1 220px"><b style="font-size:1.05rem">{{ r.m.starts_at|date:"F j, Y" }}</b> <span class="pill{% if r.m.results_status == 'submitted' %} flag{% endif %}">{{ r.m.get_results_status_display }}</span><div class="mut">{{ r.n }} violation{{ r.n|pluralize }}</div></div>
+<div class="stat"><b>{{ r.fines }}</b><span class="mut">fine{{ r.fines|pluralize }} (${{ r.total|floatformat:"0g" }})</span></div>
+<div class="stat"><b>{{ r.waived }}</b><span class="mut">waived / closed</span></div>
+<div class="stat"><b>{{ r.rejected }}</b><span class="mut">rejected</span></div>
+<div class="stat"><b>{{ r.undecided }}</b><span class="mut">not decided</span></div></div></a>
+{% empty %}<div class="card mut">No committee meetings yet.</div>{% endfor %}{% endblock %}

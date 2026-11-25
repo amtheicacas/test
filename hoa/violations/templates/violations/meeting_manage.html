@@ -1,0 +1,17 @@
+{% extends "violations/base.html" %}{% block title %}Meeting{% endblock %}{% block content %}
+<p><a href="{% url 'meetings' %}">&larr; All meetings</a></p>
+<h1>{{ m.starts_at|date:"l, F j, Y g:i A" }}</h1>
+<p class="mut" style="margin-top:-6px">{% if days_away >= 0 %}{{ days_away }} days away{% else %}{{ days_away|cut:"-" }} days ago{% endif %}{% if m.series %} &middot; {{ m.series }}{% endif %} &middot; <a href="{% url 'committee_meeting' m.pk %}">Open the committee's agenda page</a>{% if m.results_status != "open" %} &middot; <a href="{% url 'results_detail' m.pk %}">Results</a>{% endif %}</p>
+<div class="card"><h2>Where</h2><p style="margin:0">{{ m.place }}</p>{% if m.zoom_meeting_id %}<p class="mut" style="margin:4px 0 0">Meeting ID {{ m.zoom_meeting_id }}{% if m.zoom_passcode %} &middot; Passcode {{ m.zoom_passcode }}{% endif %}{% if m.zoom_api_id %} &middot; created by this app{% endif %}</p>{% endif %}</div>
+<div class="card"><h2>On the agenda ({{ cases|length }})</h2>
+{% for v in cases %}<p style="margin:4px 0"><a href="{{ v.get_absolute_url }}">#{{ v.pk }} {{ v.vtype.name }}</a> &middot; {{ v.owner.property_address }} <span class="mut">({{ v.owner.display_name }})</span> <span class="pill">{{ v.get_status_display }}</span></p>{% empty %}<p class="mut" style="margin:0">No violations assigned yet.</p>{% endfor %}</div>
+{% if locked %}<div class="msg warning">The committee has already recorded decisions for this meeting, so it can't be moved or cancelled.</div>
+{% else %}<form class="card" method="post"><h2>Reschedule</h2>{% csrf_token %}<input type="hidden" name="action" value="reschedule">
+<label>New date and time</label><input type="datetime-local" name="starts_at" required id="newstart" data-min="{{ minimum }}" data-rec="{{ recommended }}">
+{% if m.zoom_api_id %}<p class="mut" style="margin:4px 0">The Zoom meeting is moved too; its link stays the same.</p>{% endif %}
+{% if cases %}<label style="font-weight:400;margin-top:8px"><input type="checkbox" name="notify" checked> Send each owner a new hearing notice with the new date (certified mail and email). {{ minimum }} days' notice is required.</label>{% endif %}
+<button style="margin-top:8px" onclick="var v=document.getElementById('newstart').value;if(v){var d=Math.round((new Date(v)-new Date())/864e5);if(d<{{ recommended }}&&!confirm('The new date is only '+d+' days away. {{ minimum }} days\' notice is required and we recommend {{ recommended }} so notices can be printed and mailed. Move it anyway?'))return false;}">Move the meeting</button></form>
+<form class="card" method="post" style="border-color:var(--bad)"><h2>Cancel this meeting</h2>{% csrf_token %}<input type="hidden" name="action" value="cancel">
+<p class="mut" style="margin-top:0">The Zoom meeting is deleted{% if cases %}, the {{ cases|length }} violation{{ cases|length|pluralize }} above go back to waiting for a hearing{% endif %}, and the meeting is removed.</p>
+{% if cases %}<label style="font-weight:400"><input type="checkbox" name="notify" checked> Email each owner that the hearing was cancelled</label>{% endif %}
+<button class="bad" style="margin-top:8px" onclick="return confirm('Cancel this meeting? This cannot be undone.')">Cancel the meeting</button></form>{% endif %}{% endblock %}

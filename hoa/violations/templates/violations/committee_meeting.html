@@ -1,0 +1,57 @@
+{% extends "violations/base.html" %}{% block title %}Meeting{% endblock %}{% block content %}
+<p><a href="{% if ROLE == 'committee' %}{% url 'committee_home' %}{% else %}{% url 'meetings' %}{% endif %}">&larr; Meetings</a></p>
+<h1>{{ m.starts_at|date:"l, F j, Y g:i A" }} <span class="pill">{{ m.get_results_status_display }}</span></h1><p class="mut">{{ m.place }}</p>
+{% if m.zoom_link %}<p><a class="btn" href="{{ m.zoom_link }}" target="_blank" rel="noopener">Join Zoom</a></p>{% endif %}
+{% if not can_edit %}<div class="msg success">Results were submitted for administrative review{% if m.submitted_at %} on {{ m.submitted_at|date:"M j, Y" }}{% endif %}. They are now read-only here; the Association's office reviews and processes them.</div>{% endif %}
+
+{% if waiting_minutes %}<div class="card" style="border-color:var(--warn)"><h2>Minutes to approve at this meeting <span class="pill flag">{{ waiting_minutes|length }}</span></h2>
+<p class="mut" style="margin-top:0">The app wrote these minutes from the committee's entries at the earlier meeting. Read each one and approve it, or fix an entry first.</p>
+{% for p in waiting_minutes %}<div class="row" style="align-items:center;padding:6px 0;border-top:1px solid var(--line)"><div style="flex:2 1 220px"><b>{{ p.starts_at|date:"F j, Y" }} meeting</b> <span class="pill">Draft</span></div>
+<div style="flex:0 0 auto;min-width:0"><a class="btn sec" href="{% url 'committee_minutes' p.pk %}" target="_blank">Read the draft</a></div>
+<div style="flex:0 0 auto;min-width:0"><a class="btn sec" href="{% url 'committee_meeting' p.pk %}">Fix an entry</a></div>
+<form method="post" action="{% url 'minutes_approve' p.pk %}" style="flex:0 0 auto;min-width:0">{% csrf_token %}<input type="hidden" name="at" value="{{ m.pk }}"><button onclick="return confirm('Approve the minutes of the {{ p.starts_at|date:'F j, Y' }} meeting?')">Approve</button></form></div>{% endfor %}</div>{% endif %}
+
+<form class="card" method="post" action="{% url 'committee_meeting_save' m.pk %}" enctype="multipart/form-data"><h2>Meeting details <span class="pill{% if m.minutes_status == 'draft' %} flag{% endif %}">Minutes: {{ m.get_minutes_status_display }}</span></h2>{% csrf_token %}
+<p class="mut" style="margin-top:0">Fill in who was there, the times and your notes. The app writes the meeting minutes from these entries and the decisions below. <a href="{% url 'committee_minutes' m.pk %}" target="_blank">See the minutes so far</a>.</p>
+<div class="row"><div><label>Called to order at</label><input type="time" name="called_to_order" value="{{ m.called_to_order|time:'H:i' }}" {% if not minutes_open %}disabled{% endif %}></div><div><label>Adjourned at</label><input type="time" name="adjourned" value="{{ m.adjourned|time:'H:i' }}" {% if not minutes_open %}disabled{% endif %}></div></div>
+<label>Who attended <span class="mut" style="font-weight:400">({{ present_count }} present{% if present_count < 3 and roster %} &middot; at least 3 members must vote on a fine{% endif %})</span></label>
+{% if roster %}<table style="margin-bottom:6px"><tr><th>Member<th style="text-align:center">Present<th style="text-align:center">Absent<th style="text-align:center">Excused</tr>
+{% for member in roster %}<tr><td>{{ member.name }} {% if member.role != "member" %}<span class="pill">{{ member.get_role_display }}</span>{% endif %}
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="present" {% if member.attended == "present" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}>
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="absent" {% if member.attended == "absent" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}>
+<td style="text-align:center"><input type="radio" name="attend_{{ member.pk }}" value="excused" {% if member.attended == "excused" %}checked{% endif %} {% if not minutes_open %}disabled{% endif %}></tr>{% endfor %}</table>
+<p class="mut" style="margin:0 0 8px"><a href="{% url 'committee_members' %}">Edit the committee roster</a></p>
+{% else %}<p class="mut" style="margin:0 0 6px">No committee roster is loaded for this year. <a href="{% url 'committee_members' %}">Load the committee members</a> once and you can just tick who attended, or list them below.</p>{% endif %}
+<div class="row"><div><label>{% if roster %}Other members present (not on the roster){% else %}Committee members present{% endif %}</label><textarea name="attendees" rows="2" {% if not minutes_open %}disabled{% endif %} placeholder="One name per line">{{ m.attendees }}</textarea></div>
+{% if not roster %}<div><label>Members absent</label><textarea name="members_absent" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.members_absent }}</textarea></div>{% endif %}
+<div><label>Others present (owners, representatives, management)</label><textarea name="guests" rows="2" {% if not minutes_open %}disabled{% endif %}>{{ m.guests }}</textarea></div></div>
+<label>Other business and notes</label><textarea name="notes" rows="3" {% if not minutes_open %}disabled{% endif %}>{{ m.notes }}</textarea>
+<label>Or upload your own minutes (optional; PDF or Word .docx, under 10 MB)</label>
+{% for f in minutes_files %}{% if forloop.first %}<p style="margin:2px 0"><b>Current file:</b> <a href="{% url 'meeting_minutes' m.pk %}">{{ f.original_name }}</a> <span class="mut">&middot; uploaded {{ f.uploaded_at|date:"M j, Y g:i a" }} by {{ f.uploaded_by_name|default:"unknown" }} &middot; fingerprint {{ f.sha256|slice:":12" }}</span></p>
+{% if minutes_files|length > 1 %}<details style="margin:2px 0"><summary class="mut">Earlier uploads ({{ minutes_files|length|add:"-1" }}; nothing is ever deleted)</summary>{% endif %}{% else %}<div class="mut" style="margin:2px 0 2px 12px"><a href="{% url 'meeting_minutes' m.pk %}?v={{ f.pk }}">{{ f.original_name }}</a> &middot; {{ f.uploaded_at|date:"M j, Y g:i a" }} by {{ f.uploaded_by_name|default:"unknown" }} &middot; fingerprint {{ f.sha256|slice:":12" }}</div>{% if forloop.last %}</details>{% endif %}{% endif %}{% endfor %}
+{% if not minutes_files and m.minutes %}<p style="margin:2px 0"><a href="{% url 'meeting_minutes' m.pk %}">Download the uploaded file</a> <span class="mut">(uploaded before upload history was kept)</span></p>{% endif %}
+{% if minutes_open %}<input type="file" name="minutes" accept=".pdf,.docx"><button style="margin-top:8px">Save meeting details</button>{% if minutes_files %}<p class="mut" style="margin:4px 0 0">Choosing a new file adds it as the current one; the earlier file is kept.</p>{% endif %}{% endif %}</form>
+
+<h2 style="margin:18px 0 6px">Violations for this meeting <span class="mut" style="font-weight:400;font-size:.9rem">&middot; {{ sum.n }} case{{ sum.n|pluralize }}, {{ sum.undecided }} still to decide</span></h2>
+{% for r in rows %}{% with v=r.v %}<div class="card" id="case-{{ v.pk }}">
+<div class="row" style="align-items:flex-start;gap:14px"><div style="flex:2 1 280px"><h3 style="margin:0;font-size:1.05rem"><a href="{% url 'committee_case' v.pk %}">{{ v.owner.property_address }}</a></h3>
+<div class="mut">{{ v.owner.display_name }}</div><div style="margin-top:4px"><b>{{ v.vtype.name }}</b> {% include "violations/_pit_badge.html" %}{% if v.is_point_in_time or r.pit %} <span class="mut" style="color:#6f5fc4">{{ r.pit }} prior point-in-time for this owner</span>{% endif %}</div><div class="mut" style="margin-top:2px">{{ v.description|truncatechars:140 }}</div>
+{% if r.conflicts %}<div class="msg warning" style="margin:6px 0 0"><b>Must abstain:</b> {% for c in r.conflicts %}{{ c.name }}{% if not forloop.last %}, {% endif %}{% endfor %} (this is their own violation). They don't vote on it.</div>{% endif %}
+{% if r.mine %}<div class="msg warning" style="margin:6px 0 0">This is <b>your own violation</b>. You abstain, so you can't record the committee's decision on it.</div>{% endif %}
+<div style="margin-top:6px">Board proposed: <b>{% if v.proposed_fine %}${{ v.proposed_fine }}{% endif %}{% if SUSPENSION_ENABLED and v.proposed_suspension %} {{ v.proposed_suspension }} ({{ v.proposed_suspension_days }} days){% endif %}</b></div></div>
+<div style="flex:3 1 340px">
+{% if v.committee_outcome %}<p style="margin-top:0"><span class="pill flag">Decision: {{ v.get_committee_outcome_display }}{% if v.committee_outcome == "amend" %} &middot; ${{ v.committee_amended_fine }}{% endif %}</span>{% if v.committee_votes_for is not None %} <span class="mut">vote {{ v.committee_votes_for }}&ndash;{{ v.committee_votes_against }}</span>{% endif %}</p><p class="mut" style="margin-top:0">{{ v.committee_findings }}</p>{% endif %}
+{% if r.editable %}<form method="post" action="{% url 'committee_case_record' v.pk %}">{% csrf_token %}
+<label style="font-weight:400;margin:0 0 6px"><input type="checkbox" name="owner_present" {% if v.committee_owner_present %}checked{% endif %}> The owner or a representative attended the hearing</label>
+<div>{% for val,label in r.outcomes %}<label style="font-weight:400;margin:2px 0"><input type="radio" name="outcome" value="{{ val }}" {% if v.committee_outcome == val %}checked{% endif %}> {{ label }}</label>{% endfor %}</div>
+<div class="row" style="margin-top:6px"><div><label>New fine amount (if changed)</label><input name="amount" type="number" step="0.01" min="0" value="{{ v.committee_amended_fine|default_if_none:'' }}"></div>
+<div><label>Votes in favor</label><input name="votes_for" type="number" min="0" value="{{ v.committee_votes_for|default_if_none:'' }}"></div><div><label>Votes against</label><input name="votes_against" type="number" min="0" value="{{ v.committee_votes_against|default_if_none:'' }}"></div></div>
+{% if r.voters %}<div style="margin:6px 0"><label style="margin:0">Abstaining (did not vote)</label>{% for x in r.voters %}<label style="font-weight:400;display:inline-block;margin:2px 14px 2px 0"><input type="checkbox" name="abstain" value="{{ x.pk }}" {% if x.pk in r.abstained or x in r.conflicts %}checked{% endif %} {% if x in r.conflicts %}disabled{% endif %}> {{ x.name }}{% if x in r.conflicts %} (own violation){% endif %}</label>{% endfor %}</div>{% endif %}
+<label>Findings / note (quoted in the decision letter)</label><textarea name="findings" rows="2" required>{{ v.committee_findings }}</textarea>
+<button class="sec" style="margin-top:6px">Save decision</button></form>{% elif not v.committee_outcome %}<p class="mut">{{ v.get_status_display }}</p>{% endif %}</div></div>{% with sv=r.sv %}{% include "violations/_site_visits.html" %}{% endwith %}</div>{% endwith %}
+{% empty %}<div class="card mut">No cases assigned yet.</div>{% endfor %}
+
+{% if can_edit and rows %}<form class="card" method="post" action="{% url 'committee_submit' m.pk %}" style="border-color:var(--acc)"><h2>Submit for administrative review</h2>{% csrf_token %}
+<p class="mut" style="margin-top:0">When every violation has a decision, submit the results for administrative review and processing. Nothing is imposed until the administrative review is complete.</p>
+<button {% if not ready %}disabled style="opacity:.5"{% endif %} onclick="return confirm('Submit these results for administrative review?')">Submit results for administrative review</button>{% if not ready %} <span class="mut">{{ sum.undecided }} still need a decision.</span>{% endif %}</form>{% endif %}
+{% endblock %}

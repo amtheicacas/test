@@ -1,0 +1,42 @@
+{% load hoa_tags %}{# Collapsed by default: one line of the key numbers, and the full history opens on a click. #}<details class="card" id="owner-history">
+<summary style="cursor:pointer"><h2 style="display:inline;margin:0">Owner history <span class="mut" style="font-weight:400">· {{ v.owner.display_name }}, {{ v.owner.property_address }}</span></h2>
+{% if history.repeat_of %} <span class="pill late">Repeat violation</span>{% endif %}
+<span class="mut" style="display:block;margin-top:4px">{{ history.occurrence }}{{ history.occurrence|ordinal_suffix }} time for this violation type &middot; {{ history.open_others|length }} other open &middot; {{ history.total }} on record (incl. this) &middot; ${{ history.fines_total|floatformat:"0g" }} in prior fines{% if history.pit_count %} &middot; {{ history.pit_count }} prior point-in-time{% endif %} &middot; <u>show details</u></span></summary>
+<div style="margin-top:10px">
+{% if history.repeat_of %}<div class="msg warning" style="margin-bottom:10px"><b>Repeat violation.</b> This was cited again {{ history.repeat_of.cured_on|timesince }} after case <a href="{{ history.repeat_of.get_absolute_url }}">#{{ history.repeat_of.pk }}</a> was corrected ({{ history.repeat_of.cured_on|date:"M j, Y" }}).{% if v.vtype.section|slice:":4" == "4.02" %} Community Standards 4.02(i)(3) lets the Association proceed without a new cure period when the same landscaping violation recurs within three months of correction.{% endif %}</div>{% endif %}
+<style>
+#owner-history .tile{position:relative;text-align:left;font:inherit;font-weight:400;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;cursor:pointer;width:100%;margin:0}
+#owner-history .tile b{color:var(--ink)}#owner-history .tile .mut{color:var(--mut)}
+#owner-history .tile:hover,#owner-history .tile[aria-expanded=true]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+#owner-history .tile .tip{display:none;position:absolute;z-index:30;left:0;top:calc(100% + 6px);min-width:240px;max-width:340px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 6px 18px rgba(0,0,0,.2);font-size:.85rem;line-height:1.4;text-align:left}
+#owner-history .tile:hover .tip,#owner-history .tile:focus-visible .tip{display:block}
+#owner-history .hist-panel{display:none;margin:0 0 12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+#owner-history .hist-panel.open{display:block}
+</style>
+<div class="grid" style="margin-bottom:12px">
+  {% include "violations/_hist_tile.html" with key="occ" big=history.occurrence|stringformat:"s" sfx=history.occurrence|ordinal_suffix label="time for this violation type" cases=history.same_type empty="First time for this violation type." %}
+  {% include "violations/_hist_tile.html" with key="all" big=history.total label="violations on record (incl. this)" cases=history.others empty="Only this violation is on record." %}
+  {% include "violations/_hist_tile.html" with key="open" big=history.open_others|length label="other open now" cases=history.open_others empty="No other open violations." %}
+  {% include "violations/_hist_tile.html" with key="12m" big=history.last_12_months label="in the last 12 months (incl. this)" cases=history.last_12_list empty="No earlier violations in the last 12 months." %}
+  {% include "violations/_hist_tile.html" with key="pit" big=history.pit_count label="prior point-in-time violations" cases=history.pit_prior empty="No prior point-in-time violations." %}
+  {% include "violations/_hist_tile.html" with key="fines" big=history.fines_total|floatformat:"0g" dollar="1" label="fines imposed before" cases=history.imposed empty="No fines imposed before." %}
+</div>
+{% include "violations/_hist_panel.html" with key="occ" title="Same violation type, earlier cases" cases=history.same_type empty="First time for this violation type." %}
+{% include "violations/_hist_panel.html" with key="all" title="Everything on record for this owner (besides this case)" cases=history.others empty="Only this violation is on record." %}
+{% include "violations/_hist_panel.html" with key="open" title="Other open violations" cases=history.open_others empty="No other open violations." %}
+{% include "violations/_hist_panel.html" with key="12m" title="Other violations in the last 12 months" cases=history.last_12_list empty="No earlier violations in the last 12 months." %}
+{% include "violations/_hist_panel.html" with key="pit" title="Prior point-in-time violations" cases=history.pit_prior empty="No prior point-in-time violations." %}
+{% include "violations/_hist_panel.html" with key="fines" title="Fines imposed before" cases=history.imposed empty="No fines imposed before." %}
+<script>(function(){var root=document.getElementById("owner-history");if(!root)return;
+root.addEventListener("click",function(e){var t=e.target.closest(".tile");if(!t)return;var k=t.getAttribute("data-key"),p=root.querySelector('.hist-panel[data-key="'+k+'"]'),open=!p.classList.contains("open");
+root.querySelectorAll(".hist-panel").forEach(function(x){x.classList.remove("open")});root.querySelectorAll(".tile").forEach(function(x){x.setAttribute("aria-expanded","false")});
+if(open){p.classList.add("open");t.setAttribute("aria-expanded","true");}});})();</script>
+{% if history.same_type %}<h3 style="margin:8px 0 4px;font-size:.95rem">Same violation before ({{ history.same_type|length }})</h3>
+<table>{% for o in history.same_type %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.created_at|date:"M j, Y" }}<td><span class="pill">{{ o.get_status_display }}</span><td class="mut">{% if o.cured_on %}corrected {{ o.cured_on|date:"M j, Y" }}{% endif %}{% if o.fine_amount %} · fine ${{ o.fine_amount }}{% endif %}</tr>{% endfor %}</table>
+{% else %}<p class="mut" style="margin:4px 0">First time this owner has had this violation.</p>{% endif %}
+{% if history.same_section %}<p class="mut" style="margin:8px 0 2px">Related (same Community Standards section, {{ v.vtype.section }}): {% for o in history.same_section %}<a href="{{ o.get_absolute_url }}">#{{ o.pk }} {{ o.vtype.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% if history.open_others %}<h3 style="margin:12px 0 4px;font-size:.95rem">Other open violations ({{ history.open_others|length }})</h3>
+<table><tr><th>Case<th>Violation<th>Stage<th>Cure deadline</tr>{% for o in history.open_others %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.vtype.name }}<td><span class="pill">{{ o.get_status_display }}</span><td>{% if o.cure_deadline %}{{ o.cure_deadline|date:"M j, Y" }}{% if o.days_left is not None %} <span class="{% if o.days_left < 0 %}late{% else %}mut{% endif %}">({{ o.days_left }} days)</span>{% endif %}{% else %}—{% endif %}</tr>{% endfor %}</table>
+{% else %}<p class="mut" style="margin:10px 0 0">No other open violations for this owner.</p>{% endif %}
+{% if history.past %}<details style="margin-top:10px"><summary>Past violations ({{ history.past|length }})</summary><table>{% for o in history.past %}<tr><td><a href="{{ o.get_absolute_url }}">#{{ o.pk }}</a><td>{{ o.vtype.name }}<td>{{ o.created_at|date:"M j, Y" }}<td><span class="pill">{{ o.get_status_display }}</span>{% if o.fine_amount %} <span class="mut">fine ${{ o.fine_amount }}</span>{% endif %}</tr>{% endfor %}</table></details>{% endif %}
+</div></details>
