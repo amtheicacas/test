@@ -10,6 +10,9 @@ use a Lob *test* key first and check the result before switching to a live key.
 A provider failure never blocks the workflow: it is logged and the notice shows as "not mailed" on the dashboard.
 """
 import base64
+import contextlib
+import contextvars
+import hashlib
 import json
 import logging
 import re
@@ -104,6 +107,36 @@ def return_name():
     return _name_for_lob(settings.HOA_RETURN_NAME or settings.HOA_NAME)
 
 
+# Lob's duplicate protection (docs.lob.com, "Idempotent requests"): a letter request that carries an `Idempotency-Key` header is created ONCE per key
+# (the key is remembered for 24 hours, per mode and resource type; a repeat returns the original letter instead of creating another). It protects
+# the one case the app cannot see: Lob took the letter but the site was stopped (a deploy, a restart) before the letter could be written down; the
+# resumed hand-over then sends that same letter with the same key. Never run against the real Lob: the first run with a Lob TEST key must confirm it.
+_current_key = contextvars.ContextVar("lob_idempotency_key", default=None)
+
+
+@contextlib.contextmanager
+def idempotency_key(key):
+    """Every `lob_send` inside the block carries this key (and only inside it: a letter sent without it carries none)."""
+    token = _current_key.set(key)
+    try:
+        yield
+    finally:
+        _current_key.reset(token)
+
+
+def current_idempotency_key():
+    return _current_key.get()
+
+
+def letter_key(notice, label, service, addr):
+    """The key of ONE letter: the same notice, address label, service and street address always give the same key (so a resumed hand-over repeats
+    the letter that may already be at Lob), and a corrected address, the other address of the household, the other service or another notice give
+    a different one. It is a hash (opaque, 'hoa-' and 40 hex characters) that includes the case's private token, so it reveals nothing about the
+    case and two copies of the site that share one Lob test key can never collide."""
+    parts = [notice.violation.token, str(notice.pk), label, service] + [str(addr.get(k) or "") for k in ("name", "line1", "line2", "city", "state", "zip")]
+    return "hoa-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:40]
+
+
 def lob_send(to, pdf, description, extra_service=None):
     mode = lob_key_mode()
     if mode == "missing":
@@ -128,7 +161,10 @@ def lob_send(to, pdf, description, extra_service=None):
     if extra_service:
         fields["extra_service"] = extra_service
     body, ctype = _multipart(fields, "file", "notice.pdf", pdf)
-    req = urllib.request.Request("https://api.lob.com/v1/letters", data=body, method="POST", headers={**_auth_header(), "Content-Type": ctype})
+    headers = {**_auth_header(), "Content-Type": ctype}
+    if _current_key.get():
+        headers["Idempotency-Key"] = _current_key.get()        # the header only: Lob refuses a request that carries the key twice
+    req = urllib.request.Request("https://api.lob.com/v1/letters", data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             return json.load(resp)
@@ -315,7 +351,8 @@ def dispatch(notice, render, user=None):
             continue
         for extra, svc in wanted:
             try:
-                r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
+                with idempotency_key(letter_key(notice, label, svc, addr)):
+                    r = lob_send(addr, pdf, f"Case {v.pk} {notice.kind} ({label}, {svc})", extra)
                 piece = MailPiece.objects.create(notice=notice, provider_id=r.get("id", ""), label=label, service=svc,
                                                  tracking_number=r.get("tracking_number") or "", mailed_on=date.today())      # on record at once
             except Exception as e:  # never block the workflow on the provider
