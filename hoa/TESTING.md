@@ -133,3 +133,14 @@ Result on 2026-11-21: no sideways scrolling after the table / link / map fixes, 
 - [ ] On a phone (or a narrow browser window) open a case whose letters went to the print service: the page does not scroll sideways.
 - [ ] Owner import: upload a list, go to the preview, then cancel: no owner receives an email ("your sign-in email was changed").
 **Real-browser checks** (scratch copy only): `tools/browser_checks/script_injection_check.js` and `phone_layout_check.js` (see their first lines). Both were clean on 2026-11-23.
+
+
+## 10. After the owner's answers to review pass 4 (2026-11-25)
+**Automatic:** `python -m pytest -q` (SQLite: 1,595 passed, 12 skipped; this SUPERSEDES the counts in section 9) and, for the real-thread tests, `DATABASE_URL=postgres://...` (PostgreSQL 16: 1,607 passed). New tests: `violations/tests/test_followup5_*.py` (second home, deadline limit, photo cap, idempotency key, resend decision letter, committee emails).
+**By hand (staging, a few minutes; nothing real is sent there):**
+- [ ] **Second home:** make a test Board member whose login email is also on a SECOND test home; open a case on that second home: the "your own household's case" banner shows and Dismiss / Give more time / Hold are hidden.
+- [ ] **Deadline:** on a case in its cure period try "exact new deadline" with a date two years away: refused with "more than a year away"; with a date next month: accepted.
+- [ ] **Photos:** on an owner's private link add 6 photos: 4 are kept and the page says the others were not added.
+- [ ] **Decision letter:** hard to reproduce by hand (it needs a failure); the automatic tests cover it. If a case ever shows the red "The owner has NOT been sent the decision letter" box, press the button once and confirm one email appears under the case's Email log and the red box and the home-screen line go away.
+- [ ] **Committee emails** (needs the roster loaded for this year with email addresses, and email working: `check_email` first): create a meeting: each member gets ONE email with the date, place and a link; create a monthly series: ONE email listing the dates; move a meeting: "moved" email; cancel one: "cancelled" email. Put a case on a meeting that is a week away and run the daily job (`python manage.py daily_jobs`): the members get ONE reminder saying how many cases are on the agenda and nothing about the owners; running the job again sends nothing more.
+- [ ] **First Lob TEST-key run:** send a fake case to a meeting, then (in Lob's dashboard) check each letter appears ONCE; then stop the site (Render: Manual Deploy while a hand-over is running is risky: do it on staging only) and see that a resumed hand-over does not create a duplicate. Note whether Lob's dashboard shows the Idempotency-Key on the letters.
