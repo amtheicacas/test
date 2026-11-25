@@ -1,6 +1,8 @@
 {% extends "violations/base.html" %}{% load hoa_tags %}{% block title %}Case #{{ v.pk }}{% endblock %}{% block content %}
 <h1>Case #{{ v.pk }} — {{ v.vtype }} <span class="pill">{{ v.get_status_display }}</span></h1>
 {% if v.own_household %}<div class="msg warning"><b>This is your own household's case.</b> You can still move it along: send the notice, refer it to the Board or the attorney, record the Board's vote to go ahead, send it to a committee meeting, approve a fine the committee confirmed. But another Board member or the manager has to make any decision that could end or delay it: dismiss it, mark it corrected, give more time, put it on hold, or record the committee's decision. Those buttons are hidden here.</div>{% endif %}
+{% if v.decision_letter_missing %}<div class="msg error" role="alert"><b>The owner has NOT been sent the decision letter.</b> The decision was saved, but the Notice of committee decision could not be created or sent. Send it now:
+<form method="post" action="{% url 'violation_action' v.pk 'resend_decision_letter' %}" style="margin-top:8px">{% csrf_token %}<button class="bad" style="flex:0 0 auto;min-width:0">Send the decision letter again</button></form></div>{% endif %}
 <div class="card">{% include "violations/_staff_steps.html" %}
 <p><b>{{ v.owner.display_name }}</b> · {{ v.owner.property_address }}{% if v.owner.lot_no %} (Lot {{ v.owner.lot_no }}){% endif %} · {{ v.owner.all_emails|join:", "|default:"no email (mail only)" }}</p>
 {% if v.owner.has_separate_mailing %}<p class="mut">Mailing address: {{ v.owner.mailing_address|linebreaksbr }}. US Mail goes there <b>and</b> to the property address.</p>{% endif %}

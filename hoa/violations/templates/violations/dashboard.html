@@ -29,6 +29,10 @@
 .cols b{color:var(--ink);font-weight:600}
 @media(max-width:640px){.hero{flex-direction:column;align-items:flex-start}.hero .go{margin-left:0}.bar{grid-template-columns:110px 1fr 28px}}
 </style>
+{% if missing_letters %}<div class="card" id="missing-letters" role="alert" style="border:2px solid var(--bad)">
+<h2 style="margin-top:0;color:var(--bad)">&#9888; Decision letters not sent <span class="pill late">{{ missing_letters|length }}</span></h2>
+<p class="mut">The decision was saved, but the owner was NOT sent the Notice of committee decision. Open the case and press "Send the decision letter again".</p>
+<table>{% for m in missing_letters %}<tr><td><a href="{{ m.get_absolute_url }}"><b>#{{ m.pk }}</b> {{ m.owner.property_address }}</a><td>{{ m.get_status_display }}</tr>{% endfor %}</table></div>{% endif %}
 {% if mail_problems %}<div class="card" id="mail-problems" role="alert" style="border:2px solid var(--bad)">
 <h2 style="margin-top:0;color:var(--bad)">&#9888; Certified mail problems <span class="pill late">{{ mail_problems|length }}</span></h2>
 <p class="mut" style="margin-top:0">{% if mail_undelivered %}{{ mail_undelivered }} certified letter{{ mail_undelivered|pluralize }} could not be delivered. {% endif %}{% if mail_unsent %}{{ mail_unsent }} letter{{ mail_unsent|pluralize }} {{ mail_unsent|pluralize:"was,were" }} NOT sent: the print service did not take {{ mail_unsent|pluralize:"it,them" }}. {% endif %}Open the case to see the details and to record what was done about it; once it is marked handled it clears from this screen.</p>

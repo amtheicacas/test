@@ -218,6 +218,7 @@ def _dashboard(request):
                                              violation__status__in=Violation.OPEN).select_related("violation__owner"),
         "verify_list": _verify_list(),
         "results_waiting": CommitteeMeeting.objects.filter(results_status="submitted").annotate(n=Count("violations", filter=Q(violations__status=S.LEDGER_PENDING))),
+        "missing_letters": list(services.decision_letters_missing()),
         "mail_problems": mail_problems, "mail_unsent": sum(1 for p in mail_problems if p.not_sent),
         "mail_undelivered": sum(1 for p in mail_problems if not p.not_sent),
         "certified_to_check": services.certified_to_check(),
@@ -545,6 +546,7 @@ def _mail_flags(v):
 def violation_detail(request, pk):
     v = get_object_or_404(Violation.objects.select_related("owner", "vtype", "committee_meeting"), pk=pk)
     v.own_household = services.own_household(request.user, v)       # your own household's case: the decisions that could let it off are hidden
+    v.decision_letter_missing = services.decision_letter_missing(v)       # imposed or rejected, and the owner was never sent the decision letter
     v.responses.filter(from_resident=True, read_at__isnull=True).update(read_at=timezone.now())   # opening the case marks owner messages as read
     ctx = {
         "v": v, "S": S, "mail": services.correspondence(v, staff=True),
@@ -760,6 +762,10 @@ def violation_action(request, pk, action):
                 _letters_hint(request)
                 messages.success(request, "Approved. " + ("Fine posted to the ledger. " if v.fine_amount else "")
                                  + "The Notice of Imposition was sent to the owner" + (" and tenant" if (v.owner.tenant_is_emailed or v.owner.tenant_is_mailed) else "") + ".")
+    elif action == "resend_decision_letter":
+        if _run(request, services.resend_decision_letter, v, u) is not None:
+            _letters_hint(request)
+            messages.success(request, "The Notice of committee decision was created and sent to the owner" + (" and tenant" if (v.owner.tenant_is_emailed or v.owner.tenant_is_mailed) else "") + ".")
     elif action == "urgent":
         _run(request, services.refer_urgent, v, u, P.get("note", ""), ok="Referred to the board as a safety matter.")
     elif action == "payment":

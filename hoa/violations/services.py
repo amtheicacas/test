@@ -1726,6 +1726,53 @@ def _decision_letter_failed(v, user, error, what_stands):
                                "NOT been sent it. This is recorded in the case history: the letter has to be sent by hand.") from None
 
 
+# ---- a decision letter that never got made ----
+DECISION_LETTER_STATUSES = (S.FINE_APPROVED, S.FINE_REJECTED)       # an imposed fine, or a fine the committee rejected: the owner is owed the Notice of committee decision
+
+
+def _traced_decision_letters():
+    """The Notice-of-decision rows that show the letter was emailed, is on its way by mail (queued, held, or a letter at the print service or listed for
+    hand mailing, even a refused one: the red box deals with those) or at least that an email was tried (the Email log deals with that). An EMPTY row,
+    which is what a failure half way through creating the letter leaves behind, shows nothing and does not count."""
+    return Notice.objects.filter(kind=Notice.Kind.FINE).filter(
+        Q(emailed_at__isnull=False) | Q(mailed_on__isnull=False) | Q(mail_queued_on__isnull=False) | Q(mail_hold_until__isnull=False)
+        | ~Q(email_error="") | Q(pk__in=MailPiece.objects.values("notice_id")))
+
+
+def decision_letter_missing(v):
+    """True for an imposed or rejected case whose Notice of committee decision was never created or sent (see `DecisionLetterFailed`)."""
+    return v.status in DECISION_LETTER_STATUSES and not _traced_decision_letters().filter(violation=v).exists()
+
+
+def decision_letters_missing():
+    """Every imposed or rejected case that has no decision letter on record, oldest first (the Board / manager home screen lists them)."""
+    return (Violation.objects.filter(status__in=DECISION_LETTER_STATUSES).exclude(pk__in=_traced_decision_letters().values("violation_id"))
+            .select_related("owner", "vtype").order_by("pk"))
+
+
+def resend_decision_letter(v, user=None):
+    """Create and send the Notice of committee decision for a case that has none (the first try failed and the history says so). It is a stage move,
+    not a decision, so it is open to whoever may work the case, even on their own household's case. Safe to press twice: the case is locked and
+    re-checked, and a case that already has its letter is refused with a plain message. If it fails again nothing half-made is kept (the same
+    warning is written and `DecisionLetterFailed` raised)."""
+    failure = notice = None
+    with transaction.atomic():
+        _require(v, *DECISION_LETTER_STATUSES)          # locks the case and re-reads its real status
+        if not decision_letter_missing(v):
+            raise WorkflowError("This case already has its Notice of committee decision on record (emailed, or on its way by mail), so nothing was sent "
+                                "again. See 'Mailing log and print copies' on the case.")
+        try:
+            with transaction.atomic():
+                notice = send_notice(v, Notice.Kind.FINE, user)
+        except Exception as e:      # noqa: BLE001  (a letter problem is reported plainly, never as a bare server error)
+            failure = e
+        else:
+            log(v, "Notice of committee decision sent again (the first one could not be created).", user)
+    if failure is not None:
+        _decision_letter_failed(v, user, failure, "The decision stands.")
+    return notice
+
+
 def owner_history(v, today=None, pool=None):
     """What else this owner/home has on record, for the staff view of a violation: how many times the same violation has come up,
     their other open violations, past ones, fines imposed, and whether this is a repeat within 3 months of a cure.
