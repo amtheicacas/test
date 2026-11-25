@@ -1,7 +1,8 @@
 """Safe handling of uploaded photos: the stored type comes from what the file really is, never from the name the uploader typed."""
 import io
+import logging
 
-from django.http import FileResponse
+from django.http import FileResponse, Http404
 
 # what Pillow reports -> the extension we store
 FORMATS = {"JPEG": "jpg", "MPO": "jpg", "PNG": "png", "GIF": "gif", "WEBP": "webp"}   # MPO = the multi-picture JPEG some phones make
@@ -61,7 +62,12 @@ def file_response(fieldfile, stem, private=False, data=None):
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     ctype = CONTENT_TYPES.get(ext)
     kw = dict(content_type=ctype or "application/octet-stream", as_attachment=not ctype, filename=f"{stem}.{ext if ctype else 'bin'}")
-    resp = FileResponse(io.BytesIO(data) if data is not None else fieldfile.open("rb"), **kw)
+    try:
+        stream = io.BytesIO(data) if data is not None else fieldfile.open("rb")
+    except FileNotFoundError:        # the row exists but the file is gone from storage (lost, moved, a restore without the media files)
+        logging.getLogger(__name__).warning("a stored file is missing from storage: %s", name)
+        raise Http404 from None
+    resp = FileResponse(stream, **kw)
     resp["Content-Security-Policy"] = "default-src 'none'; sandbox"
     resp["X-Content-Type-Options"] = "nosniff"
     resp["Cache-Control"] = "private, no-store" if private else "private, max-age=300"   # never in a shared cache; a few minutes keeps list pages quick
