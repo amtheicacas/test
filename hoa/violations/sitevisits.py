@@ -28,7 +28,7 @@ def blocked_reason(user, v):
     if v.status == Violation.Status.DRAFT:
         return "draft"
     o = accounts.owner_of(user)
-    if o is not None and o.id == v.owner_id:
+    if (o is not None and o.id == v.owner_id) or services.lists_login_email(user, v.owner):          # (also a second home: the same email on another owner record)
         return "own"
     if any(m.user_id == user.pk for m in services.conflicted_members(v)):
         return "conflict"

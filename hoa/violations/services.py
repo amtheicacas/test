@@ -63,11 +63,23 @@ def _fresh(obj, *fields):
         setattr(obj, k, value)
 
 
+def lists_login_email(user, owner):
+    """True when the home's owner record lists an email address that is this login's own (the main address, a ';' extra or the co-owner's, in any
+    capitals). A person who owns a SECOND home here is on both records with the same address, but their login is attached to only one of them."""
+    if user is None or owner is None:
+        return False
+    mine = {x.strip().lower() for x in (getattr(user, "email", ""), getattr(user, "username", "")) if x and "@" in x}
+    return bool(mine and mine & {e.strip().lower() for e in owner.all_emails})
+
+
 def own_household(user, v):
-    """True when `user` signs in as the owner of this case's home: it is their OWN household's case. (The link is the login's owner record, so it
-    follows the home, not the job title: a Board member or a manager who owns a home here is covered, a manager who owns none never is.)"""
+    """True when it is this person's OWN household's case: the home their login is attached to, or any home whose owner record lists their own email
+    address (a second home). It follows the home, not the job title: a Board member or a manager who owns a home here is covered, a manager who
+    owns none never is."""
     profile = getattr(user, "profile", None) if user is not None else None
-    return bool(profile is not None and profile.owner_id and profile.owner_id == v.owner_id)
+    if profile is not None and profile.owner_id and profile.owner_id == v.owner_id:
+        return True
+    return lists_login_email(user, v.owner)
 
 
 def _not_your_own(v, user, what):
@@ -1492,7 +1504,7 @@ def conflicted_members(v):
     out = []
     for member in v.committee_meeting.roster():
         p = getattr(member.user, "profile", None) if member.user_id else None
-        if (p is not None and p.owner_id == v.owner_id) or (member.owner_id and member.owner_id == v.owner_id):
+        if (p is not None and p.owner_id == v.owner_id) or (member.owner_id and member.owner_id == v.owner_id) or lists_login_email(member.user, v.owner):
             out.append(member)
     return out
 
