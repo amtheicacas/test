@@ -1080,6 +1080,9 @@ def grant_extension(v, new_deadline=None, user=None, reason="", notify=True, sec
         new_deadline = old + timedelta(days=days)
     if new_deadline is None:
         raise WorkflowError("Enter the number of days to add, or an exact new deadline.")
+    if days is None and new_deadline > date.today() + timedelta(days=365):           # a typed date: a typo such as 2062 must not park a case for decades
+        raise WorkflowError(f"The new deadline ({new_deadline:%b %d, %Y}) is more than a year away. Check the date. "
+                            "If you really mean a longer time, give a year now and extend it again later.")
     if new_deadline <= date.today():
         raise WorkflowError(f"The new deadline ({new_deadline:%b %d, %Y}) would already be in the past. "
                             "Enter a later exact date, or more days.")
