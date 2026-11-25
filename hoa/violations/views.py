@@ -24,7 +24,7 @@ MAX_UPLOAD = uploads.MAX_UPLOAD
 MAX_IMPORT_BYTES = 10 * 1024 * 1024                         # the owner-list upload (a real list is a few hundred KB)
 MAX_PHOTOS_PER_UPLOAD = uploads.MAX_PHOTOS_PER_UPLOAD       # photos accepted in one submission
 MAX_UPLOAD_TOTAL = uploads.MAX_UPLOAD_TOTAL                 # ...and their combined size
-MAX_RESIDENT_PHOTOS_PER_CASE = 30                 # photos an owner (or anyone holding the private link) can add to one case
+MAX_RESIDENT_PHOTOS_PER_CASE = 4                  # photos an owner (or anyone holding the private link) can add to one case
 RESIDENT_POSTS_PER_HOUR = 10                      # messages from one private link per hour
 STAFF = ("manager", "board")
 COMMITTEE_VISIBLE = (S.HEARING_SCHEDULED, S.LEDGER_PENDING, S.FINE_APPROVED, S.FINE_REJECTED, S.CLOSED, S.REFERRED_LEGAL, S.WAIVED)
@@ -119,7 +119,7 @@ def _save_photos(v, files, from_resident=False, rejected=None):
         if n >= MAX_PHOTOS_PER_UPLOAD:
             rejected.append((f.name, f"only {MAX_PHOTOS_PER_UPLOAD} photos can be added at a time"))
         elif room is not None and n >= room:
-            rejected.append((f.name, "this case already has the most photos allowed"))
+            rejected.append((f.name, f"this case already has the most photos an owner can add ({MAX_RESIDENT_PHOTOS_PER_CASE})"))
         elif f.size > MAX_UPLOAD:
             rejected.append((f.name, f"larger than {MAX_UPLOAD // (1024 * 1024)} MB"))
         elif total + f.size > MAX_UPLOAD_TOTAL:

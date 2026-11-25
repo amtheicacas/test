@@ -89,7 +89,8 @@ def test_files_that_are_not_pictures_are_refused_with_a_message(client):
 
 
 # ---------- SEC-12: limits on the private link ----------
-def test_only_ten_photos_are_taken_at_a_time_and_the_rest_are_reported(client):
+def test_only_ten_photos_are_taken_at_a_time_and_the_rest_are_reported(client, monkeypatch):
+    monkeypatch.setattr(views, "MAX_RESIDENT_PHOTOS_PER_CASE", 30)          # (the per-case cap is 4 since the owner's answer; this test is about the per-submission limit)
     v = case()
     r = client.post(f"/r/{v.token}/", {"message": "hi", "photos": [picture(name=f"{i}.png") for i in range(12)]}, follow=True)
     assert Photo.objects.filter(violation=v).count() == 10
